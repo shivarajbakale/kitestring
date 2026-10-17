@@ -6,6 +6,7 @@
 <button type="submit">Submit</button></form></main>
 <script>
 window.__result = undefined
-f.addEventListener("submit", e => { e.preventDefault(); window.__result = "submitted:" + n.value + ":" + document.getElementById("e").value })
+f.addEventListener("submit", e => { e.preventDefault(); window.__result = "submitted:" + n.value + ":" + document.getElementById("e").value
+  try { navigator.sendBeacon("/__last-result", window.__result) } catch {} })
 </script>
 </body></html>

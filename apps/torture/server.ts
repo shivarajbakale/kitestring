@@ -7,8 +7,22 @@ import type { AddressInfo } from "node:net"
 const pagesDir = join(dirname(fileURLToPath(import.meta.url)), "pages")
 
 export async function startTorture(port = 4173): Promise<{ url: string; close(): Promise<void> }> {
+  let lastResult: string | undefined
   const server = createServer(async (req, res) => {
     const path = new URL(req.url ?? "/", "http://localhost").pathname
+    if (path === "/__last-result") {
+      if (req.method === "POST") {
+        let body = ""
+        for await (const chunk of req) {
+          body += chunk
+          if (body.length > 4096) break
+        }
+        lastResult = body.slice(0, 4096)
+        res.writeHead(204).end()
+      } else if (lastResult === undefined) res.writeHead(404, { "content-type": "text/plain" }).end("no result yet")
+      else res.writeHead(200, { "content-type": "text/plain", "cache-control": "no-store" }).end(lastResult)
+      return
+    }
     if (path.startsWith("/analytics/")) {
       res.writeHead(204).end()
       return

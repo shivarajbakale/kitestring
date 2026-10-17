@@ -38,6 +38,15 @@ describe("torture server", () => {
     expect(more).toBe("pending")
     ac.abort()
   })
+  it("/__last-result is 404 until a result is posted, then returns the last one", async () => {
+    expect((await fetch(`${site.url}/__last-result`)).status).toBe(404)
+    expect((await fetch(`${site.url}/__last-result`, { method: "POST", body: "submitted:Ada:ada@x.io" })).status).toBe(204)
+    const res = await fetch(`${site.url}/__last-result`)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe("submitted:Ada:ada@x.io")
+    await fetch(`${site.url}/__last-result`, { method: "POST", body: "second" })
+    expect(await (await fetch(`${site.url}/__last-result`)).text()).toBe("second")
+  })
   it("returns 404 for unknown pages", async () => {
     expect((await fetch(`${site.url}/nope`)).status).toBe(404)
   })
