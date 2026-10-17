@@ -1,0 +1,9 @@
+{
+  // OpenCode user config
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    /* the blender server */
+    "blender": { "type": "local", "command": ["uvx", "blender-mcp"], "enabled": true }, // trailing comma next
+  },
+  "theme": "system",
+}

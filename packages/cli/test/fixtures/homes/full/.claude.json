@@ -1,0 +1,13 @@
+{
+  "numStartups": 42,
+  "mcpServers": {
+    "crm": { "type": "http", "url": "https://example.test/mcp" },
+    "rea": {
+      "command": "/usr/local/bin/rea",
+      "args": ["mcp"]
+    }
+  },
+  "projects": {
+    "/tmp/x": { "mcpServers": {} }
+  }
+}

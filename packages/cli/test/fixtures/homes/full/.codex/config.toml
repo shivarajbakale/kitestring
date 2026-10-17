@@ -1,0 +1,17 @@
+# Codex config — hand edited
+model = "gpt-5"   # keep this
+
+[mcp_servers.node_repl]
+command = "node"
+args = ["repl.js"]  # a comment
+
+[mcp_servers.node_repl.env]
+FOO = "bar"
+
+# computer use server
+[mcp_servers.computer-use]
+command = "/opt/cu/bin/cu"
+enabled = true
+
+[profiles.fast]
+model = "gpt-5-mini"

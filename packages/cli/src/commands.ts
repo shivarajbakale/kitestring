@@ -7,6 +7,7 @@ import { KiteError, call } from "./client/rpc-client.js"
 import { human } from "./client/human.js"
 import { installHost } from "./install/host-manifest.js"
 import { kiteHome } from "./paths.js"
+import { AGENTS, parseAgents } from "./init/agents.js"
 
 interface Globals {
   session?: string
@@ -163,6 +164,46 @@ export async function main(argv: string[]): Promise<number> {
       }
     })
 
+  const initOpts = (o: { agents?: string; dryRun?: boolean; yes?: boolean }) => {
+    let agents
+    try {
+      agents = o.agents === undefined ? undefined : parseAgents(o.agents)
+    } catch (e) {
+      throw new UsageError((e as Error).message)
+    }
+    return {
+      home: homedir(),
+      env: process.env,
+      agents,
+      dryRun: !!o.dryRun,
+      yes: !!o.yes,
+      tty: !!(process.stdin.isTTY && process.stdout.isTTY),
+      confirm: askYesNo,
+      out: (s: string) => void process.stdout.write(s + "\n"),
+      err: (s: string) => void process.stderr.write(`kite: ${s}\n`),
+    }
+  }
+  program
+    .command("init")
+    .description("register the kitestring MCP server with your agents, install skills and the native host")
+    .option("--agents <list>", `comma-separated subset of ${AGENTS.join(",")}`)
+    .option("--dry-run", "print the plan and write nothing")
+    .option("--yes", "apply without asking")
+    .action(async (o: { agents?: string; dryRun?: boolean; yes?: boolean }) => {
+      const { runInit } = await import("./init/init.js")
+      exitCode = await runInit(initOpts(o))
+    })
+  program
+    .command("uninstall-agents")
+    .description("remove what kite init added to your agents (MCP entries, skills, symlinks)")
+    .option("--agents <list>", `comma-separated subset of ${AGENTS.join(",")}`)
+    .option("--dry-run", "print the plan and write nothing")
+    .option("--yes", "apply without asking")
+    .action(async (o: { agents?: string; dryRun?: boolean; yes?: boolean }) => {
+      const { runUninstall } = await import("./init/init.js")
+      exitCode = await runUninstall(initOpts(o))
+    })
+
   try {
     await program.parseAsync(argv, { from: "user" })
   } catch (e) {
@@ -188,6 +229,16 @@ export async function main(argv: string[]): Promise<number> {
     return 1
   }
   return exitCode
+}
+
+async function askYesNo(question: string): Promise<boolean> {
+  const { createInterface } = await import("node:readline/promises")
+  const rl = createInterface({ input: process.stdin, output: process.stdout })
+  try {
+    return /^y(es)?$/i.test((await rl.question(question)).trim())
+  } finally {
+    rl.close()
+  }
 }
 
 function tabId(s: string): number {

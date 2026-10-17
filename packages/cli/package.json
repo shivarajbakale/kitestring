@@ -17,6 +17,7 @@
     "@kitestring/protocol": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "commander": "^15.0.0",
+    "jsonc-parser": "^3.3.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {

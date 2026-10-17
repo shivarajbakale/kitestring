@@ -10,11 +10,13 @@ export interface InstallOpts {
   userDataDir?: string
   extensionId: string
   kiteHome: string
+  /** Home dir to install under (defaults to the OS home); injectable so tests never touch the real one. */
+  home?: string
 }
 
-function hostsDir(o: InstallOpts): string {
+export function hostsDir(o: Pick<InstallOpts, "browser" | "userDataDir" | "home">): string {
   if (o.userDataDir) return join(o.userDataDir, "NativeMessagingHosts")
-  const h = homedir()
+  const h = o.home ?? homedir()
   if (platform() === "darwin") {
     return join(h, "Library", "Application Support", o.browser === "chrome" ? "Google/Chrome" : "Chromium", "NativeMessagingHosts")
   }
