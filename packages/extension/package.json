@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "plasmo dev",
     "build": "plasmo build",
+    "pretest": "pnpm --filter @bx/protocol build",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -16,7 +18,8 @@
   "devDependencies": {
     "@types/chrome": "^0.0.287",
     "plasmo": "0.90.5",
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
   },
   "manifest": {
     "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwyoSyxmXc1YYXu6US8ctYiZR8MPLgcpVsZG9clW1DpujM2z13ljy8cFb278NdxmMO4UNxAA9uiG1OqsmcCdTuaKyWVPVjG2ve2AchpAz7zDq/+Xrbc6nbKOX75cLq/bkX/hV8yaDe5GyWvKAcZnHpws8OjaeSIlYQ08/M6TbcluwlsCRFcouIE0ZwOGzn2VvPsDYyanUj0LjHddSs9K/MmplxLQLI/oGv3u1mlOPX93eqgmcY2zqY/LROj4ZFlxq9jWs6YdCVMPFG5ApYP1Iseg8KFJvh2DLN0OSYBOvIefZ2rvnf5oaTWQRTubSAjcnbtGgRflxzCx2nNdDOEfGeQIDAQAB",
