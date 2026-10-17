@@ -52,13 +52,33 @@ function release(tabId: number): void {
   else lanes.delete(tabId)
 }
 
-/** Runs `fn` once every earlier caller for `tabId` has finished. `signal` abandons the wait (not a running `fn`). */
-export async function withTabLock<T>(tabId: number, fn: () => Promise<T>, opts: { signal?: AbortSignal } = {}): Promise<T> {
+export interface TabLock {
+  /** Hands the lock on now, before `fn` settles. Idempotent; `fn` settling releases it too. */
+  release(): void
+}
+
+/**
+ * Runs `fn` once every earlier caller for `tabId` has finished. `signal` abandons the wait (not a
+ * running `fn`). `fn` gets a handle to release early, e.g. when it is past its cap but stuck.
+ */
+export async function withTabLock<T>(
+  tabId: number,
+  fn: (lock: TabLock) => Promise<T>,
+  opts: { signal?: AbortSignal } = {},
+): Promise<T> {
   await acquire(tabId, opts.signal)
+  let held = true
+  const lock: TabLock = {
+    release: () => {
+      if (!held) return
+      held = false
+      release(tabId)
+    },
+  }
   try {
-    return await fn()
+    return await fn(lock)
   } finally {
-    release(tabId)
+    lock.release()
   }
 }
 

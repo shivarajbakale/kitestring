@@ -6,7 +6,7 @@ import { assertNotPaused } from "./control"
 import { RestrictedPageError, RpcError } from "./errors"
 import * as input from "./input"
 import { trackNetwork, type NetworkTracker } from "./network-idle"
-import { withTabLock } from "./serial"
+import { withTabLock, type TabLock } from "./serial"
 import { activeTab, adoptTab, type Session } from "./sessions"
 
 export type Action =
@@ -17,6 +17,11 @@ export type Action =
 
 /** Hard cap per action, retries included: the CLI has no client-side timeout, so we must always answer. */
 const ACTION_CAP_MS = 15_000
+/**
+ * After the cap has answered, a holder that is still stuck (e.g. a CDP call blocked by a JS alert)
+ * gives up its tab lock this much later. Safe: `p.expired` is set, so its guards send no more input.
+ */
+const EXPIRED_HOLD_MS = 5_000
 /** Not-found retries (each scrolls one viewport first). */
 const FIND_RETRIES = 3
 const EMPTY: Diff = { added: [], removed: [] }
@@ -419,6 +424,7 @@ async function act(r: Run, action: Action): Promise<ActionResult> {
 export async function capped(tabId: number, body: (p: Progress) => Promise<ActionResult>): Promise<ActionResult> {
   const p: Progress = { diff: EMPTY, expired: false, waiting: true }
   const queue = new AbortController()
+  let lock: TabLock | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   const cap = new Promise<ActionResult>((resolve) => {
     timer = setTimeout(() => {
@@ -430,6 +436,7 @@ export async function capped(tabId: number, body: (p: Progress) => Promise<Actio
         )
         return
       }
+      setTimeout(() => lock?.release(), EXPIRED_HOLD_MS)
       void (p.page !== undefined ? Promise.resolve(p.page) : safeBrief(tabId, 1_000)).then((page) =>
         resolve({
           ok: false,
@@ -443,7 +450,8 @@ export async function capped(tabId: number, body: (p: Progress) => Promise<Actio
   })
   const run = withTabLock(
     tabId,
-    async () => {
+    async (l) => {
+      lock = l
       p.waiting = false
       if (p.expired) throw new Expired()
       assertNotPaused()

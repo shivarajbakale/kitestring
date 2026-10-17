@@ -72,13 +72,28 @@ export function isNotAttached(e: unknown): boolean {
   return NOT_ATTACHED_RE.test(e instanceof Error ? e.message : String(e))
 }
 
+/**
+ * Bound on one CDP command. Some never answer on their own (input that opens a JS alert(), a renderer
+ * stuck in a busy loop); without a bound the action holding the tab lock would never unwind.
+ */
+const SEND_TIMEOUT_MS = 30_000
+
 export async function send<T = unknown>(tabId: number, method: string, params?: Record<string, unknown>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`CDP ${method} in tab ${tabId} did not answer within ${SEND_TIMEOUT_MS} ms`)),
+      SEND_TIMEOUT_MS,
+    )
+  })
   try {
-    return (await chrome.debugger.sendCommand({ tabId }, method, params)) as T
+    return (await Promise.race([chrome.debugger.sendCommand({ tabId }, method, params), timeout])) as T
   } catch (e) {
     // Detached behind our back (no onDetach seen): forget it so the next ensureAttached re-attaches.
     if (isNotAttached(e)) attached.delete(tabId)
     throw e
+  } finally {
+    clearTimeout(timer)
   }
 }
 

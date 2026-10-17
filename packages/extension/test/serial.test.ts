@@ -93,4 +93,28 @@ describe("withTabLock", () => {
     expect(log).toEqual(["a"])
     expect(await withTabLock(5, async () => "free")).toBe("free")
   })
+
+  it("release() hands the lock on before fn settles, and only once", async () => {
+    const log: string[] = []
+    let early!: () => void
+    const a = withTabLock(7, (lock) => {
+      early = () => {
+        lock.release()
+        lock.release()
+      }
+      return new Promise<never>(() => {}) // never settles
+    })
+    void a
+    const b = withTabLock(7, async () => {
+      log.push("b")
+    })
+    const c = withTabLock(7, async () => {
+      log.push("c")
+    })
+    await tick()
+    expect(log).toEqual([])
+    early()
+    await Promise.all([b, c])
+    expect(log).toEqual(["b", "c"]) // the double release did not let c skip past b
+  })
 })

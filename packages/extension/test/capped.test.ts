@@ -63,4 +63,21 @@ describe("capped", () => {
       }),
     ).rejects.toThrow("NO_TAB: x")
   })
+
+  it("a holder stuck past its cap gives up the tab lock 5 s after the cap", async () => {
+    const { capped } = await import("../background/pipeline")
+    const stuck = capped(4, () => new Promise<ActionResult>(() => {})) // e.g. CDP blocked by alert()
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(await stuck).toMatchObject({ status: "timeout", detail: "action did not finish within 15000 ms" })
+    let ran = false
+    const next = capped(4, async () => {
+      ran = true
+      return done
+    })
+    await vi.advanceTimersByTimeAsync(4_900)
+    expect(ran).toBe(false)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(await next).toBe(done)
+    expect(ran).toBe(true)
+  })
 })
