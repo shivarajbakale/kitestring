@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title">
+  <title id="title">Kitestring concept A: tether</title>
+  <g fill="#111111">
+  <path d="M187.97 63.06 L196.03 121.93 L162.96 98.77 Z"/>
+  <path d="M192.26 131.49 L102.28 185.44 L157.23 106.96 Z"/>
+  <path d="M94.09 179.7 L114 76.7 L149.04 101.23 Z"/>
+  <path d="M121.7 69.88 L179.78 57.32 L154.77 93.04 Z"/>
+  <path d="M104.57 175.14 A38.21 38.21 0 0 1 43.56 217.11 A9 9 0 0 1 60.44 210.89 A20.21 20.21 0 0 0 92.72 188.69 Z"/>
+  <path d="M32 214 A20 20 0 1 0 72 214 A20 20 0 1 0 32 214 Z"/>
+  </g>
+</svg>

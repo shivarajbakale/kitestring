@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title">
+  <title id="title">Kitestring concept C: reel</title>
+  <g fill="#111111">
+  <path fill-rule="evenodd" d="M32 178 A50 50 0 1 0 132 178 A50 50 0 1 0 32 178 Z M60 178 A22 22 0 1 0 104 178 A22 22 0 1 0 60 178 Z"/>
+  <path d="M112.17 145.95 A50.94 50.94 0 0 1 166.66 111.05 A7 7 0 0 1 153.34 106.74 A36.94 36.94 0 0 0 113.83 132.05 Z"/>
+  <path d="M215.28 43.02 L218.98 85.28 L156.15 113.49 L173.02 46.72 Z"/>
+  </g>
+</svg>

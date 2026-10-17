@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title">
+  <title id="title">Kitestring</title>
+  <g id="symbol">
+    <path id="hand" fill="#000000" d="M39.33 16.22 L87.26 16.22 L87.26 238.46 L39.33 238.46 Z M87.26 160.02 L124.3 160.02 L202.74 238.46 L152.62 238.46 L87.26 173.1 Z"/>
+    <path id="kite" fill="#000000" d="M87.26 142.59 L198.55 95.94 L133.92 31.3 Z M205.03 87.01 L216.67 13.18 L142.84 24.83 Z"/>
+  </g>
+</svg>

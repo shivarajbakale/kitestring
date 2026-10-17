@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title">
+  <title id="title">Kitestring concept A3: tether</title>
+  <g fill="#111111">
+  <path d="M226 30 L223.17 117.68 L98.72 157.28 L138.32 32.83 Z"/>
+  <path d="M119.59 148.16 A76.42 76.42 0 0 0 48.78 218.97 A11 11 0 0 0 47.22 197.03 A54.42 54.42 0 0 1 97.65 146.6 Z"/>
+  <path d="M22 208 A26 26 0 1 0 74 208 A26 26 0 1 0 22 208 Z"/>
+  </g>
+</svg>

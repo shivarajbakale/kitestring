@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title">
+  <title id="title">Kitestring</title>
+  <path id="tile" fill="#D63B1F" d="M56.32 0 H199.68 A56.32 56.32 0 0 1 256 56.32 V199.68 A56.32 56.32 0 0 1 199.68 256 H56.32 A56.32 56.32 0 0 1 0 199.68 V56.32 A56.32 56.32 0 0 1 56.32 0 Z"/>
+  <path id="symbol" fill="#FFFFFF" d="M61.49 44.17 L97.44 44.17 L97.44 210.85 L61.49 210.85 Z M97.44 156.92 L125.22 156.92 L179.15 210.85 L141.57 210.85 L97.44 166.73 Z M97.44 138.95 L184.98 102.25 L194.51 41.89 L134.14 51.41 Z"/>
+</svg>

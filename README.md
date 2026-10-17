@@ -1,4 +1,9 @@
-# Kitestring
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="brand/lockup-dark.svg">
+    <img src="brand/lockup.svg" alt="Kitestring" width="360">
+  </picture>
+</h1>
 
 `kite` lets any AI agent (or you, from a terminal) drive your real Chrome: your profile, your logins, your tabs. It has three parts:
 
