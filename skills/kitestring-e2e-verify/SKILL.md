@@ -21,7 +21,7 @@ Tests passing is not "the feature works". Drive the actual user flow in the real
    - the `+` / `-` lines or `→ navigated` contain the expected outcome
    - anything else is a failure: record it, do not "fix the test".
    Plain text (toasts, paragraphs) is not in snapshots: check it with `kite screenshot`.
-5. **Check health** after the flow: `kite console --errors` and `kite network --failed` must be empty (or explained).
+5. **Check health** after the last action of the flow: `kite console --errors` and `kite network --failed` must be empty (or explained).
 6. **Capture evidence**: `kite screenshot` of the final state (and of any failure). The command prints the file path.
 7. **Cover the edges the change touches**: one invalid input, one empty state, one navigation back, as relevant.
 
@@ -40,5 +40,7 @@ The **Not verified** list is required, even if empty ("none"). Never write "work
 ## Rules
 
 - A step that returned anything but `done` is not verified. A `timeout` is not a pass.
+- Use obviously fake test data (`test@example.com`) and list it in the report. Submits on localhost / dev URLs are fine.
+- End with the Report block above, always, even when the verdict is "not ready" (say why: the failing step or error line).
 - Read-only on real accounts and production. Payments, sends, deletes, publishes: ask the human first, every time.
 - Never type passwords or codes. If the flow needs a login, ask the human to log in in that tab, then continue.

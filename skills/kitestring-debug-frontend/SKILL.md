@@ -21,7 +21,8 @@ Reproduce the bug in the real browser, read what the browser recorded, then fix 
    - `kite snapshot` for state; `kite screenshot` only if the problem is visual
 4. **Read the status before reading code.** `disabled` + error text = validation, not a broken handler. `blocked` = an overlay covers the control. `no_effect` = handler missing, throwing, or the request failed. See the `kitestring` recovery table.
 5. **Find the cause in the code** that the evidence points to (stack file:line, failing endpoint, validation rule). Fix it.
-6. **Re-verify**: `kite console --clear` and `kite network --clear`, then `kite goto <same url>` (reload), repeat the exact reproduction, and confirm: the step now returns `done` with the expected diff, no new console errors, no failed requests.
+6. **Re-verify**: `kite console --clear` and `kite network --clear`, then `kite goto <same url>` (reload), repeat the exact reproduction, and confirm the step now returns `done` with the expected diff.
+7. **After the final verifying action**, run `kite console --errors` and `kite network --failed` again. Both must be clean (or each line explained) before you report.
 
 ## Report
 
@@ -38,5 +39,6 @@ Not verified: <anything you could not check>
 
 - "It does nothing" is a symptom, not a cause. `disabled-until-valid`-style pages refuse clicks by design until inputs are valid: check the status detail before touching code.
 - Do not "fix" by changing what the test clicks or by removing validation.
-- Reproduce on localhost or a dev URL. On production or a logged-in real account, read only; ask the human before any action with consequences.
-- Never claim fixed without step 6 output.
+- On localhost / dev URLs, the clicks, fills and submits needed to reproduce or verify are fine without asking. On production or a real logged-in account: read only, unless the human says otherwise.
+- Test data: obviously fake values (`Test User`, `test@example.com`), never real personal data. Say in the report which values you used.
+- Never claim fixed without step 6 and 7 output.
