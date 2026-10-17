@@ -2,14 +2,17 @@
   "name": "@bx/cli",
   "version": "0.0.0",
   "private": true,
+  "bin": { "bx": "dist/bin.js" },
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "pretest": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@bx/protocol": "workspace:*"
+    "@bx/protocol": "workspace:*",
+    "commander": "^15.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
