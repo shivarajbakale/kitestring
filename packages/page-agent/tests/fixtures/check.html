@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Check page</title></head><body>
+<main><h1>Check</h1>
+<button id="plain">Plain</button>
+<button id="gone" style="display:none">Gone</button>
+<button id="invisible" style="visibility:hidden">Invisible</button>
+<div style="height:2000px"></div>
+<button id="far">Far away</button>
+<div style="height:1000px"></div>
+<form id="f">
+  <input id="email" type="email" aria-label="Email" aria-invalid="true" aria-describedby="emailerr">
+  <span id="emailerr">Enter a valid email</span>
+  <div role="alert">Enter a valid email</div>
+  <div role="alert" style="display:none">Hidden problem</div>
+  <button id="submit" type="submit" disabled>Submit</button>
+</form>
+<button id="aria-dis" aria-disabled="true">Aria off</button>
+<select id="sel" aria-label="Colour"><option value="r">Red</option><option value="g">Green Apple</option></select>
+<input id="txt" aria-label="Name" value="Ann">
+<div id="ce" contenteditable="true" role="textbox" aria-label="Note">hello</div>
+</main>
+<div id="cover" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6)">
+  <div role="dialog" aria-label="Cookie consent"><p>We use cookies.</p><button id="accept">Accept</button></div>
+</div>
+<div id="plaincover" style="display:none;position:fixed;inset:0;z-index:99999"></div>
+</body></html>

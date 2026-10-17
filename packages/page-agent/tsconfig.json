@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "noEmit": true, "lib": ["ES2022", "DOM", "DOM.Iterable"], "types": ["node"] },
-  "include": ["src", "tests", "playwright.config.ts"]
+  "include": ["src", "tests", "playwright.config.ts", "vitest.config.ts"]
 }
