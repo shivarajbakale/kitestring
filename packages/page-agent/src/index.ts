@@ -37,16 +37,16 @@ export function createAgent(win: Window): PageAgent {
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
         return el.value
       }
-      return el.textContent
+      return el instanceof HTMLElement && el.isContentEditable ? el.textContent : null
     },
     setSelect: (ref, value) => {
       const el = reg.resolve(ref)
       if (!(el instanceof HTMLSelectElement)) return false
       const want = norm(value)
-      const opt = Array.from(el.options).find((o) => o.value === value) ??
-        Array.from(el.options).find((o) => norm(o.label) === want || norm(o.value) === want)
+      const opt = Array.from(el.options).find((o) => !o.disabled && o.value === value) ??
+        Array.from(el.options).find((o) => !o.disabled && (norm(o.label) === want || norm(o.value) === want))
       if (!opt) return false
-      el.value = opt.value
+      opt.selected = true
       el.dispatchEvent(new Event("input", { bubbles: true }))
       el.dispatchEvent(new Event("change", { bubbles: true }))
       return true

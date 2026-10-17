@@ -36,7 +36,7 @@ function describe(cover: Element): string {
 function pageErrors(el: Element, win: Window): string[] {
   const scope: ParentNode = el.closest("form") ?? win.document
   const doc = win.document
-  const nodes: Element[] = Array.from(scope.querySelectorAll('[role="alert"], [aria-live]'))
+  const nodes: Element[] = Array.from(doc.querySelectorAll('[role="alert"], [aria-live]:not([aria-live="off"])'))
   for (const field of Array.from(scope.querySelectorAll('[aria-invalid="true"]'))) {
     for (const attr of ["aria-errormessage", "aria-describedby"]) {
       for (const id of (field.getAttribute(attr) ?? "").split(/\s+/).filter(Boolean)) {
@@ -59,7 +59,7 @@ export function check(el: Element): CheckResult {
   const doc = el.ownerDocument
   const win = doc.defaultView!
   if (!el.isConnected) return { kind: "hidden" }
-  el.scrollIntoView({ block: "center", inline: "center" })
+  el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" })
   const rect = el.getBoundingClientRect()
   const cs = win.getComputedStyle(el)
   if (rect.width <= 0 || rect.height <= 0 || cs.display === "none" || cs.visibility === "hidden") {

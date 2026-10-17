@@ -124,3 +124,36 @@ test("brief summarises the page", async ({ fixture }) => {
   const b = await page.evaluate(() => (window as unknown as { __bxAgent: Agent }).__bxAgent.brief())
   expect(b).toMatch(/^Check page \| file:\/\/.*check\.html \| Check \| \d+ interactive$/)
 })
+
+test("smooth-scroll pages are measured after an instant scroll", async ({ fixture }) => {
+  const page = await fixture("smooth.html")
+  const ref = await refOf(page, "Target")
+  const r = await page.evaluate((x) => {
+    const c = (window as unknown as { __bxAgent: Agent }).__bxAgent.check(x)
+    const hit = c.kind === "ok" ? document.elementFromPoint(c.x, c.y)?.id : null
+    return { c, hit, h: window.innerHeight }
+  }, ref)
+  expect(r.c.kind).toBe("ok")
+  expect((r.c as { y: number }).y).toBeGreaterThan(0)
+  expect((r.c as { y: number }).y).toBeLessThan(r.h)
+  expect(r.hit).toBe("target")
+})
+
+test("page-level alerts count, aria-live=off does not", async ({ fixture }) => {
+  const page = await fixture("errors.html")
+  const ref = await refOf(page, "Send")
+  const r = await page.evaluate((x) => (window as unknown as { __bxAgent: Agent }).__bxAgent.check(x), ref)
+  expect(r.kind).toBe("disabled")
+  expect((r as { errors: string[] }).errors).toEqual(["Server is down", "Saved draft"])
+})
+
+test("readValue is null for non-editable; setSelect skips disabled options", async ({ fixture }) => {
+  const page = await fixture("errors.html")
+  const out = await page.evaluate(() => {
+    const a = (window as unknown as { __bxAgent: Agent }).__bxAgent
+    const btn = a.find({ text: "Btn" }, "click").ref
+    const sel = a.find({ text: "Pick" }, "select").ref
+    return { btn: a.readValue(btn), dis: a.setSelect(sel, "b"), ok: a.setSelect(sel, "a") }
+  })
+  expect(out).toEqual({ btn: null, dis: false, ok: true })
+})
