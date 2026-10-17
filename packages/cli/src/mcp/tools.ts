@@ -42,7 +42,7 @@ export const TOOLS: ToolDef[] = [
   { name: "browser_tabs", description: "List the tabs this session owns.", method: "tab.list", shape: {}, params: () => ({}) },
   {
     name: "browser_tab_new",
-    description: "Open a new tab in this session (optionally at a URL) and make it active. Then call browser_snapshot.",
+    description: "Open a new tab at a URL in this session and make it active (always pass url; without it the tab is blank). Then call browser_snapshot.",
     method: "tab.new",
     shape: { url: z.string().optional() },
     params: (a) => (a.url ? { url: a.url } : {}),
