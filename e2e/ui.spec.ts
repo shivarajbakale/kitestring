@@ -7,6 +7,13 @@ import { expect, test } from "./fixtures"
 
 const POPUP = `chrome-extension://${EXTENSION_ID}/popup.html`
 const DOCS_UI = join(dirname(fileURLToPath(import.meta.url)), "..", "docs", "ui")
+/** Screenshots refresh the committed docs/ui images only with KITE_UPDATE_DOCS=1; otherwise they go to the test's output dir. */
+const shotPath = (file: string): string => {
+  if (process.env.KITE_UPDATE_DOCS === "1") {
+    return join(DOCS_UI, file)
+  }
+  return test.info().outputPath(file)
+}
 const out = (r: { stdout: string; stderr: string }) => r.stdout + r.stderr
 
 async function openPopup(context: BrowserContext): Promise<Page> {
@@ -83,7 +90,6 @@ test.describe("toolbar popup", () => {
     expect((await kite("click", "Fast task")).code).toBe(0)
     expect((await kiteEnv({ KITE_SESSION: "claude-code" }, "tab", "new", `${torture}/basic-form`)).code).toBe(0)
     expect((await kiteEnv({ KITE_SESSION: "claude-code" }, "tab", "new", `${torture}/serial`)).code).toBe(0)
-    mkdirSync(DOCS_UI, { recursive: true })
     const shoot = async (name: string) => {
       for (const scheme of ["light", "dark"] as const) {
         const popup = await openPopup(context)
@@ -93,7 +99,7 @@ test.describe("toolbar popup", () => {
         // 2x for the docs: the persistent context's pages are 1x, so zoom the page instead.
         await popup.setViewportSize({ width: 720, height: 1400 })
         await popup.evaluate(() => (document.documentElement.style.zoom = "2"))
-        await popup.locator("main").screenshot({ path: join(DOCS_UI, `${name}-${scheme}.png`) })
+        await popup.locator("main").screenshot({ path: shotPath(`${name}-${scheme}.png`) })
         await popup.close()
       }
     }
@@ -177,7 +183,6 @@ test.describe("live side panel", () => {
     const cc = (...a: string[]) => kiteEnv({ KITE_SESSION: "claude-code" }, ...a)
     expect((await cc("tab", "new", `${torture}/serial`)).code).toBe(0)
     expect((await cc("click", "Fast task")).code).toBe(0)
-    mkdirSync(DOCS_UI, { recursive: true })
     for (const width of [320, 600]) {
       for (const scheme of ["light", "dark"] as const) {
         const panel = await openPanel(context, width)
@@ -192,7 +197,7 @@ test.describe("live side panel", () => {
         await panel.evaluate(() => (document.documentElement.style.zoom = "2"))
         await panel.mouse.move(1, 1) // no stray hover in the docs
         const name = width === 320 ? `sidepanel-${scheme}` : `sidepanel-${width}-${scheme}`
-        await panel.locator("main").screenshot({ path: join(DOCS_UI, `${name}.png`), animations: "disabled" })
+        await panel.locator("main").screenshot({ path: shotPath(`${name}.png`), animations: "disabled" })
         await panel.close()
       }
     }

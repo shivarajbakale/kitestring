@@ -200,6 +200,7 @@ The end-to-end suite (`e2e/`) works like this:
 - It runs headless and doesn't touch your Chrome profile or `~/.kitestring`.
 - For each test it installs the native host into a temporary user-data-dir and starts the torture site (`apps/torture`, 12 edge-case pages; see `apps/torture/expected.md`).
 - It launches **Playwright's Chromium** with the built extension, then drives everything through the real `kite` CLI.
+- The UI tests screenshot the popup and side panel into the test output dir. To refresh the images in `docs/ui/` used by this README, run `KITE_UPDATE_DOCS=1 pnpm test:e2e`.
 
 If Playwright's Chromium is missing, install it:
 
