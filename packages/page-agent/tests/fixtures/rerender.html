@@ -1,0 +1,15 @@
+<!doctype html>
+<html><head><title>Rerender</title></head>
+<body>
+<main id="root"><button type="button">Pick me</button></main>
+<script>
+  window.rerender = () => {
+    const root = document.getElementById("root")
+    root.innerHTML = ""
+    const b = document.createElement("button")
+    b.type = "button"
+    b.textContent = "Pick me"
+    root.appendChild(b)
+  }
+</script>
+</body></html>

@@ -1,0 +1,22 @@
+{
+  "name": "@bx/page-agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bx/protocol": "workspace:*",
+    "dom-accessibility-api": "^0.7.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "esbuild": "^0.24.0",
+    "@types/node": "^22.0.0"
+  }
+}
