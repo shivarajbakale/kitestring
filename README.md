@@ -11,8 +11,8 @@ Every action runs a safe pipeline: **FIND → CHECK → ACT → WAIT → VERIFY 
 ## Prerequisites
 
 - **macOS or Linux.** Windows host install comes later.
-- **Node ≥ 22.** Node 26 works too, even though `.nvmrc` says 22.
-- **pnpm.** Install it with `npm i -g pnpm`; corepack no longer ships with Node ≥ 25. This repo was developed with pnpm 12.
+- **Node ≥ 22.12** (commander 15 needs it). Node 26 works too; `.nvmrc` says 22.12.
+- **pnpm.** Install it with `npm i -g pnpm`; corepack no longer ships with Node ≥ 25. This repo pins pnpm 12.14.0 (`packageManager` in `package.json`).
 - **Google Chrome or Chromium.**
 
 ## Quickstart (development)
@@ -86,7 +86,7 @@ When an action fails, it says why and the command exits 1:
 - `✗ no_effect`
 - `✗ timeout`
 
-Exit code 2 means the browser is not connected, or the usage was wrong. Add `--json` to get the raw result, and `--session <name>` (or `BX_SESSION`) to keep separate agents' tabs apart. Each session gets its own tab group, `bx:<name>`.
+If the browser does not answer at all, the CLI gives up after 60 s (`bx: timed out waiting for the browser`, exit 1; `BX_TIMEOUT_MS` overrides the bound). Exit code 2 means the browser is not connected, or the usage was wrong. Add `--json` to get the raw result (errors too, as `{"error":{"code","message"}}`), and `--session <name>` (or `BX_SESSION`) to keep separate agents' tabs apart. Each session gets its own tab group, `bx:<name>`.
 
 While bx acts on a tab, Chrome shows the "bx started debugging this browser" bar. If you cancel it, the next action attaches again.
 
