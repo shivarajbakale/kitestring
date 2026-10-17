@@ -1,19 +1,19 @@
 {
-  "name": "@bx/extension",
-  "displayName": "bx",
+  "name": "@kitestring/extension",
+  "displayName": "Kitestring",
   "version": "0.0.1",
-  "description": "Lets AI agents control your real Chrome via the bx CLI",
+  "description": "Lets AI agents control your real Chrome via the Kitestring CLI",
   "private": true,
   "scripts": {
     "dev": "plasmo dev",
     "build": "plasmo build",
-    "pretest": "pnpm --filter @bx/protocol build",
+    "pretest": "pnpm --filter @kitestring/protocol build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@bx/page-agent": "workspace:*",
-    "@bx/protocol": "workspace:*"
+    "@kitestring/page-agent": "workspace:*",
+    "@kitestring/protocol": "workspace:*"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.287",

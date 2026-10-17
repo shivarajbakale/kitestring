@@ -7,7 +7,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 async function buildBundle(): Promise<string> {
   const res = await build({
     stdin: {
-      contents: `import { createAgent } from "./src/index.ts"; window.__bxAgent = createAgent(window)`,
+      contents: `import { createAgent } from "./src/index.ts"; window.__kiteAgent = createAgent(window)`,
       resolveDir: join(here, ".."),
       loader: "ts"
     },

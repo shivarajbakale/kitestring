@@ -1,6 +1,6 @@
 import { chmod, unlink } from "node:fs/promises"
 import net from "node:net"
-import { RpcRequest, RpcResponse } from "@bx/protocol"
+import { RpcRequest, RpcResponse } from "@kitestring/protocol"
 import { FrameTooLargeError } from "./framing.js"
 
 export interface Daemon {
@@ -42,7 +42,7 @@ function probe(path: string, timeoutMs = 1000): Promise<"live" | "stale"> {
 
 export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   if ((await probe(opts.socketPath)) === "live") {
-    throw new Error(`bx host already running (socket ${opts.socketPath} is in use)`)
+    throw new Error(`kitestring host already running (socket ${opts.socketPath} is in use)`)
   }
   await unlink(opts.socketPath).catch((e: NodeJS.ErrnoException) => {
     if (e.code !== "ENOENT") throw e

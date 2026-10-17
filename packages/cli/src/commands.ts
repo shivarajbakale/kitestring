@@ -1,9 +1,12 @@
+import { existsSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
 import { Command, CommanderError } from "commander"
-import { EXTENSION_ID, parseTarget, type ActionResult, type Method } from "@bx/protocol"
-import { BxError, call } from "./client/rpc-client.js"
+import { EXTENSION_ID, parseTarget, type ActionResult, type Method } from "@kitestring/protocol"
+import { KiteError, call } from "./client/rpc-client.js"
 import { formatResult } from "./client/format.js"
 import { installHost } from "./install/host-manifest.js"
-import { bxHome } from "./paths.js"
+import { kiteHome } from "./paths.js"
 
 interface Globals {
   session?: string
@@ -36,16 +39,16 @@ export async function main(argv: string[]): Promise<number> {
   let exitCode = 0
   const program = new Command()
   program
-    .name("bx")
+    .name("kite")
     .description("Control your real Chrome from the command line")
-    .option("--session <name>", "session name (env BX_SESSION)")
+    .option("--session <name>", "session name (env KITE_SESSION)")
     .option("--json", "print raw result JSON")
     .exitOverride()
     .configureOutput({ writeErr: () => {}, outputError: () => {} })
 
   const run = async (method: Method, params: Record<string, unknown>): Promise<void> => {
     const g = program.opts<Globals>()
-    const session = g.session || process.env.BX_SESSION || "default"
+    const session = g.session || process.env.KITE_SESSION || "default"
     const result = await call(method, params, { session })
     if (g.json) process.stdout.write(JSON.stringify(result) + "\n")
     else process.stdout.write(human(method, result) + "\n")
@@ -105,10 +108,14 @@ export async function main(argv: string[]): Promise<number> {
         browser: o.browser,
         userDataDir: o.userDataDir,
         extensionId: o.extensionId,
-        bxHome: bxHome(),
+        kiteHome: kiteHome(),
       })
       if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(r) + "\n")
-      else process.stdout.write(`installed native host manifest: ${r.manifestPath}\nwrapper: ${r.wrapperPath}\n`)
+      else {
+        process.stdout.write(`installed native host manifest: ${r.manifestPath}\nwrapper: ${r.wrapperPath}\n`)
+        for (const p of r.removedLegacy) process.stdout.write(`removed legacy manifest ${p}\n`)
+        if (existsSync(join(homedir(), ".bx"))) process.stdout.write("old bx home ~/.bx is no longer used — delete it when ready\n")
+      }
     })
 
   try {
@@ -116,23 +123,23 @@ export async function main(argv: string[]): Promise<number> {
   } catch (e) {
     if (e instanceof CommanderError) {
       if (e.exitCode === 0) return 0 // help/version
-      process.stderr.write(`bx: ${e.message.replace(/^error: /, "")}\n`)
+      process.stderr.write(`kite: ${e.message.replace(/^error: /, "")}\n`)
       return 2
     }
     if (e instanceof UsageError) {
-      process.stderr.write(`bx: ${e.message}\n`)
+      process.stderr.write(`kite: ${e.message}\n`)
       return 2
     }
-    if (e instanceof BxError) {
+    if (e instanceof KiteError) {
       if (program.opts<Globals>().json) {
         process.stdout.write(JSON.stringify({ error: { code: e.code, message: e.message } }) + "\n")
       }
       // RESTRICTED: the extension's message already names the page ("restricted page (<url>) — …").
-      const hint = e.code === "RESTRICTED" && e.message.includes("(about:blank)") ? " (blank tab — run bx goto <url>)" : ""
-      process.stderr.write(`bx: ${e.message}${hint}\n`)
+      const hint = e.code === "RESTRICTED" && e.message.includes("(about:blank)") ? " (blank tab — run kite goto <url>)" : ""
+      process.stderr.write(`kite: ${e.message}${hint}\n`)
       return e.code === "NOT_CONNECTED" ? 2 : 1
     }
-    process.stderr.write(`bx: ${e instanceof Error ? e.message : String(e)}\n`)
+    process.stderr.write(`kite: ${e instanceof Error ? e.message : String(e)}\n`)
     return 1
   }
   return exitCode

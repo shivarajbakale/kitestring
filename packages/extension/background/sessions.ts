@@ -1,4 +1,4 @@
-import { ErrorCode } from "@bx/protocol"
+import { ErrorCode } from "@kitestring/protocol"
 import { RpcError } from "./errors"
 
 export interface Session {
@@ -21,7 +21,7 @@ interface StoredSession {
   tabs: number[]
 }
 
-const STORAGE_KEY = "bx.sessions"
+const STORAGE_KEY = "kite.sessions"
 const LOAD_TIMEOUT_MS = 10_000
 const GROUP_COLORS: chrome.tabGroups.ColorEnum[] = ["blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange", "grey"]
 
@@ -97,7 +97,7 @@ export function assertOwner(s: Session, tabId: number): void {
 /** The session's active tab, or NO_TAB. */
 export function activeTab(s: Session): number {
   if (s.activeTabId === null) {
-    throw new RpcError(ErrorCode.NO_TAB, `NO_TAB: session "${s.name}" has no active tab (run: bx tab new <url>)`)
+    throw new RpcError(ErrorCode.NO_TAB, `NO_TAB: session "${s.name}" has no active tab (run: kite tab new <url>)`)
   }
   return s.activeTabId
 }
@@ -138,7 +138,7 @@ async function addToGroup(s: Session, tabId: number): Promise<void> {
     }
   }
   const groupId = await chrome.tabs.group({ tabIds: [tabId] })
-  await chrome.tabGroups.update(groupId, { title: `bx:${s.name}`, color: colorOf(s) })
+  await chrome.tabGroups.update(groupId, { title: `kite:${s.name}`, color: colorOf(s) })
   s.groupId = groupId
 }
 

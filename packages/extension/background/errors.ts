@@ -1,4 +1,4 @@
-import type { ErrorCode } from "@bx/protocol"
+import type { ErrorCode } from "@kitestring/protocol"
 
 /** An error that maps to a specific RPC error code. The message is shown to the CLI user verbatim. */
 export class RpcError extends Error {

@@ -1,12 +1,12 @@
 import { homedir } from "node:os"
 import { join } from "node:path"
 
-export function bxHome(): string {
-  return process.env.BX_HOME || join(homedir(), ".bx")
+export function kiteHome(): string {
+  return process.env.KITE_HOME || join(homedir(), ".kitestring")
 }
 export function socketPath(): string {
-  return join(bxHome(), "bx.sock")
+  return join(kiteHome(), "kite.sock")
 }
 export function logPath(): string {
-  return join(bxHome(), "logs", "host.log")
+  return join(kiteHome(), "logs", "host.log")
 }

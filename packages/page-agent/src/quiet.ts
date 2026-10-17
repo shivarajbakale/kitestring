@@ -1,4 +1,4 @@
-import { READY } from "@bx/protocol"
+import { READY } from "@kitestring/protocol"
 
 function isVisible(win: Window, el: Element): boolean {
   const cs = win.getComputedStyle(el)

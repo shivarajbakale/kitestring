@@ -1,4 +1,4 @@
-import { MAX_HOST_TO_CHROME } from "@bx/protocol"
+import { MAX_HOST_TO_CHROME } from "@kitestring/protocol"
 
 export class FrameTooLargeError extends Error {
   constructor(size: number) {

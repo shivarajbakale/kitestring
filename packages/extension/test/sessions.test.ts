@@ -5,7 +5,7 @@ describe("loadSessions", () => {
     const get = vi
       .fn()
       .mockRejectedValueOnce(new Error("storage unavailable"))
-      .mockResolvedValue({ "bx.sessions": [{ name: "a", groupId: 3, activeTabId: 7, tabs: [7] }] })
+      .mockResolvedValue({ "kite.sessions": [{ name: "a", groupId: 3, activeTabId: 7, tabs: [7] }] })
     ;(globalThis as { chrome?: unknown }).chrome = {
       storage: { session: { get } },
       tabs: { query: vi.fn().mockResolvedValue([{ id: 7 }]) },

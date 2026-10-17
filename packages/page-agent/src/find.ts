@@ -1,4 +1,4 @@
-import type { Candidate, Target } from "@bx/protocol"
+import type { Candidate, Target } from "@kitestring/protocol"
 import { norm } from "./normalize.js"
 import type { RefRegistry } from "./refs.js"
 import { INTERACTIVE_ROLES, LANDMARK_ROLES, nameOf, roleOf } from "./roles.js"

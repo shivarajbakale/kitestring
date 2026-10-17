@@ -1,21 +1,21 @@
 import type { PlasmoCSConfig } from "plasmo"
-import { createAgent, type PageAgent } from "@bx/page-agent"
+import { createAgent, type PageAgent } from "@kitestring/page-agent"
 
 export const config: PlasmoCSConfig = { matches: ["<all_urls>"], run_at: "document_idle" }
 
 interface AgentMessage {
-  bx: true
+  kite: true
   method: keyof PageAgent
   args: unknown[]
 }
 
 // The script can be injected again (chrome.scripting) into a page that already has it; keep one agent.
-const g = globalThis as { __bxAgent?: PageAgent }
-if (!g.__bxAgent) {
+const g = globalThis as { __kiteAgent?: PageAgent }
+if (!g.__kiteAgent) {
   const agent = createAgent(window)
-  g.__bxAgent = agent
+  g.__kiteAgent = agent
   chrome.runtime.onMessage.addListener((msg: AgentMessage | undefined, _sender, sendResponse) => {
-    if (!msg || msg.bx !== true) return false
+    if (!msg || msg.kite !== true) return false
     const fn = agent[msg.method] as ((...a: unknown[]) => unknown) | undefined
     if (typeof fn !== "function") {
       sendResponse({ ok: false, error: `unknown page agent method: ${String(msg.method)}` })

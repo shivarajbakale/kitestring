@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { ActionResult } from "@bx/protocol"
+import type { ActionResult } from "@kitestring/protocol"
 import { formatResult } from "../src/client/format.js"
 
 const base: ActionResult = { ok: true, status: "done", diff: { added: [], removed: [] }, page: "P" }

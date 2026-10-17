@@ -1,17 +1,17 @@
 {
-  "name": "@bx/cli",
+  "name": "@kitestring/cli",
   "version": "0.0.0",
   "private": true,
-  "bin": { "bx": "dist/bin.js" },
+  "bin": { "kite": "dist/bin.js", "kitestring": "dist/bin.js" },
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "pretest": "pnpm --filter @bx/protocol build && tsc -p tsconfig.build.json",
+    "pretest": "pnpm --filter @kitestring/protocol build && tsc -p tsconfig.build.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@bx/protocol": "workspace:*",
+    "@kitestring/protocol": "workspace:*",
     "commander": "^15.0.0"
   },
   "devDependencies": {

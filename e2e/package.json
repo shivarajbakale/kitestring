@@ -1,5 +1,5 @@
 {
-  "name": "@bx/e2e",
+  "name": "@kitestring/e2e",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@bx/protocol": "workspace:*",
+    "@kitestring/protocol": "workspace:*",
     "@playwright/test": "^1.48.0",
     "@types/chrome": "^0.0.287",
     "@types/node": "^22.0.0",

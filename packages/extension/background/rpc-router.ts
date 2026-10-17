@@ -1,4 +1,4 @@
-import { ErrorCode, RpcRequest, type Method, type RpcResponse, type Target } from "@bx/protocol"
+import { ErrorCode, RpcRequest, type Method, type RpcResponse, type Target } from "@kitestring/protocol"
 import { callAgent } from "./agent-bridge"
 import { RestrictedPageError, RpcError } from "./errors"
 import { goto, runAction } from "./pipeline"

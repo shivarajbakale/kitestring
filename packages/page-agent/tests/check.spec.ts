@@ -14,13 +14,13 @@ interface Agent {
 }
 
 async function refOf(page: import("@playwright/test").Page, text: string): Promise<string> {
-  return page.evaluate((t) => (window as unknown as { __bxAgent: Agent }).__bxAgent.find({ text: t }, "click").ref, text)
+  return page.evaluate((t) => (window as unknown as { __kiteAgent: Agent }).__kiteAgent.find({ text: t }, "click").ref, text)
 }
 
 test("visible button is ok with centre inside the viewport", async ({ fixture }) => {
   const page = await fixture("check.html")
   const ref = await refOf(page, "Plain")
-  const r = await page.evaluate((x) => (window as unknown as { __bxAgent: Agent }).__bxAgent.check(x), ref)
+  const r = await page.evaluate((x) => (window as unknown as { __kiteAgent: Agent }).__kiteAgent.check(x), ref)
   expect(r.kind).toBe("ok")
   const ok = r as { x: number; y: number }
   expect(ok.x).toBeGreaterThan(0)
@@ -30,7 +30,7 @@ test("visible button is ok with centre inside the viewport", async ({ fixture })
 test("scrolls far element into view", async ({ fixture }) => {
   const page = await fixture("check.html")
   const ref = await refOf(page, "Far away")
-  const r = await page.evaluate((x) => (window as unknown as { __bxAgent: Agent }).__bxAgent.check(x), ref)
+  const r = await page.evaluate((x) => (window as unknown as { __kiteAgent: Agent }).__kiteAgent.check(x), ref)
   expect(r.kind).toBe("ok")
   expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(1000)
 })
@@ -38,7 +38,7 @@ test("scrolls far element into view", async ({ fixture }) => {
 test("display:none and visibility:hidden are hidden; unknown ref hidden", async ({ fixture }) => {
   const page = await fixture("check.html")
   const out = await page.evaluate(() => {
-    const a = (window as unknown as { __bxAgent: Agent }).__bxAgent
+    const a = (window as unknown as { __kiteAgent: Agent }).__kiteAgent
     const res: Record<string, string> = {}
     for (const [id, text, prop, hiddenVal] of [
       ["gone", "Gone", "display", "none"],
@@ -61,7 +61,7 @@ test("covering dialog blocks and is described", async ({ fixture }) => {
   const page = await fixture("check.html")
   const ref = await refOf(page, "Plain")
   await page.evaluate(() => (document.getElementById("cover")!.style.display = "block"))
-  const r = await page.evaluate((x) => (window as unknown as { __bxAgent: Agent }).__bxAgent.check(x), ref)
+  const r = await page.evaluate((x) => (window as unknown as { __kiteAgent: Agent }).__kiteAgent.check(x), ref)
   expect(r.kind).toBe("blocked")
   expect((r as { by: string }).by).toContain('dialog "Cookie consent"')
 })
@@ -70,14 +70,14 @@ test("anonymous full-screen cover falls back to tag and id", async ({ fixture })
   const page = await fixture("check.html")
   const ref = await refOf(page, "Plain")
   await page.evaluate(() => (document.getElementById("plaincover")!.style.display = "block"))
-  const r = await page.evaluate((x) => (window as unknown as { __bxAgent: Agent }).__bxAgent.check(x), ref)
+  const r = await page.evaluate((x) => (window as unknown as { __kiteAgent: Agent }).__kiteAgent.check(x), ref)
   expect(r).toEqual({ kind: "blocked", by: "<div>#plaincover" })
 })
 
 test("disabled submit reports page errors", async ({ fixture }) => {
   const page = await fixture("check.html")
   const ref = await refOf(page, "Submit")
-  const r = await page.evaluate((x) => (window as unknown as { __bxAgent: Agent }).__bxAgent.check(x), ref)
+  const r = await page.evaluate((x) => (window as unknown as { __kiteAgent: Agent }).__kiteAgent.check(x), ref)
   expect(r.kind).toBe("disabled")
   expect((r as { errors: string[] }).errors).toEqual(["Enter a valid email"])
 })
@@ -85,14 +85,14 @@ test("disabled submit reports page errors", async ({ fixture }) => {
 test("aria-disabled is disabled", async ({ fixture }) => {
   const page = await fixture("check.html")
   const ref = await refOf(page, "Aria off")
-  const r = await page.evaluate((x) => (window as unknown as { __bxAgent: Agent }).__bxAgent.check(x), ref)
+  const r = await page.evaluate((x) => (window as unknown as { __kiteAgent: Agent }).__kiteAgent.check(x), ref)
   expect(r.kind).toBe("disabled")
 })
 
 test("readValue and setSelect", async ({ fixture }) => {
   const page = await fixture("check.html")
   const out = await page.evaluate(() => {
-    const a = (window as unknown as { __bxAgent: Agent }).__bxAgent
+    const a = (window as unknown as { __kiteAgent: Agent }).__kiteAgent
     const name = a.find({ text: "Name" }, "fill").ref
     const note = a.find({ text: "Note" }, "fill").ref
     const sel = a.find({ text: "Colour" }, "select").ref
@@ -121,7 +121,7 @@ test("readValue and setSelect", async ({ fixture }) => {
 
 test("brief summarises the page", async ({ fixture }) => {
   const page = await fixture("check.html")
-  const b = await page.evaluate(() => (window as unknown as { __bxAgent: Agent }).__bxAgent.brief())
+  const b = await page.evaluate(() => (window as unknown as { __kiteAgent: Agent }).__kiteAgent.brief())
   expect(b).toMatch(/^Check page \| file:\/\/.*check\.html \| Check \| \d+ interactive$/)
 })
 
@@ -129,7 +129,7 @@ test("smooth-scroll pages are measured after an instant scroll", async ({ fixtur
   const page = await fixture("smooth.html")
   const ref = await refOf(page, "Target")
   const r = await page.evaluate((x) => {
-    const c = (window as unknown as { __bxAgent: Agent }).__bxAgent.check(x)
+    const c = (window as unknown as { __kiteAgent: Agent }).__kiteAgent.check(x)
     const hit = c.kind === "ok" ? document.elementFromPoint(c.x, c.y)?.id : null
     return { c, hit, h: window.innerHeight }
   }, ref)
@@ -142,7 +142,7 @@ test("smooth-scroll pages are measured after an instant scroll", async ({ fixtur
 test("page-level alerts count, aria-live=off does not", async ({ fixture }) => {
   const page = await fixture("errors.html")
   const ref = await refOf(page, "Send")
-  const r = await page.evaluate((x) => (window as unknown as { __bxAgent: Agent }).__bxAgent.check(x), ref)
+  const r = await page.evaluate((x) => (window as unknown as { __kiteAgent: Agent }).__kiteAgent.check(x), ref)
   expect(r.kind).toBe("disabled")
   expect((r as { errors: string[] }).errors).toEqual(["Server is down", "Saved draft"])
 })
@@ -150,7 +150,7 @@ test("page-level alerts count, aria-live=off does not", async ({ fixture }) => {
 test("readValue is null for non-editable; setSelect skips disabled options", async ({ fixture }) => {
   const page = await fixture("errors.html")
   const out = await page.evaluate(() => {
-    const a = (window as unknown as { __bxAgent: Agent }).__bxAgent
+    const a = (window as unknown as { __kiteAgent: Agent }).__kiteAgent
     const btn = a.find({ text: "Btn" }, "click").ref
     const sel = a.find({ text: "Pick" }, "select").ref
     return { btn: a.readValue(btn), dis: a.setSelect(sel, "b"), ok: a.setSelect(sel, "a") }

@@ -1,14 +1,15 @@
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs"
 import { homedir, platform } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { HOST_NAME } from "@bx/protocol"
+import { HOST_NAME, LEGACY_HOST_NAMES, PRODUCT } from "@kitestring/protocol"
+import { nodeCandidates } from "../init/node-path.js"
 
 export interface InstallOpts {
   browser: "chrome" | "chromium"
   userDataDir?: string
   extensionId: string
-  bxHome: string
+  kiteHome: string
 }
 
 function hostsDir(o: InstallOpts): string {
@@ -22,13 +23,26 @@ function hostsDir(o: InstallOpts): string {
 
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
-export function installHost(o: InstallOpts): { manifestPath: string; wrapperPath: string } {
+function wrapperScript(kiteHome: string, candidates: string[], mainJs: string): string {
+  return [
+    "#!/bin/sh",
+    `export KITE_HOME=${q(kiteHome)}`,
+    `for n in ${candidates.map(q).join(" ")}; do`,
+    `  [ -x "$n" ] && exec "$n" ${q(mainJs)}`,
+    "done",
+    'echo "kitestring: no node found" >&2',
+    "exit 127",
+    "",
+  ].join("\n")
+}
+
+export function installHost(o: InstallOpts): { manifestPath: string; wrapperPath: string; removedLegacy: string[] } {
   // Always point at the built host (dist/host/main.js), even when running from src (tests).
   const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..")
   const mainJs = join(pkgRoot, "dist", "host", "main.js")
-  mkdirSync(o.bxHome, { recursive: true, mode: 0o700 })
-  const wrapperPath = join(o.bxHome, "host.sh")
-  writeFileSync(wrapperPath, `#!/bin/sh\nexport BX_HOME=${q(o.bxHome)}\nexec ${q(process.execPath)} ${q(mainJs)}\n`)
+  mkdirSync(o.kiteHome, { recursive: true, mode: 0o700 })
+  const wrapperPath = join(o.kiteHome, "host.sh")
+  writeFileSync(wrapperPath, wrapperScript(o.kiteHome, nodeCandidates(), mainJs))
   chmodSync(wrapperPath, 0o755)
 
   const dir = hostsDir(o)
@@ -36,11 +50,19 @@ export function installHost(o: InstallOpts): { manifestPath: string; wrapperPath
   const manifestPath = join(dir, `${HOST_NAME}.json`)
   const manifest = {
     name: HOST_NAME,
-    description: "bx browser bridge",
+    description: `${PRODUCT} browser bridge`,
     path: wrapperPath,
     type: "stdio",
     allowed_origins: [`chrome-extension://${o.extensionId}/`],
   }
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n")
-  return { manifestPath, wrapperPath }
+  const removedLegacy: string[] = []
+  for (const legacy of LEGACY_HOST_NAMES) {
+    const p = join(dir, `${legacy}.json`)
+    if (existsSync(p)) {
+      rmSync(p)
+      removedLegacy.push(p)
+    }
+  }
+  return { manifestPath, wrapperPath, removedLegacy }
 }

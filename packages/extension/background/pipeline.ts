@@ -1,5 +1,5 @@
-import { READY, type ActionResult, type Diff, type Status, type Target } from "@bx/protocol"
-import { diffSnapshots, type CheckResult, type FindResult } from "@bx/page-agent"
+import { READY, type ActionResult, type Diff, type Status, type Target } from "@kitestring/protocol"
+import { diffSnapshots, type CheckResult, type FindResult } from "@kitestring/page-agent"
 import { callAgent, isRestrictedUrl } from "./agent-bridge"
 import { ensureAttached, isNotAttached, onEvent, send } from "./cdp"
 import { RestrictedPageError } from "./errors"
@@ -195,7 +195,7 @@ async function agentCall<T>(tabId: number, watch: Watch, net: NetworkTracker, p:
  */
 async function hasClickHandler(tabId: number, x: number, y: number): Promise<boolean> {
   const CLICK = new Set(["click", "mousedown", "mouseup", "pointerdown", "pointerup", "touchstart", "touchend"])
-  const objectGroup = "bx-click-handler"
+  const objectGroup = "kite-click-handler"
   try {
     // [element, ...ancestors (through shadow hosts), window], plus the enclosing form (for "submit").
     const chain = await send<{ result: { objectId?: string } }>(tabId, "Runtime.evaluate", {

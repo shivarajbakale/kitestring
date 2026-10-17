@@ -1,11 +1,11 @@
-import { ErrorCode } from "@bx/protocol"
-import type { PageAgent } from "@bx/page-agent"
+import { ErrorCode } from "@kitestring/protocol"
+import type { PageAgent } from "@kitestring/page-agent"
 import { RestrictedPageError, RpcError } from "./errors"
 
 export { RestrictedPageError }
 
 export interface AgentMessage {
-  bx: true
+  kite: true
   method: keyof PageAgent
   args: unknown[]
 }
@@ -27,9 +27,9 @@ const AGENT_TIMEOUT_MS = 30_000
 /** executeScript waits for document_idle: a page that never finishes loading would block it forever. */
 const INJECT_TIMEOUT_MS = 10_000
 
-/** Diagnostics, readable from the service worker console (and e2e) as `globalThis.__bxStats`. */
+/** Diagnostics, readable from the service worker console (and e2e) as `globalThis.__kiteStats`. */
 const stats = { injections: 0 }
-;(globalThis as { __bxStats?: typeof stats }).__bxStats = stats
+;(globalThis as { __kiteStats?: typeof stats }).__kiteStats = stats
 
 export function isRestrictedUrl(url: string): boolean {
   return RESTRICTED_PREFIXES.some((p) => url.startsWith(p))
@@ -93,7 +93,7 @@ export async function callAgent<T>(tabId: number, method: keyof PageAgent, args:
   const url = tabUrl(await chrome.tabs.get(tabId))
   if (isRestrictedUrl(url)) throw new RestrictedPageError(url)
 
-  const msg: AgentMessage = { bx: true, method, args }
+  const msg: AgentMessage = { kite: true, method, args }
   let reply: AgentReply | undefined
   try {
     reply = await send(tabId, msg)

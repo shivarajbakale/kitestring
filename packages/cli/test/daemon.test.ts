@@ -12,8 +12,8 @@ const daemons: Daemon[] = []
 const clients: net.Socket[] = []
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "bxd-"))
-  sock = join(dir, "bx.sock")
+  dir = mkdtempSync(join(tmpdir(), "kited-"))
+  sock = join(dir, "kite.sock")
 })
 afterEach(async () => {
   for (const c of clients.splice(0)) c.destroy()

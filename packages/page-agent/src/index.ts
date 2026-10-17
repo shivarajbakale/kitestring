@@ -1,6 +1,6 @@
 import { RefRegistry } from "./refs.js"
 import { find, type FindIntent, type FindResult } from "./find.js"
-import type { Target } from "@bx/protocol"
+import type { Target } from "@kitestring/protocol"
 import { snapshot, type SnapshotOpts } from "./snapshot.js"
 import { check, type CheckResult } from "./check.js"
 import { waitQuiet } from "./quiet.js"

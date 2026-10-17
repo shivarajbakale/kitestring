@@ -1,4 +1,4 @@
-import { HOST_NAME } from "@bx/protocol"
+import { HOST_NAME } from "@kitestring/protocol"
 
 const BACKOFF_MS = [1000, 2000, 5000]
 const STEADY_MS = 10_000
@@ -27,7 +27,7 @@ export function connectHost(onMessage: (m: unknown) => void): HostConnection {
       if (port === p) port = null
       const delay = BACKOFF_MS[attempt] ?? STEADY_MS
       attempt++
-      console.warn(`[bx] native host disconnected${err ? `: ${err}` : ""}; retrying in ${delay} ms`)
+      console.warn(`[kite] native host disconnected${err ? `: ${err}` : ""}; retrying in ${delay} ms`)
       setTimeout(connect, delay)
     })
   }
@@ -36,7 +36,7 @@ export function connectHost(onMessage: (m: unknown) => void): HostConnection {
   return {
     send(m) {
       if (!port) {
-        console.warn("[bx] dropping message: native host not connected")
+        console.warn("[kite] dropping message: native host not connected")
         return
       }
       port.postMessage(m)

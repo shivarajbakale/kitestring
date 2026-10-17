@@ -1,5 +1,5 @@
 {
-  "name": "@bx/page-agent",
+  "name": "@kitestring/page-agent",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,14 +7,14 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "pretest": "pnpm --filter @bx/protocol build",
+    "pretest": "pnpm --filter @kitestring/protocol build",
     "test": "pnpm test:unit && pnpm test:e2e",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@bx/protocol": "workspace:*",
+    "@kitestring/protocol": "workspace:*",
     "dom-accessibility-api": "^0.7.0"
   },
   "devDependencies": {

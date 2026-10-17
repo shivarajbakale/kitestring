@@ -1,4 +1,4 @@
-import { ANALYTICS_HOST_RE, IGNORED_RESOURCE_TYPES } from "@bx/protocol"
+import { ANALYTICS_HOST_RE, IGNORED_RESOURCE_TYPES } from "@kitestring/protocol"
 
 const IGNORED_TYPES: ReadonlySet<string> = new Set(IGNORED_RESOURCE_TYPES)
 

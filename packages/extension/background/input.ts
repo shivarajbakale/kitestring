@@ -1,4 +1,4 @@
-import { ErrorCode } from "@bx/protocol"
+import { ErrorCode } from "@kitestring/protocol"
 import { send } from "./cdp"
 import { RpcError } from "./errors"
 

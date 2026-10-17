@@ -1,4 +1,4 @@
-import type { ActionResult } from "@bx/protocol"
+import type { ActionResult } from "@kitestring/protocol"
 
 export function formatResult(r: ActionResult): string {
   const lines: string[] = []

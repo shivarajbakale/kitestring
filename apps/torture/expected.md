@@ -4,17 +4,17 @@ Serve with `pnpm --filter torture dev` (default http://127.0.0.1:4173). Each pag
 
 | Page | CLI sequence | `__result` |
 |---|---|---|
-| `basic-form` | `bx fill Name Ada`, `bx fill Email ada@x.io`, `bx click Submit` | `submitted:Ada:ada@x.io` |
-| `duplicate-buttons` | `bx click Save --within Profile` (Billing Save gives `WRONG:billing`) | `saved:profile` |
-| `icon-only` | `bx click "Delete item"` | `deleted` |
-| `covered-by-banner` | `bx click Continue` (status `blocked`), `bx click Accept`, `bx click Continue` | `continued` |
-| `infinite-scroll` | `bx click "Item 57"` (finder scrolls, two loads needed) | `item:57` |
-| `slow-button` | `bx click "Load data"` (result diff contains `Data ready`) | `loaded` |
-| `never-idle` | `bx click Go` (returns `done` within 3000 ms) | `go` |
-| `disabled-until-valid` | `bx click Submit` (`disabled`, errors contain `Enter a valid email`), `bx fill Email ada@x.io`, `bx click Submit` | `ok` |
-| `rerender` | `bx snapshot`, wait 1 s, `bx click <ref of "Pick me">` | `picked` |
-| `native-select` | `bx select Country India` | `country:IN` |
-| `navigating-link` | `bx click "Next page"` (`done`, `navigation.url` ends `/navigating-link-done`) | `arrived` (set on `/navigating-link-done`) |
-| `whitespace` | `bx click "  save changes "` | `saved` |
+| `basic-form` | `kite fill Name Ada`, `kite fill Email ada@x.io`, `kite click Submit` | `submitted:Ada:ada@x.io` |
+| `duplicate-buttons` | `kite click Save --within Profile` (Billing Save gives `WRONG:billing`) | `saved:profile` |
+| `icon-only` | `kite click "Delete item"` | `deleted` |
+| `covered-by-banner` | `kite click Continue` (status `blocked`), `kite click Accept`, `kite click Continue` | `continued` |
+| `infinite-scroll` | `kite click "Item 57"` (finder scrolls, two loads needed) | `item:57` |
+| `slow-button` | `kite click "Load data"` (result diff contains `Data ready`) | `loaded` |
+| `never-idle` | `kite click Go` (returns `done` within 3000 ms) | `go` |
+| `disabled-until-valid` | `kite click Submit` (`disabled`, errors contain `Enter a valid email`), `kite fill Email ada@x.io`, `kite click Submit` | `ok` |
+| `rerender` | `kite snapshot`, wait 1 s, `kite click <ref of "Pick me">` | `picked` |
+| `native-select` | `kite select Country India` | `country:IN` |
+| `navigating-link` | `kite click "Next page"` (`done`, `navigation.url` ends `/navigating-link-done`) | `arrived` (set on `/navigating-link-done`) |
+| `whitespace` | `kite click "  save changes "` | `saved` |
 
 `/navigating-link-done` is the navigation target of `navigating-link`. `/analytics/*` returns 204.
