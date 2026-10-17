@@ -2,9 +2,9 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { Command, CommanderError } from "commander"
-import { EXTENSION_ID, parseTarget, type ActionResult, type ActivityEntry, type ConsoleEntry, type Method, type NetworkEntry, type ScreenshotResult } from "@kitestring/protocol"
+import { EXTENSION_ID, parseTarget, type Method, type ScreenshotResult } from "@kitestring/protocol"
 import { KiteError, call } from "./client/rpc-client.js"
-import { formatActivity, formatConsole, formatNetwork, formatResult } from "./client/format.js"
+import { human } from "./client/human.js"
 import { installHost } from "./install/host-manifest.js"
 import { kiteHome } from "./paths.js"
 
@@ -14,36 +14,6 @@ interface Globals {
 }
 
 class UsageError extends Error {}
-
-function human(method: Method, result: unknown): string {
-  const r = result as any
-  switch (method) {
-    case "page.snapshot":
-      return String(r?.text ?? "")
-    case "page.console":
-      return formatConsole((r?.entries ?? []) as ConsoleEntry[])
-    case "page.network":
-      return formatNetwork((r?.entries ?? []) as NetworkEntry[])
-    case "tab.new":
-    case "tab.use":
-    case "tab.close":
-      return r && r.id !== undefined ? `tab ${r.id} ${r.url ?? ""}`.trimEnd() : "ok"
-    case "tab.list": {
-      const tabs: any[] = Array.isArray(r) ? r : (r?.tabs ?? [])
-      return tabs.map((t) => `tab ${t.id} ${t.url ?? ""}`.trimEnd()).join("\n")
-    }
-    case "status":
-      return typeof r === "string" ? r : JSON.stringify(r, null, 2)
-    case "control.pause":
-      return "paused — agents get PAUSED until `kite resume`"
-    case "control.resume":
-      return "resumed"
-    case "activity.list":
-      return formatActivity((r?.entries ?? []) as ActivityEntry[])
-    default:
-      return r && typeof r === "object" && "status" in r ? formatResult(r as ActionResult) : JSON.stringify(r)
-  }
-}
 
 export async function main(argv: string[]): Promise<number> {
   let exitCode = 0
@@ -64,6 +34,14 @@ export async function main(argv: string[]): Promise<number> {
     else process.stdout.write(human(method, result) + "\n")
     if (result && typeof result === "object" && "status" in result && (result as any).status !== "done") exitCode = 1
   }
+
+  program
+    .command("mcp")
+    .description("serve MCP over stdio (session from KITE_SESSION, default agent)")
+    .action(async () => {
+      const { serveMcp } = await import("./mcp/server.js")
+      await serveMcp()
+    })
 
   program.command("status").action(() => run("status", {}))
 

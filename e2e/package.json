@@ -9,6 +9,7 @@
   },
   "devDependencies": {
     "@kitestring/protocol": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@playwright/test": "^1.48.0",
     "@types/chrome": "^0.0.287",
     "@types/node": "^22.0.0",

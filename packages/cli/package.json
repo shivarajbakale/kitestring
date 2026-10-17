@@ -2,7 +2,10 @@
   "name": "@kitestring/cli",
   "version": "0.0.0",
   "private": true,
-  "bin": { "kite": "dist/bin.js", "kitestring": "dist/bin.js" },
+  "bin": {
+    "kite": "dist/bin.js",
+    "kitestring": "dist/bin.js"
+  },
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -12,7 +15,9 @@
   },
   "dependencies": {
     "@kitestring/protocol": "workspace:*",
-    "commander": "^15.0.0"
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "commander": "^15.0.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
