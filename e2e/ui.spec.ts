@@ -54,6 +54,20 @@ test.describe("toolbar popup", () => {
     await expect.poll(() => sessionPage.evaluate(() => document.visibilityState)).toBe("visible")
   })
 
+  test("Open live view opens the side panel from the click", async ({ context }) => {
+    const popup = await openPopup(context)
+    const link = popup.getByRole("button", { name: "Open live view" })
+    await expect(link).toBeEnabled() // windowId known
+    const closed = popup.waitForEvent("close") // the popup closes itself once the panel is open
+    await link.click()
+    await closed
+    // Playwright doesn't list side-panel pages; the CDP target list does.
+    const cdp = await context.newCDPSession(await context.newPage())
+    const panelOpen = async () =>
+      (await cdp.send("Target.getTargets")).targetInfos.some((t) => t.url === `chrome-extension://${EXTENSION_ID}/sidepanel.html`)
+    await expect.poll(panelOpen, { timeout: 5000 }).toBe(true)
+  })
+
   test("pause state set by the CLI shows in the popup", async ({ kite, context }) => {
     const popup = await openPopup(context)
     await expect(popup.getByRole("button", { name: "Pause agents" })).toBeVisible()

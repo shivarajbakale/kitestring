@@ -212,7 +212,11 @@ kbd {
   font-weight: 550;
   cursor: pointer;
 }
-.ks-link:hover {
+.ks-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ks-link:hover:not(:disabled) {
   background: var(--ks-hover);
 }
 
@@ -401,6 +405,10 @@ kbd {
 }
 .ks-session:disabled {
   cursor: default;
+}
+/* Inset: the list scrolls, which would clip an outside ring. */
+.ks-session:focus-visible {
+  outline-offset: -2px;
 }
 .ks-session__head {
   display: flex;

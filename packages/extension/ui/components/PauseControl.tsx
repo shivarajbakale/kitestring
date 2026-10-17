@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react"
+import { REASON_MAX } from "../messages"
 import { PauseIcon, PlayIcon } from "./icons"
 import { RelativeTime } from "./RelativeTime"
 
@@ -8,6 +9,7 @@ interface Props {
   since?: number
   /** Tabs the agents currently hold, for the running-state line. */
   agentTabs: number
+  /** Resolves null (or undefined) when the pause was not applied. */
   onPause: (reason?: string) => Promise<unknown>
   onResume: () => Promise<unknown>
 }
@@ -40,8 +42,8 @@ export function PauseControl({ paused, reason, since, agentTabs, onPause, onResu
   const saveReason = async (e?: FormEvent) => {
     e?.preventDefault()
     if (draft.trim() === (reason ?? "")) return
-    await onPause(draft)
-    setSaved(true)
+    // act() resolves null when the background refused or failed.
+    if ((await onPause(draft)) != null) setSaved(true)
   }
 
   if (!paused) {
@@ -77,7 +79,7 @@ export function PauseControl({ paused, reason, since, agentTabs, onPause, onResu
           id={id}
           value={draft}
           placeholder="e.g. checking the order myself"
-          maxLength={200}
+          maxLength={REASON_MAX}
           aria-describedby={`${id}-hint`}
           onChange={(e) => {
             setDraft(e.target.value)

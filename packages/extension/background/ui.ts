@@ -1,5 +1,5 @@
 import type { GroupColor, UiRequest, UiResponse, UiSession, UiState } from "../ui/messages"
-import { isUiRequest } from "../ui/messages"
+import { isTrustedUiSender, parseUiRequest } from "../ui/messages"
 import * as activity from "./activity"
 import * as control from "./control"
 import { isHostConnected } from "./native-port"
@@ -51,7 +51,7 @@ async function handle(req: UiRequest): Promise<UiState> {
       break
     case "pause":
       await control.ready()
-      await control.pause(req.reason?.trim() || undefined)
+      await control.pause(req.reason)
       break
     case "resume":
       await control.ready()
@@ -69,11 +69,20 @@ async function handle(req: UiRequest): Promise<UiState> {
   return uiState()
 }
 
-/** Call once at service-worker start: answers `{kite: "ui", op}` messages from the popup and side panel. */
+/**
+ * Call once at service-worker start: answers `{kite: "ui", op}` messages from the popup and side panel.
+ * `openPanel` is kept for pages that can't call chrome.sidePanel.open themselves; the popup opens the
+ * panel directly so the click's user gesture is never lost.
+ */
 export function listenUi(): void {
   chrome.runtime.onMessage.addListener((m: unknown, sender, sendResponse: (r: UiResponse) => void) => {
-    if (!isUiRequest(m) || sender.id !== chrome.runtime.id) return false
-    handle(m).then(
+    if (!isTrustedUiSender(sender, chrome.runtime.id, chrome.runtime.getURL(""))) return false
+    const req = parseUiRequest(m)
+    if (!req) {
+      if ((m as { kite?: unknown } | null)?.kite === "ui") sendResponse({ ok: false, error: "malformed ui request" })
+      return false
+    }
+    handle(req).then(
       (state) => sendResponse({ ok: true, state }),
       (e: unknown) => sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }),
     )

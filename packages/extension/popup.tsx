@@ -11,6 +11,7 @@ import "~ui/popup.css"
 function Popup() {
   const { state, error, actionError, act } = useStatus()
   const [windowId, setWindowId] = useState<number>()
+  const [panelError, setPanelError] = useState<string | null>(null)
   const version = chrome.runtime.getManifest().version
 
   // Known before any click, so openPanel runs inside the click's user gesture.
@@ -18,9 +19,13 @@ function Popup() {
     chrome.windows.getCurrent().then((w) => setWindowId(w.id), () => {})
   }, [])
 
-  const openPanel = async () => {
-    const s = await act({ op: "openPanel", windowId })
-    if (s) window.close()
+  // Called directly in the click handler (not via the background) so Chrome sees the user gesture.
+  const openPanel = () => {
+    if (windowId === undefined) return
+    chrome.sidePanel.open({ windowId }).then(
+      () => window.close(),
+      (e: unknown) => setPanelError(e instanceof Error ? e.message : String(e)),
+    )
   }
 
   return (
@@ -36,9 +41,9 @@ function Popup() {
         <p className="popup__error" role="alert">
           Can’t reach Kitestring’s background ({error}). Close and reopen this popup.
         </p>
-      ) : actionError ? (
+      ) : actionError || panelError ? (
         <p className="popup__error" role="alert">
-          That didn’t work: {actionError}
+          That didn’t work: {actionError ?? panelError}
         </p>
       ) : null}
 
@@ -72,7 +77,7 @@ function Popup() {
       ) : null}
 
       <footer className="popup__footer">
-        <button type="button" className="ks-link" onClick={() => void openPanel()}>
+        <button type="button" className="ks-link" onClick={openPanel} disabled={windowId === undefined}>
           <PanelIcon />
           Open live view
           <ChevronIcon size={12} />
