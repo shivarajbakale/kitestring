@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>disabled-until-valid</title></head><body>
+<main><h1>Disabled until valid</h1>
+<label for="e">Email</label><input id="e" type="text">
+<div id="msg" role="alert">Enter a valid email</div>
+<button id="s" disabled>Submit</button></main>
+<script>
+window.__result = undefined
+const ok = () => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e.value)
+function sync(){ s.disabled = !ok(); msg.textContent = ok() ? "" : "Enter a valid email" }
+e.addEventListener("input", sync)
+s.addEventListener("click", () => { if (ok()) window.__result = "ok" })
+</script>
+</body></html>

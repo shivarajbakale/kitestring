@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>rerender</title></head><body>
+<main><h1>Rerender</h1><div id="root"></div></main>
+<script>
+window.__result = undefined
+function render(){
+  root.innerHTML = "<ul><li>Alpha</li><li>Beta</li></ul><button>Other</button><button>Pick me</button>"
+}
+render()
+setInterval(render, 500)
+root.addEventListener("click", e => { const b = e.target.closest("button"); if (b) window.__result = b.textContent === "Pick me" ? "picked" : "WRONG:" + b.textContent })
+</script>
+</body></html>

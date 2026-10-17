@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>covered-by-banner</title></head><body>
+<main><h1>Covered</h1><button id="go">Continue</button></main>
+<div id="banner" role="dialog" aria-label="Cookie banner" style="position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center">
+<div style="background:#fff;padding:24px"><p>We use cookies.</p><button id="accept">Accept</button></div></div>
+<script>
+window.__result = undefined
+accept.addEventListener("click", () => banner.remove())
+go.addEventListener("click", () => { window.__result = document.getElementById("banner") ? "WRONG:banner present" : "continued" })
+</script>
+</body></html>

@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>duplicate-buttons</title></head><body>
+<main><h1>Settings</h1>
+<section aria-label="Profile"><h2>Profile</h2><button data-s="profile">Save</button></section>
+<section aria-label="Billing"><h2>Billing</h2><button data-s="billing">Save</button></section></main>
+<script>
+window.__result = undefined
+document.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+  window.__result = b.dataset.s === "profile" ? "saved:profile" : "WRONG:billing"
+}))
+</script>
+</body></html>

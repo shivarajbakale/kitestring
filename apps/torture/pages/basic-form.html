@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>basic-form</title></head><body>
+<main><h1>Basic form</h1>
+<form id="f"><label for="n">Name</label><input id="n" name="name" type="text">
+<label for="e">Email</label><input id="e" name="email" type="email">
+<button type="submit">Submit</button></form></main>
+<script>
+window.__result = undefined
+f.addEventListener("submit", e => { e.preventDefault(); window.__result = "submitted:" + n.value + ":" + document.getElementById("e").value })
+</script>
+</body></html>

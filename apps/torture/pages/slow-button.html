@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>slow-button</title></head><body>
+<main><h1>Slow</h1><button id="b">Load data</button><div id="out"></div></main>
+<script>
+window.__result = undefined
+b.addEventListener("click", () => {
+  out.innerHTML = "<div role=\"progressbar\" aria-label=\"Loading\">Loading...</div>"
+  setTimeout(() => { out.innerHTML = "<h2>Data ready</h2>"; window.__result = "loaded" }, 1500)
+})
+</script>
+</body></html>

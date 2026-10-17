@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>native-select</title></head><body>
+<main><h1>Select</h1><label for="c">Country</label>
+<select id="c"><option value="">Choose</option><option value="US">United States</option><option value="IN">India</option><option value="FR">France</option></select></main>
+<script>
+window.__result = undefined
+c.addEventListener("change", () => { window.__result = c.value === "IN" ? "country:IN" : "WRONG:" + c.value })
+</script>
+</body></html>

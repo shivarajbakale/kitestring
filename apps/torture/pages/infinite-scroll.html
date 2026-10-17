@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>infinite-scroll</title></head><body>
+<main><h1>Infinite list</h1><div id="list"></div></main>
+<style>#list button{display:block;width:100%;height:60px;margin:4px 0}</style>
+<script>
+window.__result = undefined
+let n = 0, loading = false
+function add(){ for (let i = 0; i < 20; i++){ n++; const b = document.createElement("button"); b.textContent = "Item " + n; b.dataset.n = n; list.appendChild(b) } }
+add()
+list.addEventListener("click", e => { const b = e.target.closest("button"); if (b) window.__result = "item:" + b.dataset.n })
+window.addEventListener("scroll", () => {
+  if (loading) return
+  if (innerHeight + scrollY >= document.documentElement.scrollHeight - 200){
+    loading = true
+    setTimeout(() => { add(); loading = false }, 300)
+  }
+})
+</script>
+</body></html>

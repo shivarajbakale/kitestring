@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>icon-only</title></head><body>
+<main><h1>Icon buttons</h1>
+<button aria-label="Delete item">🗑</button>
+<button title="Settings">⚙</button></main>
+<script>
+window.__result = undefined
+document.querySelector("[aria-label]").addEventListener("click", () => { window.__result = "deleted" })
+document.querySelector("[title]").addEventListener("click", () => { window.__result = "WRONG:settings" })
+</script>
+</body></html>
