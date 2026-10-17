@@ -17,6 +17,8 @@ export const PATH_ROLES = new Set([
 ])
 
 export function roleOf(el: Element): string | null {
+  // ARIA has no role for password inputs; treat them as textboxes (value is masked in snapshots).
+  if (el instanceof HTMLInputElement && el.type === "password") return "textbox"
   return getRole(el)
 }
 

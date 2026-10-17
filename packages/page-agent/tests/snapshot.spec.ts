@@ -96,3 +96,34 @@ test("refs survive re-render and resolve to new node", async ({ fixture }) => {
   const ok2 = await page.evaluate((ref) => window.__bxAgent.resolve(ref)?.isConnected === true, before)
   expect(ok2).toBe(true)
 })
+
+test("interactive elements inside headings are kept", async ({ fixture }) => {
+  const page = await fixture("fixes.html")
+  const snap = await page.evaluate(() => window.__bxAgent.snapshot())
+  expect(snap).toMatch(/^ {2}heading "Product"\n {4}link "Product" \[@e[0-9a-z]{5}\]$/m)
+})
+
+test("password values are masked", async ({ fixture }) => {
+  const page = await fixture("fixes.html")
+  const snap = await page.evaluate(() => window.__bxAgent.snapshot())
+  expect(snap).not.toContain("hunter2")
+  expect(snap).toContain('textbox "Secret pw"')
+  expect(snap).toContain('value="••••"')
+  expect(snap).toMatch(/"Empty pw" \[@e\w+\] value=""/)
+})
+
+test("scope on off-screen element implies full", async ({ fixture }) => {
+  const page = await fixture("fixes.html")
+  const snap = await page.evaluate(() => {
+    const full = window.__bxAgent.snapshot({ full: true })
+    const ref = /button "Deep button" \[(@e\w+)\]/.exec(full)![1]
+    return window.__bxAgent.snapshot({ scope: ref })
+  })
+  expect(snap).toContain('button "Deep button"')
+})
+
+test("fieldset disabled marks descendants disabled", async ({ fixture }) => {
+  const page = await fixture("fixes.html")
+  const snap = await page.evaluate(() => window.__bxAgent.snapshot())
+  expect(snap).toMatch(/"In fieldset" \[@e\w+\] value="" disabled/)
+})

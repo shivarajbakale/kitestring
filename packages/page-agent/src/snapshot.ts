@@ -22,6 +22,7 @@ function valueOf(el: Element): string {
   if (el instanceof HTMLSelectElement) {
     return Array.from(el.selectedOptions).map((o) => o.text.trim()).join(", ")
   }
+  if (el instanceof HTMLInputElement && el.type === "password") return el.value ? "••••" : ""
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.value
   return el.getAttribute("aria-valuenow") ?? el.getAttribute("aria-valuetext") ?? el.textContent?.trim() ?? ""
 }
@@ -29,7 +30,7 @@ function valueOf(el: Element): string {
 function annotations(el: Element, role: string): string {
   let out = ""
   if (VALUE_ROLES.has(role)) out += ` value=${q(valueOf(el))}`
-  if ((el as HTMLButtonElement).disabled === true || el.getAttribute("aria-disabled") === "true") out += " disabled"
+  if (el.matches(":disabled") || el.getAttribute("aria-disabled") === "true") out += " disabled"
   if (CHECK_ROLES.has(role)) {
     const checked = el instanceof HTMLInputElement ? el.checked : el.getAttribute("aria-checked") === "true"
     if (checked) out += " checked"
@@ -43,6 +44,8 @@ export function snapshot(doc: Document, reg: RefRegistry, opts: SnapshotOpts = {
   const lines: string[] = [`page ${q(doc.title)} ${doc.location.href}`]
   reg.rescan()
 
+  const full = !!opts.full || !!opts.scope
+
   const pruned = (el: Element): boolean => {
     if (SKIP_TAGS.has(el.tagName) || el.getAttribute("aria-hidden") === "true") return true
     const cs = win.getComputedStyle(el)
@@ -54,7 +57,7 @@ export function snapshot(doc: Document, reg: RefRegistry, opts: SnapshotOpts = {
     if (win.getComputedStyle(el).visibility !== "visible") return false
     const r = el.getBoundingClientRect()
     if (r.width <= 0 || r.height <= 0) return false
-    if (opts.full) return true
+    if (full) return true
     return r.bottom > 0 && r.right > 0 && r.top < win.innerHeight && r.left < win.innerWidth
   }
 
@@ -82,7 +85,8 @@ export function snapshot(doc: Document, reg: RefRegistry, opts: SnapshotOpts = {
       if (shown(el)) {
         const name = nameOf(el)
         line(depth, `heading${name ? " " + q(name) : ""}`)
-      }
+        children(el, depth + 1)
+      } else children(el, depth)
       return
     }
     if (role === "list") {
