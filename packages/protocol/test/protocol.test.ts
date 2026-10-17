@@ -41,3 +41,14 @@ describe("ErrorCode", () => {
     expect(ErrorCode.TIMEOUT).toBe("TIMEOUT")
   })
 })
+
+describe("M2 control and activity", () => {
+  it("includes PAUSED", () => {
+    expect(ErrorCode.PAUSED).toBe("PAUSED")
+  })
+  it("accepts control.* and activity.list", () => {
+    for (const method of ["control.pause", "control.resume", "control.state", "activity.list"]) {
+      expect(RpcRequest.safeParse({ id: 1, method, params: {}, session: "s" }).success, method).toBe(true)
+    }
+  })
+})

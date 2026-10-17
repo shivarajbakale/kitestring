@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>serial</title></head><body>
+<main><h1>Serial</h1>
+<button id="slow">Slow task</button>
+<button id="fast">Fast task</button>
+<div id="out"></div></main>
+<script>
+// Records the order in which clicks arrive. "Slow task" shows a progress bar for 2 s, so the
+// action that clicked it is still waiting for the page to settle while another click could land.
+window.__result = undefined
+window.__events = []
+let fastCount = 0
+slow.addEventListener("click", () => {
+  __events.push("slow:start")
+  out.innerHTML = "<div role=\"progressbar\" aria-label=\"Working\">Working...</div>"
+  setTimeout(() => { __events.push("slow:end"); out.innerHTML = "<h2>Slow finished</h2>" }, 2000)
+})
+fast.addEventListener("click", () => {
+  __events.push("fast")
+  fastCount++
+  out.insertAdjacentHTML("beforeend", "<p>Fast " + fastCount + "</p>")
+})
+</script>
+</body></html>

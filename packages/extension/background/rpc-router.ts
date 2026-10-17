@@ -1,8 +1,24 @@
-import { ErrorCode, RpcRequest, type Method, type RpcResponse, type Target } from "@kitestring/protocol"
+import {
+  ErrorCode,
+  RpcRequest,
+  type ActionResult,
+  type ActivityEntry,
+  type Method,
+  type RpcResponse,
+  type Target,
+} from "@kitestring/protocol"
+import * as activity from "./activity"
 import { callAgent } from "./agent-bridge"
+import * as control from "./control"
 import { RestrictedPageError, RpcError } from "./errors"
 import { goto, runAction } from "./pipeline"
+import { rejectWaiters } from "./serial"
 import * as sessions from "./sessions"
+
+// Pausing lets the action holding a tab finish but turns away everything queued behind it.
+control.onChange((st) => {
+  if (st.paused) rejectWaiters(control.pausedError())
+})
 
 /** Bound on page.snapshot (the only handler outside the action pipeline's cap). */
 const SNAPSHOT_CAP_MS = 15_000
@@ -52,7 +68,29 @@ function targetParam(params: Record<string, unknown>): Target {
 }
 
 const handlers: Partial<Record<Method, Handler>> = {
-  status: async () => ({ connected: true, sessions: sessions.sessionNames() }),
+  status: async () => ({ connected: true, sessions: sessions.sessionNames(), paused: control.isPaused() }),
+
+  "control.pause": async (params) => {
+    const reason = params.reason
+    if (reason !== undefined && typeof reason !== "string") badRequest("params.reason must be a string")
+    await control.pause(reason || undefined)
+    return { paused: true }
+  },
+
+  "control.resume": async () => {
+    await control.resume()
+    return { paused: false }
+  },
+
+  "control.state": async () => control.getState(),
+
+  "activity.list": async (params) => {
+    const limit = params.limit
+    if (limit !== undefined && (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1)) {
+      badRequest("params.limit must be a positive integer")
+    }
+    return { entries: activity.list(limit) }
+  },
 
   "tab.new": async (params, s) => {
     const url = params.url
@@ -112,6 +150,95 @@ const handlers: Partial<Record<Method, Handler>> = {
 /** Only opening a tab creates a session; other methods must not register sessions as a side effect. */
 const CREATES_SESSION: ReadonlySet<Method> = new Set(["tab.new"])
 
+/** Methods that still answer while the user has paused Kitestring. */
+const WHILE_PAUSED: ReadonlySet<Method> = new Set([
+  "status",
+  "tab.list",
+  "control.pause",
+  "control.resume",
+  "control.state",
+  "activity.list",
+])
+
+/** Methods that change something: recorded in the activity log, successful or not. */
+function isRecorded(m: Method): boolean {
+  return m === "tab.new" || m === "tab.close" || m === "page.goto" || m.startsWith("act.")
+}
+
+function describeTarget(method: Method, params: Record<string, unknown>): string | undefined {
+  const t = params.target as { ref?: unknown; text?: unknown; within?: unknown } | undefined
+  if (t && typeof t === "object") {
+    if (typeof t.ref === "string") return t.ref
+    if (typeof t.text === "string") return `"${t.text}"${typeof t.within === "string" ? ` within "${t.within}"` : ""}`
+  }
+  // Never the value of act.fill / act.select: it may be a secret.
+  if (method === "act.press" && typeof params.key === "string") return params.key
+  if (method === "act.scroll" && typeof params.direction === "string") {
+    return typeof params.px === "number" ? `${params.direction} ${params.px}` : params.direction
+  }
+  if ((method === "page.goto" || method === "tab.new") && typeof params.url === "string") return params.url
+  if (method === "tab.close" && typeof params.id === "number") return String(params.id)
+  return undefined
+}
+
+async function tabUrl(tabId: number | null): Promise<string | undefined> {
+  if (tabId === null) return undefined
+  try {
+    const t = await chrome.tabs.get(tabId)
+    return t.url || t.pendingUrl || undefined
+  } catch {
+    return undefined
+  }
+}
+
+type Outcome = { result: unknown } | { error: { code: string; message: string } }
+
+async function recordActivity(
+  req: RpcRequest,
+  tabBefore: number | null,
+  ms: number,
+  outcome: Outcome,
+): Promise<void> {
+  const target = describeTarget(req.method, req.params)
+  const entry: Omit<ActivityEntry, "id" | "ts"> = {
+    session: req.session,
+    method: req.method,
+    ms,
+    tabId: tabBefore,
+    status: "done",
+    summary: "",
+  }
+  if (target !== undefined) entry.target = target
+  if ("error" in outcome) {
+    entry.status = outcome.error.code as ErrorCode
+    entry.summary = activity.errorSummary(outcome.error.code, outcome.error.message)
+    const url = await tabUrl(tabBefore)
+    if (url) entry.url = url
+  } else if (req.method === "tab.new") {
+    const r = outcome.result as { id: number; url: string }
+    entry.tabId = r.id
+    entry.url = r.url
+    entry.summary = `✓ tab ${r.id} ${r.url}`.trimEnd()
+  } else if (req.method === "tab.close") {
+    entry.summary = tabBefore === null ? "✓ closed" : `✓ closed tab ${tabBefore}`
+  } else {
+    const r = outcome.result as ActionResult
+    entry.status = r.status
+    entry.summary = activity.resultSummary(r)
+    entry.diff = r.diff
+    entry.page = r.page
+    const url = r.navigation?.url ?? (await tabUrl(tabBefore))
+    if (url) entry.url = url
+  }
+  activity.record(entry)
+}
+
+function errorOf(e: unknown): { code: string; message: string } {
+  if (e instanceof RestrictedPageError) return { code: ErrorCode.RESTRICTED, message: e.message }
+  if (e instanceof RpcError) return { code: e.code, message: e.message }
+  return { code: ErrorCode.INTERNAL, message: e instanceof Error ? e.message : String(e) }
+}
+
 export async function route(raw: unknown): Promise<RpcResponse> {
   const parsed = RpcRequest.safeParse(raw)
   const rawId = (raw as { id?: unknown } | null)?.id
@@ -126,16 +253,28 @@ export async function route(raw: unknown): Promise<RpcResponse> {
   if (!handler) {
     return { id: req.id, error: { code: ErrorCode.BAD_REQUEST, message: `unsupported method: ${req.method}` } }
   }
+  const t0 = Date.now()
+  let tabBefore: number | null = null
+  let outcome: Outcome
   try {
-    await sessions.loadSessions()
+    await Promise.all([sessions.loadSessions(), control.ready(), activity.ready()])
+    const existing = sessions.findSession(req.session)
+    if (req.method === "tab.close" && typeof req.params.id === "number") tabBefore = req.params.id
+    else if (req.method !== "tab.new") tabBefore = existing?.activeTabId ?? null
+    // Before any session is created: a paused request must leave no trace but its activity entry.
+    if (!WHILE_PAUSED.has(req.method)) control.assertNotPaused()
     const s = CREATES_SESSION.has(req.method)
       ? sessions.getOrCreateSession(req.session)
-      : (sessions.findSession(req.session) ?? sessions.emptySession(req.session))
+      : (existing ?? sessions.emptySession(req.session))
     const result = await handler(req.params, s)
-    return { id: req.id, result: result === undefined ? null : result }
+    outcome = { result: result === undefined ? null : result }
   } catch (e) {
-    if (e instanceof RestrictedPageError) return { id: req.id, error: { code: ErrorCode.RESTRICTED, message: e.message } }
-    if (e instanceof RpcError) return { id: req.id, error: { code: e.code, message: e.message } }
-    return { id: req.id, error: { code: ErrorCode.INTERNAL, message: e instanceof Error ? e.message : String(e) } }
+    outcome = { error: errorOf(e) }
   }
+  if (isRecorded(req.method)) {
+    await recordActivity(req, tabBefore, Date.now() - t0, outcome).catch((e: unknown) =>
+      console.warn("[kite] activity not recorded", e),
+    )
+  }
+  return { id: req.id, ...outcome } as RpcResponse
 }

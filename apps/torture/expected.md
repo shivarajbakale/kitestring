@@ -18,3 +18,5 @@ Serve with `pnpm --filter torture dev` (default http://127.0.0.1:4173). Each pag
 | `whitespace` | `kite click "  save changes "` | `saved` |
 
 `/navigating-link-done` is the navigation target of `navigating-link`. `/analytics/*` returns 204.
+
+`serial` (M2): records click order in `window.__events`. `kite click "Slow task"` (2 s progress bar) and a concurrent `kite click "Fast task"` on the same tab must give `["slow:start", "slow:end", "fast"]` — actions on one tab never interleave.

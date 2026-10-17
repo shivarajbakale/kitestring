@@ -2,9 +2,9 @@ import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { Command, CommanderError } from "commander"
-import { EXTENSION_ID, parseTarget, type ActionResult, type Method } from "@kitestring/protocol"
+import { EXTENSION_ID, parseTarget, type ActionResult, type ActivityEntry, type Method } from "@kitestring/protocol"
 import { KiteError, call } from "./client/rpc-client.js"
-import { formatResult } from "./client/format.js"
+import { formatActivity, formatResult } from "./client/format.js"
 import { installHost } from "./install/host-manifest.js"
 import { kiteHome } from "./paths.js"
 
@@ -30,6 +30,12 @@ function human(method: Method, result: unknown): string {
     }
     case "status":
       return typeof r === "string" ? r : JSON.stringify(r, null, 2)
+    case "control.pause":
+      return "paused — agents get PAUSED until `kite resume`"
+    case "control.resume":
+      return "resumed"
+    case "activity.list":
+      return formatActivity((r?.entries ?? []) as ActivityEntry[])
     default:
       return r && typeof r === "object" && "status" in r ? formatResult(r as ActionResult) : JSON.stringify(r)
   }
@@ -97,6 +103,19 @@ export async function main(argv: string[]): Promise<number> {
     const n = px === undefined ? undefined : Number(px)
     return run("act.scroll", { direction: dir, ...(n !== undefined ? { px: n } : {}) })
   })
+  program
+    .command("pause [reason]")
+    .description("stop all agents from acting until resumed")
+    .action((reason?: string) => run("control.pause", reason ? { reason } : {}))
+  program.command("resume").description("let agents act again").action(() => run("control.resume", {}))
+  program
+    .command("activity")
+    .description("recent agent actions, newest first")
+    .option("--limit <n>", "how many entries", "200")
+    .action((o: { limit: string }) => {
+      if (!/^[1-9]\d*$/.test(o.limit)) throw new UsageError(`--limit must be a positive integer: ${o.limit}`)
+      return run("activity.list", { limit: Number(o.limit) })
+    })
   program
     .command("install-host")
     .option("--browser <browser>", "chrome|chromium", "chrome")

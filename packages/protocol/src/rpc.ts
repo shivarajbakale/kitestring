@@ -13,6 +13,10 @@ export const METHODS = [
   "act.press",
   "act.select",
   "act.scroll",
+  "control.pause",
+  "control.resume",
+  "control.state",
+  "activity.list",
 ] as const
 
 export type Method = (typeof METHODS)[number]
@@ -26,6 +30,8 @@ export const ErrorCode = {
   INTERNAL: "INTERNAL",
   /** The browser did not answer in time (page never became scriptable, stuck call). */
   TIMEOUT: "TIMEOUT",
+  /** The user paused Kitestring (popup / `kite pause`): nothing acts until resumed. */
+  PAUSED: "PAUSED",
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]

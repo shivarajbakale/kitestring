@@ -1,10 +1,12 @@
-import { READY, type ActionResult, type Diff, type Status, type Target } from "@kitestring/protocol"
+import { ErrorCode, READY, type ActionResult, type Diff, type Status, type Target } from "@kitestring/protocol"
 import { diffSnapshots, type CheckResult, type FindResult } from "@kitestring/page-agent"
 import { callAgent, isRestrictedUrl } from "./agent-bridge"
 import { ensureAttached, isNotAttached, onEvent, send } from "./cdp"
-import { RestrictedPageError } from "./errors"
+import { assertNotPaused } from "./control"
+import { RestrictedPageError, RpcError } from "./errors"
 import * as input from "./input"
 import { trackNetwork, type NetworkTracker } from "./network-idle"
+import { withTabLock } from "./serial"
 import { activeTab, adoptTab, type Session } from "./sessions"
 
 export type Action =
@@ -24,6 +26,8 @@ interface Progress {
   diff: Diff
   page?: string
   expired: boolean
+  /** Still queued behind another action on the same tab. */
+  waiting: boolean
 }
 
 class Expired extends Error {}
@@ -406,13 +410,26 @@ async function act(r: Run, action: Action): Promise<ActionResult> {
   return finish(r, before, {})
 }
 
-/** Runs `body` with the 15 s cap; on cap, answers `timeout` with whatever is known. */
-async function capped(tabId: number, body: (p: Progress) => Promise<ActionResult>): Promise<ActionResult> {
-  const p: Progress = { diff: EMPTY, expired: false }
+/**
+ * Runs `body` with the 15 s cap, holding the tab's lock: actions on one tab run one at a time, and
+ * time spent queued counts against the waiter's own cap. On cap, answers `timeout` with whatever is
+ * known. Queued waiters re-check the pause switch when their turn comes (pause also rejects them).
+ * Exported for unit tests.
+ */
+export async function capped(tabId: number, body: (p: Progress) => Promise<ActionResult>): Promise<ActionResult> {
+  const p: Progress = { diff: EMPTY, expired: false, waiting: true }
+  const queue = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   const cap = new Promise<ActionResult>((resolve) => {
     timer = setTimeout(() => {
       p.expired = true
+      if (p.waiting) {
+        queue.abort(new Expired())
+        void safeBrief(tabId, 1_000).then((page) =>
+          resolve({ ok: false, status: "timeout", detail: "waited for another action on this tab", diff: EMPTY, page }),
+        )
+        return
+      }
       void (p.page !== undefined ? Promise.resolve(p.page) : safeBrief(tabId, 1_000)).then((page) =>
         resolve({
           ok: false,
@@ -424,8 +441,27 @@ async function capped(tabId: number, body: (p: Progress) => Promise<ActionResult
       )
     }, ACTION_CAP_MS)
   })
+  const run = withTabLock(
+    tabId,
+    async () => {
+      p.waiting = false
+      if (p.expired) throw new Expired()
+      assertNotPaused()
+      return body(p)
+    },
+    { signal: queue.signal },
+  ).catch((e: unknown): ActionResult | Promise<ActionResult> => {
+    // The cap fired: its answer (built asynchronously) is the result, not the abandoned body's error.
+    if (e instanceof Expired) return cap
+    // R14: a browser-side TIMEOUT inside the pipeline (e.g. the page never became scriptable) is an
+    // action outcome, not an RPC failure.
+    if (e instanceof RpcError && e.code === ErrorCode.TIMEOUT) {
+      return { ok: false, status: "timeout", detail: e.message, diff: { added: [], removed: [] }, page: "" }
+    }
+    throw e
+  })
   try {
-    return await Promise.race([body(p), cap])
+    return await Promise.race([run, cap])
   } finally {
     clearTimeout(timer)
   }

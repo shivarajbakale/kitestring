@@ -7,7 +7,7 @@ test.describe("sessions", () => {
   test("status reports connected", async ({ kite }) => {
     const r = await kite("status", "--json")
     expect(r.code).toBe(0)
-    expect(JSON.parse(r.stdout)).toEqual({ connected: true, sessions: [] })
+    expect(JSON.parse(r.stdout)).toEqual({ connected: true, sessions: [], paused: false })
   })
 
   test("tab new opens a tab in the session's group", async ({ kite, torture, sw }) => {
