@@ -39,6 +39,12 @@ function annotations(el: Element, role: string): string {
   return out
 }
 
+/** Snapshot line (no indentation) for an interactive element. */
+export function elementLine(el: Element, role: string, reg: RefRegistry): string {
+  const name = nameOf(el)
+  return `${role}${name ? " " + q(name) : ""} [${reg.refFor(el)}]${annotations(el, role)}`
+}
+
 export function snapshot(doc: Document, reg: RefRegistry, opts: SnapshotOpts = {}): string {
   const win = doc.defaultView!
   const lines: string[] = [`page ${q(doc.title)} ${doc.location.href}`]
@@ -75,8 +81,7 @@ export function snapshot(doc: Document, reg: RefRegistry, opts: SnapshotOpts = {
     if (role && INTERACTIVE_ROLES.has(role)) {
       const visible = shown(el)
       if (visible) {
-        const name = nameOf(el)
-        line(depth, `${role}${name ? " " + q(name) : ""} [${reg.refFor(el)}]${annotations(el, role)}`)
+        line(depth, elementLine(el, role, reg))
       }
       if (role === "listbox" && !(el instanceof HTMLSelectElement)) children(el, visible ? depth + 1 : depth)
       return
