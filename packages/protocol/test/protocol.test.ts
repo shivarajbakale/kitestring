@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parseTarget, RpcRequest } from "../src/index.js"
+import { parseTarget, RpcRequest, RpcResponse } from "../src/index.js"
 
 describe("parseTarget", () => {
   it("parses a ref", () => {
@@ -19,5 +19,19 @@ describe("RpcRequest", () => {
   })
   it("rejects an unknown method", () => {
     expect(RpcRequest.safeParse({ id: 1, method: "nope", params: {}, session: "x" }).success).toBe(false)
+  })
+})
+
+describe("RpcResponse", () => {
+  it("round-trips an error response unchanged", () => {
+    const e = { id: 1, error: { code: "X", message: "m" } }
+    expect(RpcResponse.parse(e)).toEqual(e)
+  })
+  it("round-trips a result response unchanged", () => {
+    const r = { id: 2, result: { a: 1 } }
+    expect(RpcResponse.parse(r)).toEqual(r)
+  })
+  it("rejects an object with neither result nor error", () => {
+    expect(RpcResponse.safeParse({ id: 3 }).success).toBe(false)
   })
 })

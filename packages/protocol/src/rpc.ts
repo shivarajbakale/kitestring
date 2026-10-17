@@ -37,7 +37,10 @@ export const RpcRequest = z.object({
 export type RpcRequest = z.infer<typeof RpcRequest>
 
 export const RpcResponse = z.union([
-  z.object({ id: z.number(), result: z.unknown() }),
-  z.object({ id: z.number(), error: z.object({ code: z.string(), message: z.string() }) }),
+  z.object({ id: z.number(), error: z.object({ code: z.string(), message: z.string() }) }).strict(),
+  z
+    .object({ id: z.number(), result: z.unknown() })
+    .strict()
+    .refine((v) => "result" in v, { message: "result required" }),
 ])
 export type RpcResponse = z.infer<typeof RpcResponse>
