@@ -10,7 +10,8 @@ import { activeTab, adoptTab, type Session } from "./sessions"
 export type Action =
   | { kind: "click" | "fill" | "select"; target: Target; value?: string }
   | { kind: "press"; key: string }
-  | { kind: "scroll"; dy: number }
+  /** `px` defaults to one viewport height. */
+  | { kind: "scroll"; direction: "up" | "down"; px?: number }
 
 /** Hard cap per action, retries included: the CLI has no client-side timeout, so we must always answer. */
 const ACTION_CAP_MS = 15_000
@@ -339,7 +340,10 @@ async function act(r: Run, action: Action): Promise<ActionResult> {
     const before = await callAgent<string>(tabId, "snapshot", [{ full: false }])
     guard()
     if (action.kind === "press") await input.press(tabId, action.key)
-    else await scrollAndSettle(tabId, action.dy)
+    else {
+      const px = action.px ?? (await input.viewport(tabId)).height
+      await scrollAndSettle(tabId, action.direction === "up" ? -px : px)
+    }
     return finish(r, before, {})
   }
 

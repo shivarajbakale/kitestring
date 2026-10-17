@@ -1,8 +1,6 @@
 import { ErrorCode, RpcRequest, type Method, type RpcResponse, type Target } from "@bx/protocol"
 import { callAgent } from "./agent-bridge"
 import { RestrictedPageError, RpcError } from "./errors"
-import { ensureAttached } from "./cdp"
-import { viewport } from "./input"
 import { goto, runAction } from "./pipeline"
 import * as sessions from "./sessions"
 
@@ -91,15 +89,8 @@ const handlers: Partial<Record<Method, Handler>> = {
     if (px !== undefined && (typeof px !== "number" || !Number.isFinite(px) || px <= 0)) {
       badRequest("params.px must be a positive number")
     }
-    // Default: one viewport height.
-    const amount = px ?? (await viewportHeight(sessions.activeTab(s)))
-    return runAction(s, { kind: "scroll", dy: direction === "up" ? -amount : amount })
+    return runAction(s, { kind: "scroll", direction, ...(px !== undefined ? { px } : {}) })
   },
-}
-
-async function viewportHeight(tabId: number): Promise<number> {
-  await ensureAttached(tabId)
-  return (await viewport(tabId)).height
 }
 
 /** Only opening a tab creates a session; other methods must not register sessions as a side effect. */

@@ -69,7 +69,7 @@ bx tab new https://example.com && bx snapshot
 `bx snapshot` prints the visible page as a compact tree with refs (`@e…`). You can act on those refs or on visible text:
 
 ```sh
-bx click "More information"      # or: bx click @e1a2b3
+bx click "Learn more"            # or by ref: bx click @e1a2b3
 bx fill Email ada@example.com
 bx select Country India
 bx press Enter
