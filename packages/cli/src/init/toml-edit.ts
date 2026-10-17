@@ -46,6 +46,55 @@ function split(text: string): { lines: string[]; eol: string } {
   return { lines: text.split(eol), eol }
 }
 
+const KEY_LINE = /^\s*((?:[A-Za-z0-9_-]+|"[^"]*"|'[^']*')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"[^"]*"|'[^']*'))*)\s*=/
+
+/**
+ * 1-based line number where `table` (or a key under it) is defined by a key/value line instead of a
+ * `[table]` header: `kitestring = { … }` under `[mcp_servers]`, or `mcp_servers.kitestring.command = …`.
+ * Appending a `[table]` header then would define the key twice and break the file.
+ */
+function otherDefinition(text: string, table: string): number | undefined {
+  const lines = split(text).lines
+  let current = ""
+  let arrayDepth = 0
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    if (arrayDepth > 0) {
+      arrayDepth += bracketDelta(line)
+      continue
+    }
+    const h = headerKey(line)
+    if (h !== undefined) {
+      current = /^\s*\[\[/.test(line) ? "\0array" : h
+      continue
+    }
+    const m = KEY_LINE.exec(line)
+    if (!m) continue
+    arrayDepth = Math.max(0, bracketDelta(line.slice(m[0].length)))
+    if (current === table || current.startsWith(table + ".")) continue // inside our own tables
+    const full = normKey(current ? `${current}.${m[1]}` : m[1]!)
+    if (full === table || full.startsWith(table + ".")) return i + 1
+  }
+  return undefined
+}
+
+/** Net `[` minus `]` outside strings and comments (for multi-line arrays). */
+function bracketDelta(s: string): number {
+  let d = 0
+  let q: string | undefined
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!
+    if (q) {
+      if (c === "\\" && q === '"') i++
+      else if (c === q) q = undefined
+    } else if (c === '"' || c === "'") q = c
+    else if (c === "#") break
+    else if (c === "[") d++
+    else if (c === "]") d--
+  }
+  return d
+}
+
 /** Lines strictly between two blocks are all blank (so they read as one unit). */
 function adjacent(lines: string[], a: Block, b: Block): boolean {
   for (let i = a.end; i < b.start; i++) if (lines[i]!.trim() !== "") return false
@@ -71,6 +120,10 @@ function removeBlock(lines: string[], b: Block): void {
  * table in place when present, else appends it after a blank line. Returns `text` itself when unchanged.
  */
 export function tomlSetTable(text: string, table: string, block: string): string {
+  const other = otherDefinition(text, table)
+  if (other) {
+    throw new Error(`${table} is already defined as a key (line ${other}: inline table or dotted keys) — edit it by hand`)
+  }
   const { lines, eol } = split(text)
   const blockLines = block.split("\n")
   const blocks = findBlocks(lines, table)

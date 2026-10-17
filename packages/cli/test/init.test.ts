@@ -11,6 +11,7 @@ import {
   readlinkSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs"
@@ -126,6 +127,19 @@ describe("json-edit", () => {
     expect(jsonSet(a, ["mcp", "kitestring"], { a: [1, 2] })).toBe(a)
     expect(jsonRemove(a, ["mcp", "kitestring"])).toBe(t)
   })
+  it("refuses to remove an entry when that would delete a neighbouring comment", () => {
+    const first = `{\n  "mcp": {\n    "kitestring": { "a": 1 },\n    // my other server\n    "other": { "b": 2 }\n  }\n}\n`
+    expect(() => jsonRemove(first, ["mcp", "kitestring"])).toThrow(/comment/)
+    const last = `{\n  "mcp": {\n    "foo": 1, // foo note\n    "kitestring": { "a": 1 }\n  }\n}\n`
+    expect(() => jsonRemove(last, ["mcp", "kitestring"])).toThrow(/comment/)
+    // comments elsewhere in the object are fine
+    const ok = `{\n  "mcp": {\n    // servers\n    "foo": 1,\n    "kitestring": { "a": 1 }\n  }\n}\n`
+    expect(jsonRemove(ok, ["mcp", "kitestring"])).toBe(`{\n  "mcp": {\n    // servers\n    "foo": 1\n  }\n}\n`)
+    // an emptied container that carries a comment is kept
+    const lone = `{\n  "x": 1,\n  "mcp": { /* mine */ "kitestring": 1 }\n}\n`
+    expect(jsonRemove(lone, ["mcp", "kitestring"])).toBe(`{\n  "x": 1,\n  "mcp": { /* mine */  }\n}\n`)
+  })
+
   it("creates and removes a missing parent", () => {
     const t = `{\n  "theme": "dark"\n}\n`
     const a = jsonSet(t, ["mcpServers", "kitestring"], { command: "n" })
@@ -154,6 +168,18 @@ describe("toml-edit", () => {
     expect(tomlSetTable(a, "mcp_servers.kitestring", block)).toBe(a)
     expect(tomlRemoveTable(a, "mcp_servers.kitestring")).toBe(t)
   })
+  it("refuses to add a [table] when the server is already defined inline or with dotted keys", () => {
+    const inline = `[mcp_servers]\nkitestring = { command = "x" }\n`
+    expect(() => tomlSetTable(inline, "mcp_servers.kitestring", block)).toThrow(/line 2/)
+    const dotted = `model = "m"\nmcp_servers.kitestring.command = "x"\n`
+    expect(() => tomlSetTable(dotted, "mcp_servers.kitestring", block)).toThrow(/line 2/)
+    const quoted = `[mcp_servers]\n"kitestring".command = "x"\n`
+    expect(() => tomlSetTable(quoted, "mcp_servers.kitestring", block)).toThrow(/edit it by hand/)
+    // a multi-line array value whose lines look like headers is not a definition
+    const arr = `[x]\nargs = [\n  ["mcp_servers.kitestring"],\n]\n`
+    expect(tomlSetTable(arr, "mcp_servers.kitestring", block)).toContain("[mcp_servers.kitestring]")
+  })
+
   it("replaces an existing table + env subtable in the middle, leaving neighbours alone", () => {
     const t = `# top\n[a]\nx = 1\n\n[mcp_servers.kitestring]\ncommand = "old"\nargs = ["x"]\n\n[mcp_servers.kitestring.env]\nKITE_SESSION = "zzz"\n\n# about b\n[b]\ny = 2\n`
     const a = tomlSetTable(t, "mcp_servers.kitestring", block)
@@ -284,6 +310,39 @@ describe("kite init", () => {
     expect(JSON.parse(read(".claude.json")).mcpServers.kitestring).toBeDefined()
   })
 
+  it("reports a Codex config that defines the server inline and leaves it unchanged", async () => {
+    useFixture("full")
+    const t = `[mcp_servers]\nkitestring = { command = "x" }\n`
+    writeFileSync(join(home, ".codex", "config.toml"), t)
+    expect(await runInit(opts())).toBe(1)
+    expect(read(".codex/config.toml")).toBe(t)
+    expect(out.join("\n")).toMatch(/codex: .*config\.toml: mcp_servers\.kitestring is already defined as a key/)
+  })
+
+  it("keeps an existing file's mode and creates new files 0600", async () => {
+    useFixture("full")
+    chmodSync(join(home, ".cursor", "mcp.json"), 0o640)
+    rmSync(join(home, ".config", "opencode", "opencode.json"))
+    rmSync(join(home, ".config", "opencode", "opencode.jsonc"))
+    expect(await runInit(opts())).toBe(0)
+    expect(statSync(join(home, ".cursor", "mcp.json")).mode & 0o777).toBe(0o640)
+    expect(statSync(join(home, ".config", "opencode", "opencode.json")).mode & 0o777).toBe(0o600)
+  })
+
+  it("moves a modified skill folder to a backup outside the skills dirs before replacing it", async () => {
+    useFixture("full")
+    const mine = join(home, ".agents", "skills", "kitestring")
+    mkdirSync(mine, { recursive: true })
+    writeFileSync(join(mine, "SKILL.md"), "my edits\n")
+    expect(await runInit(opts())).toBe(0)
+    const text = out.join("\n")
+    const backup = join(home, ".agents", "kite-backups", "skills", "kitestring.kite-backup-20261018120000")
+    expect(text).toContain(`replace modified ${mine}`)
+    expect(text).toContain(backup)
+    expect(readFileSync(join(backup, "SKILL.md"), "utf8")).toBe("my edits\n")
+    expect(readFileSync(join(mine, "SKILL.md"), "utf8")).toContain("name: kitestring")
+  })
+
   it("--agents limits to the named agents", async () => {
     useFixture("full")
     expect(await runInit(opts({ agents: ["cursor"] }))).toBe(0)
@@ -396,6 +455,16 @@ describe("kite uninstall-agents", () => {
     expect(await runUninstall(opts())).toBe(0)
     expect(read(".cursor/mcp.json.kite-backup-20261018120000")).toBe(fixture("full", ".cursor/mcp.json"))
     expect(JSON.parse(read(".cursor/mcp.json.kite-backup-20261018120000.1")).mcpServers.kitestring).toBeDefined()
+  })
+
+  it("leaves a skill folder that differs from the repo copy (user-edited) alone", async () => {
+    useFixture("full")
+    await runInit(opts())
+    writeFileSync(join(home, ".agents", "skills", "kitestring-e2e-verify", "NOTES.md"), "mine\n")
+    expect(await runUninstall(opts())).toBe(0)
+    expect(read(".agents/skills/kitestring-e2e-verify/NOTES.md")).toBe("mine\n")
+    expect(existsSync(join(home, ".agents", "skills", "kitestring"))).toBe(false)
+    expect(out.join("\n")).toMatch(/kitestring-e2e-verify differs from .* \(modified\) — left alone/)
   })
 
   it("--dry-run writes nothing", async () => {
@@ -517,6 +586,15 @@ describe("kite init CLI", () => {
     const u = cli(["uninstall-agents", "--yes", "--agents", "cursor"], { HOME: home, PATH: emptyBin, KITE_HOME: join(tmp, "kitehome") })
     expect(u.status, u.stderr).toBe(0)
     expect(read(".cursor/mcp.json")).toBe(fixture("full", ".cursor/mcp.json"))
+  })
+
+  it("rejects an empty --agents list with exit 2", () => {
+    useFixture("full")
+    for (const v of ["", ","]) {
+      const r = cli(["init", "--agents", v], { HOME: home, PATH: emptyBin, KITE_HOME: join(tmp, "kitehome") })
+      expect(r.status, v).toBe(2)
+      expect(r.stderr).toMatch(/--agents needs at least one/)
+    }
   })
 
   it("rejects unknown agents with exit 2", () => {

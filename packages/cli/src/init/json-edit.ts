@@ -1,5 +1,7 @@
 import {
+  SyntaxKind,
   applyEdits,
+  createScanner,
   findNodeAtLocation,
   getNodeValue,
   modify,
@@ -114,19 +116,56 @@ export function jsonSet(text: string, path: string[], value: unknown): string {
   return text.slice(0, open) + `${eol}${indent}${prop}` + text.slice(open)
 }
 
+/** True when `text` (a slice of the document) contains a line or block comment. */
+function hasComment(text: string): boolean {
+  const sc = createScanner(text, false)
+  for (let t = sc.scan(); t !== SyntaxKind.EOF; t = sc.scan()) {
+    if (t === SyntaxKind.LineCommentTrivia || t === SyntaxKind.BlockCommentTrivia) return true
+  }
+  return false
+}
+
 /**
- * Removes `path`. If that leaves its parent object empty, removes the parent too (up to the top level),
- * so a key that init created is removed with its container.
+ * Text range that removing the property at `path` deletes: from the end of the previous sibling's value
+ * (taking the separating comma), else from our key to the start of the next sibling, else the object's
+ * whole inside. Returns undefined when that range holds a comment (deleting it would lose the user's note).
+ */
+function removalRange(text: string, path: string[]): { start: number; end: number } | undefined {
+  const root = tree(text)!
+  const value = findNodeAtLocation(root, path)!
+  const prop = value.parent! // property node: [key, value]
+  const obj = prop.parent!
+  const siblings = obj.children ?? []
+  const i = siblings.indexOf(prop)
+  const propEnd = prop.offset + prop.length
+  const candidates: { start: number; end: number }[] = []
+  if (siblings.length === 1) candidates.push({ start: obj.offset + 1, end: obj.offset + obj.length - 1 })
+  if (i > 0) {
+    const prev = siblings[i - 1]!
+    candidates.push({ start: prev.offset + prev.length, end: propEnd })
+  } else if (i + 1 < siblings.length) {
+    candidates.push({ start: prop.offset, end: siblings[i + 1]!.offset })
+  } else candidates.push({ start: prop.offset, end: propEnd })
+  return candidates.find((r) => !hasComment(text.slice(r.start, r.end)))
+}
+
+/**
+ * Removes `path`. If that leaves its parent object empty (and comment-free), removes the parent too (up to
+ * the top level), so a key that init created goes away with its container. Throws instead of deleting a
+ * user's comment next to the entry.
  */
 export function jsonRemove(text: string, path: string[]): string {
   if (jsonGet(text, path) === undefined) return text
-  let out = apply(text, modify(text, path, undefined, {}))
+  const r = removalRange(text, path)
+  if (!r) throw new Error(`a comment sits next to ${path.join(".")} — remove that entry by hand`)
+  let out = text.slice(0, r.start) + text.slice(r.end)
   for (let d = path.length - 1; d >= 1; d--) {
     const parentPath = path.slice(0, d)
     const v = jsonGet(out, parentPath)
-    if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v).length === 0) {
-      out = apply(out, modify(out, parentPath, undefined, {}))
-    } else break
+    if (!v || typeof v !== "object" || Array.isArray(v) || Object.keys(v).length !== 0) break
+    const pr = removalRange(out, parentPath)
+    if (!pr) break // keep an empty container that carries comments
+    out = out.slice(0, pr.start) + out.slice(pr.end)
   }
   return out
 }

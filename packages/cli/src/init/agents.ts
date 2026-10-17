@@ -8,6 +8,7 @@ export function parseAgents(list: string): AgentId[] {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean)
+  if (ids.length === 0) throw new Error(`--agents needs at least one of ${AGENTS.join(", ")}`)
   for (const id of ids) {
     if (!(AGENTS as readonly string[]).includes(id)) throw new Error(`unknown agent "${id}" (known: ${AGENTS.join(", ")})`)
   }

@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process"
 import {
   accessSync,
+  chmodSync,
   constants,
   copyFileSync,
   cpSync,
@@ -75,7 +76,8 @@ export interface InitOptions {
 type Step =
   | { kind: "edit"; agent: string; path: string; transform: (text: string) => string; create: boolean; what: string }
   | { kind: "exec"; agent: string; file: string; argv: string[]; what: string }
-  | { kind: "copy"; agent: string; from: string; to: string; what: string }
+  /** Replace `to` with a copy of `from`; a modified `to` is first moved to `backupTo`. */
+  | { kind: "copy"; agent: string; from: string; to: string; backupTo?: string; what: string }
   | { kind: "remove"; agent: string; path: string; what: string }
   | { kind: "symlink"; agent: string; path: string; target: string; what: string }
 
@@ -128,6 +130,22 @@ export function findOnPath(name: string, path: string | undefined): string | und
   return undefined
 }
 
+const isSymlink = (p: string) => {
+  try {
+    return lstatSync(p).isSymbolicLink()
+  } catch {
+    return false
+  }
+}
+
+/** Backups of replaced skill folders live outside every skills dir, e.g. ~/.agents/kite-backups/skills/<name>.kite-backup-<stamp>. */
+function skillBackupPath(home: string, name: string, now: Date): string {
+  const base = join(home, ".agents", "kite-backups", "skills", `${name}.kite-backup-${stamp(now)}`)
+  let p = base
+  for (let n = 1; existsSync(p); n++) p = `${base}.${n}`
+  return p
+}
+
 const readOrNull = (p: string): string | null => (existsSync(p) ? readFileSync(p, "utf8") : null)
 const tilde = (home: string, p: string) => (p.startsWith(home + "/") ? "~" + p.slice(home.length) : p)
 const shellQuote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`)
@@ -157,6 +175,7 @@ interface Ctx {
   claude?: string
   exec: NonNullable<InitOptions["exec"]>
   plan: Plan
+  now: Date
 }
 
 function editStep(ctx: Ctx, agent: string, path: string, transform: (t: string) => string, create: boolean, label: string): void {
@@ -265,7 +284,19 @@ function planSkills(ctx: Ctx, install: boolean, sharedSkills: boolean, claudeLin
         continue
       }
       if (sameTree(from, to)) plan.notes.push(`skills: ${tilde(o.home, to)} up to date`)
-      else plan.steps.push({ kind: "copy", agent: "skills", from, to, what: `copy ${from} → ${to}` })
+      else if (existsSync(to) || isSymlink(to)) {
+        // Differs from the repo copy (user-edited, or an older version): keep it, outside any skills dir
+        // (a second folder with the same `name` under ~/.agents/skills would clash in OpenCode/Codex).
+        const backupTo = skillBackupPath(o.home, name, ctx.now)
+        plan.steps.push({
+          kind: "copy",
+          agent: "skills",
+          from,
+          to,
+          backupTo,
+          what: `replace modified ${to} with ${from} (existing folder moved to ${backupTo})`,
+        })
+      } else plan.steps.push({ kind: "copy", agent: "skills", from, to, what: `copy ${from} → ${to}` })
       if (!claudeLinks) continue
       const state = linkState(link, to)
       if (state === "ours") plan.notes.push(`skills: ${tilde(o.home, link)} → ${tilde(o.home, to)} up to date`)
@@ -276,7 +307,11 @@ function planSkills(ctx: Ctx, install: boolean, sharedSkills: boolean, claudeLin
         if (pointsInto(link, shared)) plan.steps.push({ kind: "remove", agent: "skills", path: link, what: `remove symlink ${link}` })
         else if (linkState(link, to) !== "missing") plan.notes.push(`skills: ${tilde(o.home, link)} is not our symlink — left alone`)
       }
-      if (sharedSkills && existsSync(to)) plan.steps.push({ kind: "remove", agent: "skills", path: to, what: `remove ${to}` })
+      if (!sharedSkills || !(existsSync(to) || isSymlink(to))) continue
+      // Only remove what init put there: an exact copy of the repo skill.
+      if (existsSync(join(from, "SKILL.md")) && sameTree(from, to)) {
+        plan.steps.push({ kind: "remove", agent: "skills", path: to, what: `remove ${to}` })
+      } else plan.notes.push(`skills: ${tilde(o.home, to)} differs from ${from} (modified) — left alone`)
     }
   }
 }
@@ -289,6 +324,7 @@ async function buildPlan(o: InitOptions, install: boolean): Promise<{ ctx: Ctx; 
     claude: findOnPath("claude", o.env.PATH),
     exec: o.exec ?? defaultExec,
     plan: { steps: [], notes: [], problems: [] },
+    now: o.now ?? new Date(),
   }
   const wanted = new Set<AgentId>(o.agents ?? AGENTS)
   const selected: DetectedAgent[] = []
@@ -332,10 +368,12 @@ async function confirmed(o: InitOptions): Promise<number | undefined> {
 /** Write `text` to `path` atomically (temp + rename), following a symlinked config to its real file. */
 function atomicWrite(path: string, text: string): void {
   const real = existsSync(path) ? realpathSync(path) : path
-  const mode = existsSync(real) ? statSync(real).mode & 0o777 : 0o644
+  // Keep an existing file's mode; files we create are private (agent configs can hold secrets).
+  const mode = existsSync(real) ? statSync(real).mode & 0o7777 : 0o600
   const tmp = `${real}.kite-tmp-${process.pid}`
-  writeFileSync(tmp, text, { mode })
+  writeFileSync(tmp, text, { mode: 0o600 })
   try {
+    chmodSync(tmp, mode) // explicit: writeFileSync's mode is filtered by the umask
     renameSync(tmp, real)
   } catch (e) {
     rmSync(tmp, { force: true })
@@ -343,8 +381,8 @@ function atomicWrite(path: string, text: string): void {
   }
 }
 
-async function applyPlan(ctx: Ctx, now: Date): Promise<string[]> {
-  const { o, plan } = ctx
+async function applyPlan(ctx: Ctx): Promise<string[]> {
+  const { o, plan, now } = ctx
   const failures: string[] = []
   let done = 0
   const backedUp = new Set<string>()
@@ -376,6 +414,11 @@ async function applyPlan(ctx: Ctx, now: Date): Promise<string[]> {
           break
         }
         case "copy":
+          if (s.backupTo && (existsSync(s.to) || isSymlink(s.to))) {
+            mkdirSync(dirname(s.backupTo), { recursive: true })
+            renameSync(s.to, s.backupTo)
+            o.out(`backup: ${s.backupTo}`)
+          }
           rmSync(s.to, { recursive: true, force: true })
           mkdirSync(dirname(s.to), { recursive: true })
           cpSync(s.from, s.to, { recursive: true })
@@ -415,7 +458,7 @@ export async function runInit(o: InitOptions): Promise<number> {
   const stop = await confirmed(o)
   if (stop !== undefined) return stop
 
-  const failures = await applyPlan(ctx, o.now ?? new Date())
+  const failures = await applyPlan(ctx)
   try {
     const r = installHost({ browser: "chrome", extensionId: EXTENSION_ID, kiteHome: kiteHomeOf(o), home: o.home })
     o.out(`host: native host manifest ${r.manifestPath}`)
@@ -446,6 +489,6 @@ export async function runUninstall(o: InitOptions): Promise<number> {
   if (o.dryRun) return plan.problems.length ? 1 : 0
   const stop = await confirmed(o)
   if (stop !== undefined) return stop
-  const failures = await applyPlan(ctx, o.now ?? new Date())
+  const failures = await applyPlan(ctx)
   return failures.length || plan.problems.length ? 1 : 0
 }
