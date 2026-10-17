@@ -90,8 +90,8 @@ export async function main(argv: string[]): Promise<number> {
     )
   program.command("scroll <direction> [px]").action((dir: string, px?: string) => {
     if (dir !== "up" && dir !== "down") throw new UsageError("scroll direction must be up or down")
+    if (px !== undefined && !/^[1-9]\d*$/.test(px)) throw new UsageError(`px must be a positive integer: ${px}`)
     const n = px === undefined ? undefined : Number(px)
-    if (n !== undefined && !Number.isFinite(n)) throw new UsageError("px must be a number")
     return run("act.scroll", { direction: dir, ...(n !== undefined ? { px: n } : {}) })
   })
   program
@@ -124,15 +124,12 @@ export async function main(argv: string[]): Promise<number> {
       return 2
     }
     if (e instanceof BxError) {
-      if (e.code === "RESTRICTED") {
-        const m = e.message.match(/https?:\/\/\S+|chrome[-a-z]*:\/\/\S*/i)
-        const url = m ? m[0].replace(/[).,;]+$/, "") : undefined
-        process.stderr.write(
-          `bx: restricted page${url ? ` (${url})` : ""} — browser blocks extensions here\n`,
-        )
-        return 1
+      if (program.opts<Globals>().json) {
+        process.stdout.write(JSON.stringify({ error: { code: e.code, message: e.message } }) + "\n")
       }
-      process.stderr.write(`bx: ${e.message}\n`)
+      // RESTRICTED: the extension's message already names the page ("restricted page (<url>) — …").
+      const hint = e.code === "RESTRICTED" && e.message.includes("(about:blank)") ? " (blank tab — run bx goto <url>)" : ""
+      process.stderr.write(`bx: ${e.message}${hint}\n`)
       return e.code === "NOT_CONNECTED" ? 2 : 1
     }
     process.stderr.write(`bx: ${e instanceof Error ? e.message : String(e)}\n`)
