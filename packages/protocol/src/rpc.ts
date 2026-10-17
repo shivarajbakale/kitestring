@@ -24,6 +24,8 @@ export const ErrorCode = {
   RESTRICTED: "RESTRICTED",
   BAD_REQUEST: "BAD_REQUEST",
   INTERNAL: "INTERNAL",
+  /** The browser did not answer in time (page never became scriptable, stuck call). */
+  TIMEOUT: "TIMEOUT",
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]

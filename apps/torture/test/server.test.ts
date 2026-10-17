@@ -27,6 +27,17 @@ describe("torture server", () => {
   it("returns 204 for analytics", async () => {
     expect((await fetch(`${site.url}/analytics/x`)).status).toBe(204)
   })
+  it("/hang sends partial HTML and never finishes", async () => {
+    const ac = new AbortController()
+    const res = await fetch(`${site.url}/hang`, { signal: ac.signal })
+    expect(res.status).toBe(200)
+    const reader = res.body!.getReader()
+    const first = new TextDecoder().decode((await reader.read()).value)
+    expect(first).toContain("<title>Hang</title>")
+    const more = await Promise.race([reader.read().then(() => "more"), new Promise((r) => setTimeout(() => r("pending"), 300))])
+    expect(more).toBe("pending")
+    ac.abort()
+  })
   it("returns 404 for unknown pages", async () => {
     expect((await fetch(`${site.url}/nope`)).status).toBe(404)
   })

@@ -15,6 +15,17 @@ export class BxError extends Error {
 
 const NOT_CONNECTED_MSG = "browser not connected (is Chrome open with the bx extension?)"
 const CONNECT_TIMEOUT_MS = 2000
+/**
+ * Post-connect bound on a call. Above the extension's own bounds (page agent 30 s, action cap 15 s,
+ * snapshot 15 s), so it only fires when the browser side is truly stuck. `BX_TIMEOUT_MS` overrides it.
+ */
+export const DEFAULT_TIMEOUT_MS = 60_000
+export const TIMEOUT_MSG = "timed out waiting for the browser"
+
+function defaultTimeout(): number {
+  const n = Number(process.env.BX_TIMEOUT_MS)
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_TIMEOUT_MS
+}
 
 export function call(
   method: Method,
@@ -42,12 +53,10 @@ export function call(
     sock.on("connect", () => {
       connected = true
       clearTimeout(timer)
-      if (opts.timeoutMs) {
-        timer = setTimeout(
-          () => finish(() => reject(new BxError("TIMEOUT", `no response after ${opts.timeoutMs}ms`))),
-          opts.timeoutMs,
-        )
-      } else timer = undefined
+      timer = setTimeout(
+        () => finish(() => reject(new BxError("TIMEOUT", TIMEOUT_MSG))),
+        opts.timeoutMs ?? defaultTimeout(),
+      )
       sock.write(JSON.stringify({ id: 1, method, params, session: opts.session }) + "\n")
     })
     sock.on("error", (e: NodeJS.ErrnoException) => {

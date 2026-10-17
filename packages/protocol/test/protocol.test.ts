@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parseTarget, RpcRequest, RpcResponse } from "../src/index.js"
+import { ErrorCode, parseTarget, RpcRequest, RpcResponse } from "../src/index.js"
 
 describe("parseTarget", () => {
   it("parses a ref", () => {
@@ -33,5 +33,11 @@ describe("RpcResponse", () => {
   })
   it("rejects an object with neither result nor error", () => {
     expect(RpcResponse.safeParse({ id: 3 }).success).toBe(false)
+  })
+})
+
+describe("ErrorCode", () => {
+  it("includes TIMEOUT", () => {
+    expect(ErrorCode.TIMEOUT).toBe("TIMEOUT")
   })
 })

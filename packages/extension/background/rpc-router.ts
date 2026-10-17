@@ -4,6 +4,18 @@ import { RestrictedPageError, RpcError } from "./errors"
 import { goto, runAction } from "./pipeline"
 import * as sessions from "./sessions"
 
+/** Bound on page.snapshot (the only handler outside the action pipeline's cap). */
+const SNAPSHOT_CAP_MS = 15_000
+
+/** Rejects with RPC TIMEOUT if `p` has not settled within `ms`. */
+function bounded<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new RpcError(ErrorCode.TIMEOUT, message)), ms)
+  })
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer))
+}
+
 type Handler = (params: Record<string, unknown>, session: sessions.Session) => Promise<unknown>
 
 function badRequest(message: string): never {
@@ -64,9 +76,13 @@ const handlers: Partial<Record<Method, Handler>> = {
   "page.snapshot": async (params, s) => {
     const scope = params.scope
     if (scope !== undefined && typeof scope !== "string") badRequest("params.scope must be a string")
-    const text = await callAgent<string>(sessions.activeTab(s), "snapshot", [
-      { full: params.full === true, ...(scope !== undefined ? { scope } : {}) },
-    ])
+    const text = await bounded(
+      callAgent<string>(sessions.activeTab(s), "snapshot", [
+        { full: params.full === true, ...(scope !== undefined ? { scope } : {}) },
+      ]),
+      SNAPSHOT_CAP_MS,
+      `TIMEOUT: snapshot did not finish within ${SNAPSHOT_CAP_MS} ms (page still loading?)`,
+    )
     return { text }
   },
 

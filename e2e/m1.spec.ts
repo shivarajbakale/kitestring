@@ -78,6 +78,27 @@ test.describe("sessions", () => {
   })
 })
 
+test.describe("blank tab and stuck pages", () => {
+  test("snapshot of a blank tab names about:blank and suggests goto", async ({ bx }) => {
+    expect((await bx("tab", "new")).code).toBe(0)
+    const r = await bx("snapshot")
+    expect(r.code).toBe(1)
+    expect(r.stderr).toContain("restricted page (about:blank)")
+    expect(r.stderr).toContain("(blank tab — run bx goto <url>)")
+  })
+
+  test("snapshot of a page that never finishes loading answers TIMEOUT within the bound", async ({ bxEnv, torture }) => {
+    // The CLI's own bound is raised so only the extension's snapshot bound (15 s) can answer.
+    const env = { BX_TIMEOUT_MS: "40000" }
+    expect((await bxEnv(env, "tab", "new", `${torture}/hang`)).code).toBe(0)
+    const r = await bxEnv(env, "snapshot")
+    expect(out(r)).toContain("TIMEOUT")
+    expect(out(r)).not.toContain("timed out waiting for the browser")
+    expect(r.code).toBe(1)
+    expect(r.ms).toBeLessThan(17_000)
+  })
+})
+
 test.describe("restricted detection", () => {
   test("a page the extension cannot script is reported as restricted, not as an error", async ({ bx }) => {
     // data: URLs are not on the prefix list; detection must come from the failed injection.

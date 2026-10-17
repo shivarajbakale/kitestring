@@ -1,5 +1,6 @@
+import { ErrorCode } from "@bx/protocol"
 import type { PageAgent } from "@bx/page-agent"
-import { RestrictedPageError } from "./errors"
+import { RestrictedPageError, RpcError } from "./errors"
 
 export { RestrictedPageError }
 
@@ -23,6 +24,8 @@ const RESTRICTED_PREFIXES = [
 ]
 
 const AGENT_TIMEOUT_MS = 30_000
+/** executeScript waits for document_idle: a page that never finishes loading would block it forever. */
+const INJECT_TIMEOUT_MS = 10_000
 
 /** Diagnostics, readable from the service worker console (and e2e) as `globalThis.__bxStats`. */
 const stats = { injections: 0 }
@@ -58,12 +61,28 @@ function send(tabId: number, msg: AgentMessage): Promise<AgentReply | undefined>
 async function inject(tabId: number, url: string): Promise<void> {
   const file = chrome.runtime.getManifest().content_scripts?.[0]?.js?.[0]
   if (!file) throw new Error("content script missing from manifest")
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new RpcError(
+            ErrorCode.TIMEOUT,
+            `TIMEOUT: page in tab ${tabId} did not become scriptable within ${INJECT_TIMEOUT_MS} ms (still loading?)`,
+          ),
+        ),
+      INJECT_TIMEOUT_MS,
+    )
+  })
   try {
-    await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files: [file] })
+    await Promise.race([chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files: [file] }), timeout])
   } catch (e) {
+    if (e instanceof RpcError) throw e
     const message = e instanceof Error ? e.message : String(e)
     if (CANNOT_ACCESS_RE.test(message)) throw new RestrictedPageError(url)
     throw e
+  } finally {
+    clearTimeout(timer)
   }
 }
 
