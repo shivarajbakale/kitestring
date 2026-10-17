@@ -44,7 +44,10 @@ export function loadSessions(): Promise<void> {
         tabs,
       })
     }
-  })()
+  })().catch((e: unknown) => {
+    loaded = null // a transient failure must not be cached: the next request retries
+    throw e
+  })
   return loaded
 }
 

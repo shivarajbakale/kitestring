@@ -393,7 +393,9 @@ async function act(r: Run, action: Action): Promise<ActionResult> {
   if (action.kind === "fill") {
     const text = action.value ?? ""
     await input.click(tabId, c.x, c.y)
+    guard()
     await input.selectAll(tabId)
+    guard()
     if (text === "") await input.press(tabId, "Backspace")
     else await input.insertText(tabId, text)
     return finish(r, before, { fill: { ref: found.ref, text } })
@@ -480,12 +482,14 @@ export function goto(s: Session, url: string): Promise<ActionResult> {
     if (isRestrictedUrl(await tabUrl(tabId))) {
       // The debugger can't attach to the current page (e.g. about:blank): let the browser navigate first.
       const loaded = waitTabComplete(tabId, READY.timeoutMs)
+      if (p.expired) throw new Expired()
       await chrome.tabs.update(tabId, { url })
       await loaded
       navigated = true
     }
     return begin(s, tabId, p, async (r) => {
       if (!navigated) {
+        if (p.expired) throw new Expired() // the cap already answered: don't navigate after the fact
         const nav = await send<{ loaderId?: string; errorText?: string }>(tabId, "Page.navigate", { url })
         if (nav.errorText) return early(r, "error", { detail: `navigation failed: ${nav.errorText}` })
         if (nav.loaderId) r.watch.expectLoad()
