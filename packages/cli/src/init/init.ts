@@ -20,6 +20,7 @@ import {
 import { delimiter, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { EXTENSION_ID, HOST_NAME } from "@kitestring/protocol"
+import { tilde } from "../paths.js"
 import { hostsDir, installHost } from "../install/host-manifest.js"
 import {
   AGENTS,
@@ -147,7 +148,6 @@ function skillBackupPath(home: string, name: string, now: Date): string {
 }
 
 const readOrNull = (p: string): string | null => (existsSync(p) ? readFileSync(p, "utf8") : null)
-const tilde = (home: string, p: string) => (p.startsWith(home + "/") ? "~" + p.slice(home.length) : p)
 const shellQuote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`)
 
 interface ClaudeGet {

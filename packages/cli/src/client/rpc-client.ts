@@ -7,6 +7,8 @@ export class KiteError extends Error {
   constructor(
     public code: string,
     message: string,
+    /** True when the socket connection was established (the daemon answered), false for pre-connect failures. */
+    public connected = false,
   ) {
     super(message)
     this.name = "KiteError"
@@ -79,7 +81,7 @@ export function call(
       const parsed = RpcResponse.safeParse(msg)
       if (!parsed.success) return finish(() => reject(new KiteError("INTERNAL", "malformed response from host")))
       const r = parsed.data
-      if ("error" in r) finish(() => reject(new KiteError(r.error.code, r.error.message)))
+      if ("error" in r) finish(() => reject(new KiteError(r.error.code, r.error.message, true)))
       else finish(() => resolve(r.result))
     })
   })

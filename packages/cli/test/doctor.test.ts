@@ -114,6 +114,34 @@ describe("kite doctor", () => {
     expect(by(cs, "extension").ok).toBe(false)
   })
 
+  it("a live daemon answering NOT_CONNECTED is bridge ok, extension not connected (not stale)", async () => {
+    useFixture("partial")
+    mkdirSync(kh, { recursive: true })
+    const d: Daemon = await startDaemon({
+      socketPath: join(kh, "kite.sock"),
+      toExtension: (msg: any) => queueMicrotask(() => d.fromExtension({ id: msg.id, error: { code: "NOT_CONNECTED", message: "browser not connected" } })),
+    })
+    daemon = d
+    const cs = await doctor()
+    expect(by(cs, "bridge").ok).toBe(true)
+    expect(by(cs, "extension")).toMatchObject({ ok: false, detail: expect.stringContaining("not connected"), fix: expect.stringContaining("extension") })
+  })
+
+  it("claude-code via the claude CLI on PATH: ok when bin exists, fails when claude has no server", async () => {
+    useFixture("full")
+    const fb = join(tmp, "fakebin")
+    mkdirSync(fb)
+    const state = join(tmp, "claude-state")
+    writeFileSync(join(fb, "claude"), `#!/bin/sh\nPATH=/usr/bin:/bin\nif [ "$1 $2" = "mcp get" ]; then\n  [ -f '${state}' ] || { echo "No MCP server found with name: $3" >&2; exit 1; }\n  cat '${state}'; exit 0\nfi\nexit 3\n`)
+    chmodSync(join(fb, "claude"), 0o755)
+    const run = () => runDoctor({ home, env: { PATH: fb, KITE_HOME: kh } })
+    expect(by(await run(), "mcp:claude-code")).toMatchObject({ ok: false, fix: expect.stringContaining("kite init") })
+    writeFileSync(state, `kitestring:\n  Scope: User config (available in all your projects)\n  Status: ✓ Connected\n  Type: stdio\n  Command: /opt/x/node\n  Args: ${BIN} mcp\n  Environment:\n    KITE_SESSION=claude-code\n`)
+    expect(by(await run(), "mcp:claude-code")).toMatchObject({ ok: true, detail: expect.stringContaining(BIN) })
+    writeFileSync(state, readFileSync(state, "utf8").replace(BIN, "/gone/bin.js"))
+    expect(by(await run(), "mcp:claude-code")).toMatchObject({ ok: false, detail: expect.stringContaining("/gone/bin.js") })
+  })
+
   it("legacy bx manifest makes host-manifest fail with kite install-host", async () => {
     useFixture("full")
     await init()

@@ -2,6 +2,7 @@ import { accessSync, constants, existsSync, readFileSync, statSync } from "node:
 import { join } from "node:path"
 import { EXTENSION_ID, HOST_NAME, LEGACY_HOST_NAMES } from "@kitestring/protocol"
 import { KiteError, call } from "../client/rpc-client.js"
+import { tilde } from "../paths.js"
 import { hostsDir } from "../install/host-manifest.js"
 import { SERVER_NAME, claudeGetArgv, type AgentId } from "../init/agents.js"
 import { detect } from "../init/detect.js"
@@ -27,7 +28,6 @@ export interface DoctorOptions {
 }
 
 const MIN_NODE = [22, 12, 0]
-const tilde = (home: string, p: string) => (p.startsWith(home + "/") ? "~" + p.slice(home.length) : p)
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 function nodeOk(v: string): boolean {
@@ -101,12 +101,12 @@ async function checkBridge(sock: string): Promise<{ bridge: Check; extension: Ch
   try {
     status = await call("status", {}, { session: "doctor", timeoutMs: 2000, socketPath: sock })
   } catch (e) {
-    if (e instanceof KiteError && e.code === "NOT_CONNECTED") {
+    if (e instanceof KiteError && e.code === "NOT_CONNECTED" && !e.connected) {
       return down({ id: "bridge", ok: false, detail: `socket ${sock} exists but nothing answers`, fix: "socket stale — reload the extension in Chrome (chrome://extensions)" })
     }
     return {
       bridge: { id: "bridge", ok: true, detail: `socket ${sock} reachable` },
-      extension: { id: "extension", ok: false, detail: `status failed: ${msg(e)}`, fix: "reload the extension in Chrome (chrome://extensions)" },
+      extension: { id: "extension", ok: false, detail: e instanceof KiteError && e.code === "NOT_CONNECTED" ? `host is running but the extension is not connected (${e.message})` : `status failed: ${msg(e)}`, fix: "reload the extension in Chrome (chrome://extensions)" },
     }
   }
   const connected = !!status && typeof status === "object" && (status as { connected?: unknown }).connected === true

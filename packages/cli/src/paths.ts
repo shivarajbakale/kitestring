@@ -10,3 +10,6 @@ export function socketPath(): string {
 export function logPath(): string {
   return join(kiteHome(), "logs", "host.log")
 }
+
+/** Show `p` relative to `home` as `~/…` when it is inside it. */
+export const tilde = (home: string, p: string): string => (p.startsWith(home + "/") ? "~" + p.slice(home.length) : p)
