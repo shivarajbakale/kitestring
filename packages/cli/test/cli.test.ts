@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import type { ActionResult } from "@bx/protocol"
+import { EXTENSION_ID, type ActionResult } from "@bx/protocol"
 import { startDaemon, type Daemon } from "../src/host/daemon.js"
 
 const BIN = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "bin.js")
@@ -89,8 +89,10 @@ describe("bx cli", () => {
     expect(r.code).toBe(2)
     expect(r.ms).toBeLessThan(2500)
   })
-  it("install-host without extension id is a usage error", async () => {
-    const r = await bx(["install-host", "--user-data-dir", dir])
-    expect(r.code).toBe(2)
+  it("install-host defaults --extension-id to EXTENSION_ID", async () => {
+    const r = await bx(["install-host", "--browser", "chromium", "--user-data-dir", dir])
+    expect(r.code).toBe(0)
+    const m = JSON.parse(readFileSync(join(dir, "NativeMessagingHosts", "com.bx.bridge.json"), "utf8"))
+    expect(m.allowed_origins).toEqual([`chrome-extension://${EXTENSION_ID}/`])
   })
 })

@@ -1,5 +1,5 @@
 import { Command, CommanderError } from "commander"
-import { parseTarget, type ActionResult, type Method } from "@bx/protocol"
+import { EXTENSION_ID, parseTarget, type ActionResult, type Method } from "@bx/protocol"
 import { BxError, call } from "./client/rpc-client.js"
 import { formatResult } from "./client/format.js"
 import { installHost } from "./install/host-manifest.js"
@@ -98,10 +98,9 @@ export async function main(argv: string[]): Promise<number> {
     .command("install-host")
     .option("--browser <browser>", "chrome|chromium", "chrome")
     .option("--user-data-dir <dir>")
-    .option("--extension-id <id>")
-    .action((o: { browser: string; userDataDir?: string; extensionId?: string }) => {
+    .option("--extension-id <id>", "extension id allowed to connect", EXTENSION_ID)
+    .action((o: { browser: string; userDataDir?: string; extensionId: string }) => {
       if (o.browser !== "chrome" && o.browser !== "chromium") throw new UsageError("--browser must be chrome or chromium")
-      if (!o.extensionId) throw new UsageError("--extension-id is required")
       const r = installHost({
         browser: o.browser,
         userDataDir: o.userDataDir,
