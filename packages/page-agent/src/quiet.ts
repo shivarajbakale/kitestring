@@ -20,7 +20,7 @@ export function waitQuiet(
   return new Promise((resolve) => {
     const start = win.performance.now()
     let lastMutation = start
-    const observer = new win.MutationObserver((records) => {
+    const observer = new (win as unknown as { MutationObserver: typeof MutationObserver }).MutationObserver((records) => {
       if (records.some((r) => !(r.type === "attributes" && r.attributeName === "style"))) {
         lastMutation = win.performance.now()
       }
