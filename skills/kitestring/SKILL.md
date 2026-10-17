@@ -26,7 +26,7 @@ Two equivalent surfaces. Use MCP tools if your harness has them, else the `kite`
 | Console / network | `browser_console` / `browser_network` | `kite console --errors` / `kite network --failed` |
 | Picture | `browser_screenshot` | `kite screenshot` (`--full`, `--ref @ref`) |
 
-CLI: `--json` gives raw results; exit code 1 when status is not done. Keep one session name for the whole task: pass `--session <name>` on every call, or set `KITE_SESSION=<name>`. You only see and touch your session's tabs.
+CLI: exit code 1 when status is not done; call errors print `kite: <message>` (exit 2 = not connected); `--json` gives raw results and error codes. Keep one session name for the whole task: pass `--session <name>` on every call, or set `KITE_SESSION=<name>`. You only see and touch your session's tabs.
 
 ## The loop
 
@@ -56,12 +56,12 @@ CLI: `--json` gives raw results; exit code 1 when status is not done. Keep one s
 
 | Result | Do |
 |---|---|
-| `done` | Read the diff; continue. |
+| `done` | Read the diff; continue. Empty diff after a click = suspect: check `kite console --errors` / `kite network --failed`. |
 | `not_found` | Snapshot (`--full` if long page); use the exact visible text or a ref. |
 | `ambiguous` | Pick from `candidates:` by ref, or add `--within` / `--role`. |
 | `blocked` | Something covers it (banner, modal). Dismiss what `blockedBy` names, retry. |
 | `disabled` | Read `detail`/errors (form validation). Fix the inputs, then retry. |
-| `no_effect` | Nothing changed. Check `kite console --errors` and `kite network --failed`; do not click again blindly. |
+| `no_effect` | No handler took the click; nothing changed. Check `kite console --errors` and `kite network --failed`; do not click again blindly. |
 | `timeout` | Page still busy. Snapshot to see the real state before acting again. |
 | `restricted` / `RESTRICTED` | Browser blocks extensions here (chrome://, Web Store, blank tab). `kite goto <url>` to a normal page. |
 | `error` | Read `detail` (bad option, failed navigation, fill mismatch); fix the input. |

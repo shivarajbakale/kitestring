@@ -42,5 +42,5 @@ The **Not verified** list is required, even if empty ("none"). Never write "work
 - A step that returned anything but `done` is not verified. A `timeout` is not a pass.
 - Use obviously fake test data (`test@example.com`) and list it in the report. Submits on localhost / dev URLs are fine.
 - End with the Report block above, always, even when the verdict is "not ready" (say why: the failing step or error line).
-- Read-only on real accounts and production. Payments, sends, deletes, publishes: ask the human first, every time.
-- Never type passwords or codes. If the flow needs a login, ask the human to log in in that tab, then continue.
+- On real accounts and production: read only, and follow the confirm rule in the `kitestring` skill for anything with consequences.
+- Flows behind a login: ask the human to sign in in that tab, then continue. Never type credentials or codes yourself, not even fake dev/test credentials.

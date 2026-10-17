@@ -16,7 +16,7 @@ main
 ```
 
 - Line 1: `page "<title>" <url>`.
-- Indentation (2 spaces) = nesting under landmarks (`main`, `navigation`, `banner`, `contentinfo`, `complementary`, `form`, `region`, `dialog`, `alertdialog`), headings and named lists.
+- Indentation (2 spaces) = DOM nesting inside landmarks (`main`, `navigation`, `banner`, `contentinfo`, `complementary`, `form`, `region`, `dialog`, `alertdialog`), named lists, and headings (only elements inside the heading element itself; content after a heading is its sibling, not indented under it).
 - Controls: `<role> "<accessible name>" [@ref]` + annotations:
   - `value="…"` on textbox, searchbox, combobox, spinbutton, slider (passwords show `••••` when filled)
   - `disabled`, `checked`, `expanded`
@@ -30,7 +30,7 @@ main
 
 ## Targets
 
-Any argument that is not a ref is visible text: accessible name, label or placeholder. Matching is case-insensitive and whitespace-tolerant; exact beats starts-with beats contains. Narrow with `--within "<landmark/heading/dialog name>"` and `--role <role>` (MCP: `within`, `role`). Not visible yet? The finder scrolls down up to 3 viewports before giving up.
+Any argument that is not a ref is visible text: accessible name, label or placeholder. Matching is case-insensitive and whitespace-tolerant; exact beats starts-with beats contains. Narrow with `--within "<landmark/heading/dialog name>"` and `--role <role>` (MCP: `within`, `role`; `browser_fill` takes `within` only). Not visible yet? The finder scrolls down up to 3 viewports before giving up.
 
 ## Action result
 
@@ -53,7 +53,7 @@ page: Thanks | https://shop.test/thanks | Thank you | 12 interactive
 | `candidates:` | With `ambiguous`: `@ref line` per close match |
 | `page:` | `<title> \| <url> \| <first h1> \| <n> interactive` |
 
-An empty diff on `done` for fill/select/press/scroll is normal. An empty diff on a click is reported as `no_effect`.
+An empty diff on `done` for fill/select/press/scroll is normal. A click with an empty diff, no navigation and no new tab is reported as `no_effect` when no handler received the click; if a handler ran, it is `done` with an empty diff — suspect a thrown error or failed request (check console/network).
 
 ## Console and network lines
 

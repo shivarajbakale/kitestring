@@ -125,7 +125,11 @@ export async function runTool(def: ToolDef, args: unknown, session: string): Pro
     }
     return { content: [{ type: "text", text: human(def.method, result) }] }
   } catch (e) {
-    const text = e instanceof KiteError ? `${e.code}: ${e.message}` : `INTERNAL: ${e instanceof Error ? e.message : String(e)}`
+    // Some extension messages already start with their code ("PAUSED: …"): prefix it once.
+    const text =
+      e instanceof KiteError
+        ? `${e.code}: ${e.message.startsWith(`${e.code}: `) ? e.message.slice(e.code.length + 2) : e.message}`
+        : `INTERNAL: ${e instanceof Error ? e.message : String(e)}`
     return { content: [{ type: "text", text }], isError: true }
   }
 }

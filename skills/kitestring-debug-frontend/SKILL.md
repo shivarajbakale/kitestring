@@ -19,7 +19,7 @@ Reproduce the bug in the real browser, read what the browser recorded, then fix 
    - `kite console --errors` / `browser_console` with level `error`
    - `kite network --failed` / `browser_network` with `failed` (add `--filter /api` to narrow)
    - `kite snapshot` for state; `kite screenshot` only if the problem is visual
-4. **Read the status before reading code.** `disabled` + error text = validation, not a broken handler. `blocked` = an overlay covers the control. `no_effect` = handler missing, throwing, or the request failed. See the `kitestring` recovery table.
+4. **Read the status before reading code.** `disabled` + error text = validation, not a broken handler. `blocked` = an overlay covers the control. `no_effect` = no click handler received the click. `done` with an **empty diff** on a click = the handler ran but nothing visible changed (it threw, or its request failed): check console and network. See the `kitestring` recovery table.
 5. **Find the cause in the code** that the evidence points to (stack file:line, failing endpoint, validation rule). Fix it.
 6. **Re-verify**: `kite console --clear` and `kite network --clear`, then `kite goto <same url>` (reload), repeat the exact reproduction, and confirm the step now returns `done` with the expected diff.
 7. **After the final verifying action**, run `kite console --errors` and `kite network --failed` again. Both must be clean (or each line explained) before you report.

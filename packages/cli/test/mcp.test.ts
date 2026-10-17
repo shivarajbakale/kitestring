@@ -151,6 +151,14 @@ describe("kite mcp", () => {
     expect(r.isError).toBe(true)
     expect(r.content[0].text).toBe("PAUSED: paused by user")
   })
+  it("a message that already starts with its code is prefixed once", async () => {
+    reply = { error: { code: "PAUSED", message: "PAUSED: Kitestring is paused by the user (lunch)" } }
+    await startFake()
+    await connect()
+    const r: any = await client!.callTool({ name: "browser_click", arguments: { target: "Save" } })
+    expect(r.isError).toBe(true)
+    expect(r.content[0].text).toBe("PAUSED: Kitestring is paused by the user (lunch)")
+  })
   it("stdout carries only JSON-RPC", async () => {
     // Raw spawn: every stdout line must parse as a JSON-RPC message.
     const { spawn } = await import("node:child_process")
