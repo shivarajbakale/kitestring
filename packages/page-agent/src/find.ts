@@ -12,7 +12,7 @@ export type FindResult =
 
 const FILL_ROLES = new Set(["textbox", "searchbox", "combobox"])
 const SELECT_ROLES = new Set(["combobox", "listbox"])
-const SCOPE_ROLES = new Set(["section", "region", "form", "fieldset", "dialog", "alertdialog", "group"])
+const SCOPE_ROLES = new Set(["section", "region", "form", "fieldset", "dialog", "alertdialog"])
 const SCOPE_TAGS = new Set(["SECTION", "FORM", "FIELDSET", "DIALOG"])
 
 function intentOk(el: Element, role: string, intent: FindIntent): boolean {
@@ -76,12 +76,22 @@ function visibleAndInView(el: Element): { visible: boolean; inView: boolean } {
 
 function isScope(el: Element): boolean {
   const role = roleOf(el)
-  return (!!role && (LANDMARK_ROLES.has(role) || SCOPE_ROLES.has(role))) || SCOPE_TAGS.has(el.tagName)
+  return (!!role && role !== "heading" && role !== "list" && (LANDMARK_ROLES.has(role) || SCOPE_ROLES.has(role))) || SCOPE_TAGS.has(el.tagName)
+}
+
+/** First heading belonging to this scope (not inside a nested scope). */
+function ownHeading(el: Element): Element | null {
+  for (const h of Array.from(el.querySelectorAll("h1,h2,h3,h4,h5,h6,[role=heading]"))) {
+    let p = h.parentElement
+    while (p && p !== el && !isScope(p)) p = p.parentElement
+    if (p === el) return h
+  }
+  return null
 }
 
 function scopeMatches(el: Element, within: string): boolean {
   if (norm(nameOf(el)) === within) return true
-  const h = el.querySelector("h1,h2,h3,h4,h5,h6,[role=heading]")
+  const h = ownHeading(el)
   return !!h && norm(h.textContent ?? "") === within
 }
 
@@ -100,7 +110,8 @@ export function find(doc: Document, reg: RefRegistry, target: Target, intent: Fi
   let scopes: Element[] | null = null
   if (t.within !== undefined) {
     const w = norm(t.within)
-    scopes = Array.from(doc.querySelectorAll("*")).filter((e) => isScope(e) && scopeMatches(e, w))
+    const matching = Array.from(doc.querySelectorAll("*")).filter((e) => isScope(e) && scopeMatches(e, w))
+    scopes = matching.filter((e) => !matching.some((o) => o !== e && e.contains(o)))
     if (!scopes.length) return { kind: "not_found" }
   }
 
@@ -124,7 +135,7 @@ export function find(doc: Document, reg: RefRegistry, target: Target, intent: Fi
   const [a, b] = scored
   if (b && a.score - b.score <= 5 && a.score >= 50 && b.score >= 50) {
     const top = a.score
-    const group = scored.filter((c) => top - c.score <= 5 && c.score >= 50)
+    const group = scored.filter((c) => top - c.score <= 5 && c.score >= 50).slice(0, 3)
     return {
       kind: "ambiguous",
       candidates: group.map((c) => ({ ref: reg.refFor(c.el), line: lineFor(c.el, reg), score: c.score }))

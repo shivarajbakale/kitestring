@@ -16,11 +16,20 @@ export const PATH_ROLES = new Set([
   "dialog", "alertdialog"
 ])
 
+/** True only for the element carrying contenteditable, whose parent is not itself editable. */
+function isEditingHost(el: Element): boolean {
+  if (!(el instanceof HTMLElement) || !el.isContentEditable) return false
+  const attr = el.getAttribute("contenteditable")
+  if (attr === null || !["", "true", "plaintext-only"].includes(attr.toLowerCase())) return false
+  const parent = el.parentElement
+  return !(parent && parent.isContentEditable)
+}
+
 export function roleOf(el: Element): string | null {
   // ARIA has no role for password inputs; treat them as textboxes (value is masked in snapshots).
   if (el instanceof HTMLInputElement && el.type === "password") return "textbox"
   const role = getRole(el)
-  if ((!role || role === "generic") && el instanceof HTMLElement && el.isContentEditable) return "textbox"
+  if ((!role || role === "generic") && isEditingHost(el)) return "textbox"
   return role
 }
 

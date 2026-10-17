@@ -93,3 +93,32 @@ test("ref target matches resolve; unknown is not_found", async ({ fixture }) => 
   ])
   expect(nf).toEqual(["not_found", "not_found"])
 })
+
+test("within picks the innermost scope, not an ancestor containing the heading", async ({ fixture }) => {
+  const page = await fixture("find-wrap.html")
+  const id = await page.evaluate(() => {
+    const f = (window as unknown as { __bxAgent: Agent }).__bxAgent.find({ text: "Apply", within: "Profile" }, "click")
+    return f.kind === "found" ? (window as unknown as { __bxAgent: Agent }).__bxAgent.resolve(f.ref)?.id : f.kind
+  })
+  expect(id).toBe("pb")
+})
+
+test("contenteditable host only; children are not textboxes", async ({ fixture }) => {
+  const page = await fixture("find-ce.html")
+  const r = await page.evaluate(() => {
+    const a = (window as unknown as { __bxAgent: Agent & { snapshot(): string } }).__bxAgent
+    const f = a.find({ text: "Notes" }, "fill")
+    return { id: f.kind === "found" ? a.resolve(f.ref)?.id : f.kind, snap: a.snapshot() }
+  })
+  expect(r.id).toBe("ce")
+  expect(r.snap.match(/textbox/g)).toHaveLength(1)
+})
+
+test("ambiguous capped at 3, sorted desc", async ({ fixture }) => {
+  const page = await fixture("find-many.html")
+  const r = await page.evaluate(() => (window as unknown as { __bxAgent: Agent }).__bxAgent.find({ text: "Apply" }, "click"))
+  expect(r.kind).toBe("ambiguous")
+  const c = (r as { candidates: { score: number }[] }).candidates
+  expect(c).toHaveLength(3)
+  expect(c[0].score).toBeGreaterThanOrEqual(c[2].score)
+})
