@@ -23,7 +23,7 @@ pnpm i && pnpm build
    node packages/cli/dist/bin.js init
    ```
 
-   `kite init` adds the `kitestring` MCP server to every supported agent it finds (Claude Code, Codex, Cursor, Gemini, OpenCode), installs the skills into `~/.agents/skills` (with symlinks in `~/.claude/skills`), and installs the native host. It never overwrites your other config, backs each file up once as `<file>.kite-backup-<timestamp>`, skips agents you do not have, and is safe to re-run. Use `--dry-run` to see the plan, `--agents claude,codex` to pick a subset, `--yes` to skip the prompt.
+   `kite init` adds the `kitestring` MCP server to every supported agent it finds (Claude Code, Codex, Cursor, Gemini, OpenCode), installs the skills into `~/.agents/skills` (with symlinks in `~/.claude/skills`), and installs the native host. It never overwrites your other config, backs each file up once as `<file>.kite-backup-<timestamp>`, skips agents you do not have, and is safe to re-run. Use `--dry-run` to see the plan, `--agents claude-code,codex` to pick a subset, `--yes` to skip the prompt.
 
    It also writes a `kite` command to `~/.kitestring/bin/kite` (`$KITE_HOME/bin/kite`) and, if that directory is not on your `PATH`, prints the line to add to your shell profile (`~/.zshrc`, `~/.bashrc`, …). It never edits shell profiles itself:
 
