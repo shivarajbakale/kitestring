@@ -22,6 +22,19 @@ describe("console capture", () => {
     expect(c.consoleEntries({ level: "error" })[0]).toMatchObject({ level: "error", text: "Error: kaboom\n    at f", line: 5 })
   })
 
+  it("ignores replays of an event already recorded (re-attach), also after clear", () => {
+    const c = new TabCapture()
+    const ev = ["Runtime.consoleAPICalled", { type: "log", timestamp: 5.5, args: [{ type: "string", value: "once" }] }] as const
+    feed(c, ev)
+    feed(c, ev)
+    expect(c.consoleEntries()).toHaveLength(1)
+    c.consoleEntries({ clear: true })
+    feed(c, ev)
+    expect(c.consoleEntries()).toHaveLength(0)
+    feed(c, ["Runtime.consoleAPICalled", { type: "log", timestamp: 6, args: [{ type: "string", value: "once" }] }])
+    expect(c.consoleEntries()).toHaveLength(1)
+  })
+
   it("caps text at 2000 chars, filters by level, limits to the newest, clears", () => {
     const c = new TabCapture()
     feed(c, api("log", [{ type: "string", value: "x".repeat(MAX_TEXT + 50) }]))

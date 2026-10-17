@@ -9,6 +9,7 @@ import {
 import { callAgent } from "./agent-bridge"
 import { ensureAttached, onAttach, onEvent, send } from "./cdp"
 import { RestrictedPageError, RpcError } from "./errors"
+import { withTabLock } from "./serial"
 
 export const RING_SIZE = 500
 export const MAX_TEXT = 2000
@@ -68,13 +69,27 @@ export class TabCapture {
   preserve = true
   /** requestId → live entry plus its monotonic start time, until the request finishes. */
   private open = new Map<string, { e: NetworkEntry; t0: number }>()
+  /**
+   * Source timestamp + level + text of recent console events. Runtime.enable / Log.enable replay stored
+   * messages on every (re-)attach; the same event must not be recorded twice (nor resurrect after clear).
+   */
+  private seen = new Set<string>()
+  private seenOrder: string[] = []
+
+  private firstSeen(key: string): boolean {
+    if (this.seen.has(key)) return false
+    this.seen.add(key)
+    this.seenOrder.push(key)
+    if (this.seenOrder.length > RING_SIZE * 2) this.seen.delete(this.seenOrder.shift()!)
+    return true
+  }
 
   onEvent(method: string, p: Params, now = Date.now()): void {
     switch (method) {
       case "Runtime.consoleAPICalled": {
         const args = (p.args as RemoteObject[] | undefined) ?? []
         const frame = (p.stackTrace as { callFrames?: CallFrame[] } | undefined)?.callFrames?.[0]
-        this.addConsole(CONSOLE_LEVELS[p.type as string] ?? "log", args.map(argText).join(" "), frame?.url, frame?.lineNumber, now)
+        this.addConsole(CONSOLE_LEVELS[p.type as string] ?? "log", args.map(argText).join(" "), frame?.url, frame?.lineNumber, now, p.timestamp)
         break
       }
       case "Runtime.exceptionThrown": {
@@ -87,12 +102,12 @@ export class TabCapture {
         }
         const frame = d.stackTrace?.callFrames?.[0]
         const text = d.exception?.description ?? (d.exception ? argText(d.exception) : "")
-        this.addConsole("error", text || d.text || "Uncaught", d.url ?? frame?.url, d.lineNumber ?? frame?.lineNumber, now)
+        this.addConsole("error", text || d.text || "Uncaught", d.url ?? frame?.url, d.lineNumber ?? frame?.lineNumber, now, p.timestamp)
         break
       }
       case "Log.entryAdded": {
-        const e = (p.entry ?? {}) as { level?: string; text?: string; url?: string; lineNumber?: number }
-        this.addConsole(CONSOLE_LEVELS[e.level ?? "info"] ?? "info", e.text ?? "", e.url, e.lineNumber, now)
+        const e = (p.entry ?? {}) as { level?: string; text?: string; url?: string; lineNumber?: number; timestamp?: number }
+        this.addConsole(CONSOLE_LEVELS[e.level ?? "info"] ?? "info", e.text ?? "", e.url, e.lineNumber, now, e.timestamp)
         break
       }
       case "Page.frameNavigated": {
@@ -154,7 +169,8 @@ export class TabCapture {
     }
   }
 
-  private addConsole(level: ConsoleLevel, text: string, url: string | undefined, line0: number | undefined, ts: number): void {
+  private addConsole(level: ConsoleLevel, text: string, url: string | undefined, line0: number | undefined, ts: number, srcTs?: unknown): void {
+    if (typeof srcTs === "number" && !this.firstSeen(`${srcTs}|${level}|${text}`)) return
     const e: ConsoleEntry = { ts, level, text: clip(text), nav: this.nav }
     if (url) e.url = url
     if (typeof line0 === "number") e.line = line0 + 1
@@ -254,7 +270,27 @@ export async function ensureCapturing(tabId: number): Promise<void> {
 export const MAX_FULL_HEIGHT = 16_384
 export const SCREENSHOT_TIMEOUT_MS = 45_000
 
+/** How long a screenshot waits for an action holding the tab before giving up. */
+const LOCK_WAIT_MS = 15_000
+
+/** Serialized with actions on the tab: the element path scrolls the page, which must not land mid-click. */
 export async function screenshot(tabId: number, opts: { full?: boolean; ref?: string }): Promise<ScreenshotResult> {
+  if (opts.ref !== undefined && !REF_RE.test(opts.ref)) {
+    throw new RpcError(ErrorCode.BAD_REQUEST, `params.ref must look like @e12abc, got ${opts.ref}`)
+  }
+  const wait = new AbortController()
+  const timer = setTimeout(
+    () => wait.abort(new RpcError(ErrorCode.TIMEOUT, `TIMEOUT: tab ${tabId} stayed busy for ${LOCK_WAIT_MS} ms; screenshot not taken`)),
+    LOCK_WAIT_MS,
+  )
+  try {
+    return await withTabLock(tabId, async () => (clearTimeout(timer), shoot(tabId, opts)), { signal: wait.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function shoot(tabId: number, opts: { full?: boolean; ref?: string }): Promise<ScreenshotResult> {
   if (opts.ref !== undefined && !REF_RE.test(opts.ref)) {
     throw new RpcError(ErrorCode.BAD_REQUEST, `params.ref must look like @e12abc, got ${opts.ref}`)
   }

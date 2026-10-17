@@ -43,10 +43,13 @@ function where(url: string | undefined, line: number | undefined): string {
   return ` (${name}${line !== undefined ? `:${line}` : ""})`
 }
 
+const firstLine = (t: string) => (t.split("\n", 1)[0] ?? "").replace(/^Uncaught /, "")
+
 /** `[error] kaboom (app.js:12)`, one entry per line, oldest first. */
 export function formatConsole(entries: ConsoleEntry[]): string {
   if (!entries.length) return "no console entries"
-  return entries.map((e) => `[${e.level}] ${e.text}${where(e.url, e.line)}`).join("\n")
+  // One line per entry: an exception's description carries its whole stack (kept in --json).
+  return entries.map((e) => `[${e.level}] ${firstLine(e.text)}${where(e.url, e.line)}`).join("\n")
 }
 
 /** `GET 500 http://host/status/500 (34 ms)`; `GET ERR url net::ERR_FAILED` when the request failed without a response. */

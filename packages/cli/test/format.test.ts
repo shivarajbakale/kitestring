@@ -48,6 +48,11 @@ describe("formatConsole / formatNetwork", () => {
     expect(formatConsole([{ ts: 1, level: "log", text: "hi", nav: 0 }])).toBe("[log] hi")
     expect(formatConsole([])).toBe("no console entries")
   })
+  it("prints only the first line of a multi-line exception", () => {
+    expect(
+      formatConsole([{ ts: 1, level: "error", text: "Uncaught Error: kaboom\n    at f (app.js:12:9)\n    at g", url: "https://s.test/app.js", line: 12, nav: 0 }]),
+    ).toBe("[error] Error: kaboom (app.js:12)")
+  })
   it("prints METHOD status url (ms)", () => {
     expect(
       formatNetwork([

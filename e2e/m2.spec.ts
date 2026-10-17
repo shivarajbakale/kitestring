@@ -149,7 +149,8 @@ test.describe("debug capture", () => {
     const c = await kite("console", "--errors")
     expect(c.code, out(c)).toBe(0)
     expect(c.stdout).toMatch(/\[error\] boom/)
-    expect(c.stdout).toContain("kaboom")
+    expect(c.stdout).toMatch(/^\[error\] .*kaboom.*$/m)
+    expect(c.stdout.trim().split("\n").every((l) => l.startsWith("["))).toBe(true)
     expect(c.stdout).not.toContain("hello")
 
     const all = await kite("console", "--json")
@@ -192,7 +193,8 @@ test.describe("debug capture", () => {
       const e = readPng(el)
       expect(e.sig).toEqual(PNG_SIG)
       expect(e.height).toBeGreaterThan(0)
-      expect(e.height).toBeLessThanOrEqual(f.height)
+      expect(e.height).toBeLessThan(f.height)
+      expect(e.width).toBeLessThan(f.width)
 
       // default path under $KITE_HOME/shots
       const d = await kite("screenshot")
