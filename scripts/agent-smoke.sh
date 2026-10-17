@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Agent smoke test: a real agent drives the torture basic-form through the Kitestring MCP tools.
 #   scripts/agent-smoke.sh [claude|opencode] [--yes]
+# Environment:
+#   KITE_SMOKE_DRY=1   start and stop the torture site only; skips doctor, the prompt and the agent (no credits)
+#   PORT=<n>           torture site port (default 4173)
+#   AGENT_TIMEOUT=<s>  agent time limit in seconds (default 300; needs timeout/gtimeout on PATH)
 # WARNING: this spends your agent credits. Never run in CI.
 set -euo pipefail
 
@@ -82,8 +86,8 @@ TO=()
 if command -v timeout >/dev/null; then TO=(timeout "${AGENT_TIMEOUT:-300}"); elif command -v gtimeout >/dev/null; then TO=(gtimeout "${AGENT_TIMEOUT:-300}"); fi
 RC=0
 case "$AGENT" in
-  claude) "${TO[@]}" claude -p "$PROMPT" --allowedTools "mcp__kitestring__*" || RC=$? ;;
-  opencode) "${TO[@]}" opencode run "$PROMPT" || RC=$? ;;
+  claude) ${TO[@]+"${TO[@]}"} claude -p "$PROMPT" --allowedTools "mcp__kitestring" || RC=$? ;;
+  opencode) ${TO[@]+"${TO[@]}"} opencode run "$PROMPT" || RC=$? ;;
 esac
 [ "$RC" = 0 ] || echo "agent exited with status $RC" >&2
 
