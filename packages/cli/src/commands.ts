@@ -164,6 +164,17 @@ export async function main(argv: string[]): Promise<number> {
       }
     })
 
+  program
+    .command("doctor")
+    .description("check the install end to end (read-only); prints fix hints for anything failing")
+    .action(async () => {
+      const { runDoctor, formatChecks } = await import("./doctor/doctor.js")
+      const checks = await runDoctor({ home: homedir(), env: process.env })
+      if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(checks) + "\n")
+      else process.stdout.write(formatChecks(checks) + "\n")
+      if (checks.some((c) => !c.ok)) exitCode = 1
+    })
+
   const initOpts = (o: { agents?: string; dryRun?: boolean; yes?: boolean }) => {
     let agents
     try {

@@ -30,10 +30,10 @@ function defaultTimeout(): number {
 export function call(
   method: Method,
   params: object,
-  opts: { session: string; timeoutMs?: number },
+  opts: { session: string; timeoutMs?: number; socketPath?: string },
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const sock = net.connect(socketPath())
+    const sock = net.connect(opts.socketPath ?? socketPath())
     let settled = false
     let connected = false
     let buf = ""

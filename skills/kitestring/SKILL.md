@@ -43,6 +43,7 @@ CLI: exit code 1 when status is not done; call errors print `kite: <message>` (e
 - No snapshot after every action. The diff is the snapshot delta.
 - Snapshots show headings, controls, landmarks and lists, not body text. Screenshot only when the question is visual (layout, colors, rendered text).
 - Never retry the same failing action unchanged. Read the status and recover.
+- Setup problem (not connected, tools missing)? Run `kite doctor` and show the human the failing `fix:` lines; `kite init` is something only the human runs.
 
 ## Safety rules (no exceptions)
 
@@ -65,7 +66,7 @@ CLI: exit code 1 when status is not done; call errors print `kite: <message>` (e
 | `timeout` | Page still busy. Snapshot to see the real state before acting again. |
 | `restricted` / `RESTRICTED` | Browser blocks extensions here (chrome://, Web Store, blank tab). `kite goto <url>` to a normal page. |
 | `error` | Read `detail` (bad option, failed navigation, fill mismatch); fix the input. |
-| `NOT_CONNECTED` | Ask the human to open Chrome with the Kitestring extension loaded; check `kite status`. |
+| `NOT_CONNECTED` | Run `kite doctor` and show the human the failing `fix:` lines (they may need to run `kite init` or load the extension). Then `kite status`. |
 | `NO_TAB` | `kite tab new <url>`. |
 | `NOT_OWNER` | Not your tab. `kite tab list`, use your own or open one. |
 | `BAD_REQUEST` | Your arguments are wrong (unknown key, malformed ref). Fix them. |

@@ -97,7 +97,7 @@ const stamp = (d: Date) => {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`
 }
 
-function defaultExec(file: string, args: string[], env: NodeJS.ProcessEnv): Promise<ExecResult> {
+export function defaultExec(file: string, args: string[], env: NodeJS.ProcessEnv): Promise<ExecResult> {
   return new Promise((resolve) => {
     execFile(file, args, { env, timeout: 60_000, encoding: "utf8" }, (err, stdout, stderr) => {
       const exit = (err as { code?: unknown } | null)?.code

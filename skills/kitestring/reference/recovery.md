@@ -25,7 +25,7 @@ Rule for all of them: **never repeat the identical call unchanged.** Change some
 
 | Code | CLI message looks like | Meaning | Do |
 |---|---|---|---|
-| `NOT_CONNECTED` | `browser not connected (is Chrome open with the Kitestring extension?)` | The CLI cannot reach the browser. | Ask the human to open Chrome with the Kitestring extension loaded, then check `kite status` (`browser_status`). Do not try to install or launch anything yourself. |
+| `NOT_CONNECTED` | `browser not connected (is Chrome open with the Kitestring extension?)` | The CLI cannot reach the browser. | Run `kite doctor` and show the human the failing `fix:` lines (setup steps such as `kite init` or loading the extension in Chrome are theirs to run), then check `kite status` (`browser_status`). Do not try to install or launch anything yourself. |
 | `NO_TAB` | `NO_TAB: session "…" has no active tab …` | Your session has no active tab. | `kite tab new <url>`. |
 | `NOT_OWNER` | `NOT_OWNER: tab … does not belong to session "…"` | The tab id belongs to another session (another agent or task). | Leave it alone. `kite tab list` shows your tabs; `kite tab use <id>` one of them or open a new one. |
 | `RESTRICTED` | `restricted page (<url>) — browser blocks extensions here` | The active tab is a page extensions cannot touch (chrome://, Chrome Web Store, `about:blank`). | `kite goto <url>`. |
