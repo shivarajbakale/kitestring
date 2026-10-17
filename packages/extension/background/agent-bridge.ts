@@ -24,6 +24,10 @@ const RESTRICTED_PREFIXES = [
 
 const AGENT_TIMEOUT_MS = 30_000
 
+/** Diagnostics, readable from the service worker console (and e2e) as `globalThis.__bxStats`. */
+const stats = { injections: 0 }
+;(globalThis as { __bxStats?: typeof stats }).__bxStats = stats
+
 export function isRestrictedUrl(url: string): boolean {
   return RESTRICTED_PREFIXES.some((p) => url.startsWith(p))
 }
@@ -76,6 +80,7 @@ export async function callAgent<T>(tabId: number, method: keyof PageAgent, args:
     reply = await send(tabId, msg)
   } catch (e) {
     if (!NO_RECEIVER_RE.test(e instanceof Error ? e.message : String(e))) throw e
+    stats.injections++
     await inject(tabId, url)
     reply = await send(tabId, msg)
   }

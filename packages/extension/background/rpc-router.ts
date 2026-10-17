@@ -1,6 +1,9 @@
-import { ErrorCode, RpcRequest, type Method, type RpcResponse } from "@bx/protocol"
+import { ErrorCode, RpcRequest, type Method, type RpcResponse, type Target } from "@bx/protocol"
 import { callAgent } from "./agent-bridge"
 import { RestrictedPageError, RpcError } from "./errors"
+import { ensureAttached } from "./cdp"
+import { viewport } from "./input"
+import { goto, runAction } from "./pipeline"
 import * as sessions from "./sessions"
 
 type Handler = (params: Record<string, unknown>, session: sessions.Session) => Promise<unknown>
@@ -16,6 +19,26 @@ function tabIdParam(params: Record<string, unknown>, required: boolean): number 
   if (id === undefined && !required) return undefined
   if (typeof id !== "number" || !Number.isInteger(id)) badRequest("params.id must be an integer tab id")
   return id
+}
+
+function stringParam(params: Record<string, unknown>, name: string): string {
+  const v = params[name]
+  if (typeof v !== "string") badRequest(`params.${name} must be a string`)
+  return v
+}
+
+function targetParam(params: Record<string, unknown>): Target {
+  const t = params.target as Record<string, unknown> | undefined
+  if (t && typeof t === "object") {
+    if (typeof t.ref === "string") return { ref: t.ref }
+    if (typeof t.text === "string") {
+      const out: { text: string; within?: string; role?: string } = { text: t.text }
+      if (typeof t.within === "string") out.within = t.within
+      if (typeof t.role === "string") out.role = t.role
+      return out
+    }
+  }
+  badRequest("params.target must be {ref} or {text, within?, role?}")
 }
 
 const handlers: Partial<Record<Method, Handler>> = {
@@ -48,6 +71,35 @@ const handlers: Partial<Record<Method, Handler>> = {
     ])
     return { text }
   },
+
+  "page.goto": async (params, s) => goto(s, stringParam(params, "url")),
+
+  "act.click": async (params, s) => runAction(s, { kind: "click", target: targetParam(params) }),
+
+  "act.fill": async (params, s) =>
+    runAction(s, { kind: "fill", target: targetParam(params), value: stringParam(params, "text") }),
+
+  "act.select": async (params, s) =>
+    runAction(s, { kind: "select", target: targetParam(params), value: stringParam(params, "value") }),
+
+  "act.press": async (params, s) => runAction(s, { kind: "press", key: stringParam(params, "key") }),
+
+  "act.scroll": async (params, s) => {
+    const direction = params.direction
+    if (direction !== "up" && direction !== "down") badRequest('params.direction must be "up" or "down"')
+    const px = params.px
+    if (px !== undefined && (typeof px !== "number" || !Number.isFinite(px) || px <= 0)) {
+      badRequest("params.px must be a positive number")
+    }
+    // Default: one viewport height.
+    const amount = px ?? (await viewportHeight(sessions.activeTab(s)))
+    return runAction(s, { kind: "scroll", dy: direction === "up" ? -amount : amount })
+  },
+}
+
+async function viewportHeight(tabId: number): Promise<number> {
+  await ensureAttached(tabId)
+  return (await viewport(tabId)).height
 }
 
 /** Only opening a tab creates a session; other methods must not register sessions as a side effect. */

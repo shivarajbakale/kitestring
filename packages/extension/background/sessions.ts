@@ -153,6 +153,15 @@ export async function newTab(s: Session, url?: string): Promise<TabInfo> {
   return info(await chrome.tabs.get(id))
 }
 
+/** Adds a tab the session's page opened (popup, target=_blank) to the session and its group. */
+export async function adoptTab(s: Session, tabId: number): Promise<void> {
+  if (s.tabs.has(tabId)) return
+  s.tabs.add(tabId)
+  await persist()
+  await addToGroup(s, tabId)
+  await persist()
+}
+
 export async function useTab(s: Session, tabId: number): Promise<TabInfo> {
   assertOwner(s, tabId)
   const tab = await chrome.tabs.update(tabId, { active: true })
