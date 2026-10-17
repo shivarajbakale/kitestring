@@ -102,3 +102,99 @@ test.describe("toolbar popup", () => {
     await shoot("popup-paused")
   })
 })
+
+const PANEL = `chrome-extension://${EXTENSION_ID}/sidepanel.html`
+
+async function openPanel(context: BrowserContext, width = 360): Promise<Page> {
+  const page = await context.newPage()
+  await page.setViewportSize({ width, height: 800 })
+  await page.goto(PANEL)
+  return page
+}
+
+test.describe("live side panel", () => {
+  test("shows the activity newest first with badges, filters by session, and focuses the entry's tab", async ({
+    kite,
+    kiteEnv,
+    context,
+    torture,
+  }) => {
+    const panel = await openPanel(context)
+    const feed = panel.getByRole("list", { name: "Activity" })
+    await expect(panel.getByText(/No activity yet/)).toBeVisible()
+
+    expect((await kite("tab", "new", `${torture}/basic-form`)).code).toBe(0)
+    expect((await kite("fill", "Name", "Ada")).code).toBe(0)
+    const missing = await kite("click", "Missing")
+    expect(missing.code, out(missing)).toBe(1)
+
+    const rows = feed.locator(":scope > li") // entries, not the diff lines inside them
+    await expect(rows).toHaveCount(3)
+    await expect(rows.nth(0)).toContainText('click "Missing"')
+    await expect(rows.nth(0).locator(".ks-badge")).toHaveText("not_found")
+    await expect(rows.nth(1)).toContainText('fill "Name"')
+    await expect(rows.nth(1).locator(".ks-badge")).toHaveText("done")
+    await expect(rows.nth(2)).toContainText("tab.new")
+    await expect(rows.nth(2).locator(".ks-badge")).toHaveText("done")
+    await expect(feed).not.toContainText("Ada") // a fill value is never the logged target
+
+    // Details: the diff and the page brief, as plain text.
+    await rows.nth(1).getByRole("button", { name: /details/i }).click()
+    await expect(rows.nth(1).getByRole("region", { name: /page brief/i })).toContainText("Basic form")
+
+    // Another session's work shows up live; the filter hides it.
+    expect((await kiteEnv({ KITE_SESSION: "codex" }, "tab", "new", `${torture}/serial`)).code).toBe(0)
+    await expect(rows).toHaveCount(4)
+    await expect(rows.nth(0)).toContainText("codex")
+    const chips = panel.getByRole("group", { name: "Filter by session" })
+    await chips.getByRole("button", { name: /default/ }).click()
+    await expect(rows).toHaveCount(3)
+    await expect(feed).not.toContainText("codex")
+    await chips.getByRole("button", { name: /codex/ }).click()
+    await expect(rows).toHaveCount(1)
+    await chips.getByRole("button", { name: /All/ }).click()
+    await expect(rows).toHaveCount(4)
+
+    // Pause is mirrored at the top.
+    await panel.getByRole("button", { name: "Pause agents" }).click()
+    const paused = await kite("click", "Missing")
+    expect(out(paused)).toContain("PAUSED")
+    await expect(rows.nth(0).locator(".ks-badge")).toHaveText("PAUSED")
+    await panel.getByRole("button", { name: "Resume" }).click()
+    await expect(panel.getByRole("button", { name: "Pause agents" })).toBeVisible()
+
+    // Clicking an entry brings its tab to the front.
+    await panel.bringToFront()
+    await feed.getByRole("button", { name: /fill "Name"/ }).click()
+    const formPage = context.pages().find((p) => p.url() === `${torture}/basic-form`)!
+    await expect.poll(() => formPage.evaluate(() => document.visibilityState)).toBe("visible")
+  })
+
+  test("screenshots in light and dark", async ({ kite, kiteEnv, context, torture }) => {
+    expect((await kite("tab", "new", `${torture}/basic-form`)).code).toBe(0)
+    expect((await kite("fill", "Name", "Ada")).code).toBe(0)
+    expect((await kite("click", "Missing")).code).toBe(1)
+    const cc = (...a: string[]) => kiteEnv({ KITE_SESSION: "claude-code" }, ...a)
+    expect((await cc("tab", "new", `${torture}/serial`)).code).toBe(0)
+    expect((await cc("click", "Fast task")).code).toBe(0)
+    mkdirSync(DOCS_UI, { recursive: true })
+    for (const width of [320, 600]) {
+      for (const scheme of ["light", "dark"] as const) {
+        const panel = await openPanel(context, width)
+        await panel.emulateMedia({ colorScheme: scheme })
+        const rows = panel.getByRole("list", { name: "Activity" }).locator(":scope > li")
+        await expect(rows).toHaveCount(5)
+        await rows.nth(3).getByRole("button", { name: /details/i }).click() // fill "Name": a diff and a brief
+        await panel.evaluate(() => document.fonts.ready)
+        // No horizontal scroll at any supported width.
+        expect(await panel.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+        await panel.setViewportSize({ width: width * 2, height: 2400 })
+        await panel.evaluate(() => (document.documentElement.style.zoom = "2"))
+        await panel.mouse.move(1, 1) // no stray hover in the docs
+        const name = width === 320 ? `sidepanel-${scheme}` : `sidepanel-${width}-${scheme}`
+        await panel.locator("main").screenshot({ path: join(DOCS_UI, `${name}.png`), animations: "disabled" })
+        await panel.close()
+      }
+    }
+  })
+})

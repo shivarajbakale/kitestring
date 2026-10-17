@@ -1,0 +1,415 @@
+/*
+ * Side panel layout (Chrome lets the user drag it between 320 and 600 px wide). Shared pieces live in
+ * theme.css. The pause switch stays in view; only the activity log scrolls.
+ */
+
+:root {
+  --panel-gutter: 14px;
+  /* Diff signs and text: the light accent is too faint for small text (4.4:1), so both get darker cuts. */
+  --ks-added: #17703f;
+  --ks-removed: #b0301a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ks-added: #5fcf8f;
+    --ks-removed: #ff8a6e;
+  }
+}
+@media (min-width: 420px) {
+  :root {
+    --panel-gutter: 18px;
+  }
+}
+
+html,
+body {
+  height: 100%;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+.panel__top {
+  flex: none;
+  display: grid;
+  gap: 14px;
+  padding: 14px var(--panel-gutter) 16px;
+}
+
+.panel__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+}
+.panel__brand {
+  display: flex;
+  margin: 0;
+  line-height: 0;
+}
+
+.panel__error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--ks-radius);
+  background: var(--ks-accent-wash);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Log ---------- */
+
+.panel__log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--ks-line);
+  scrollbar-gutter: stable;
+}
+
+.panel__log-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+  padding: 12px var(--panel-gutter) 10px;
+  background: var(--ks-paper);
+  box-shadow: 0 1px 0 var(--ks-line);
+}
+
+.panel__h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ks-muted);
+}
+
+.panel__empty,
+.panel__note {
+  margin: 0;
+  padding: 14px var(--panel-gutter);
+  color: var(--ks-muted);
+  font-size: 12.5px;
+  text-wrap: pretty;
+  max-width: 60ch;
+}
+.panel__note {
+  font-size: 12px;
+  padding-bottom: 20px;
+}
+
+.panel__loading {
+  height: 120px;
+}
+
+/* Very short panels: let the whole page scroll so the log never collapses to nothing. */
+@media (max-height: 480px) {
+  html,
+  body,
+  .panel {
+    height: auto;
+  }
+  .panel__log {
+    overflow: visible;
+  }
+}
+
+/* ---------- Session filter chips ---------- */
+
+.ks-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ks-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ks-surface);
+  box-shadow: inset 0 0 0 1px var(--ks-line);
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background-color 120ms var(--ks-ease),
+    color 120ms var(--ks-ease);
+}
+.ks-chip:hover {
+  background: color-mix(in srgb, var(--ks-ink) 7%, var(--ks-surface));
+}
+.ks-chip[aria-pressed="true"] {
+  background: var(--ks-ink);
+  color: var(--ks-paper);
+  box-shadow: none;
+}
+.ks-chip[aria-pressed="true"] .ks-session-dot {
+  box-shadow: 0 0 0 1.5px var(--ks-paper);
+}
+.ks-chip__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ks-chip__count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  opacity: 0.7;
+}
+
+/* ---------- Entries ---------- */
+
+.ks-feed {
+  list-style: none;
+  margin: 0;
+  padding: 4px calc(var(--panel-gutter) - 8px) 12px;
+  display: grid;
+  gap: 1px;
+}
+
+.ks-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  border-radius: var(--ks-radius);
+  transition: background-color 120ms var(--ks-ease);
+}
+.ks-entry:hover,
+.ks-entry[data-open] {
+  background: var(--ks-hover);
+}
+.ks-entry[data-fresh] {
+  animation: ks-arrive 1400ms var(--ks-ease) both;
+}
+@keyframes ks-arrive {
+  from {
+    background-color: color-mix(in srgb, var(--ks-accent) 14%, transparent);
+    transform: translateY(-4px);
+  }
+  20% {
+    transform: none;
+  }
+}
+
+.ks-entry__main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 4px 9px 8px;
+  border: 0;
+  border-radius: var(--ks-radius);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.ks-entry__main:active {
+  background: var(--ks-press);
+}
+.ks-entry__main:focus-visible,
+.ks-entry__toggle:focus-visible {
+  outline-offset: -2px;
+}
+
+.ks-entry__meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ks-muted);
+}
+.ks-entry__meta .ks-session-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2.5px;
+}
+.ks-entry__session {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 550;
+  color: var(--ks-ink);
+}
+.ks-entry__nums {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ks-entry__line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.ks-entry__action {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.ks-entry__line .ks-badge {
+  align-self: center;
+}
+
+.ks-entry__summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ks-muted);
+}
+.ks-entry__summary-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ks-stat {
+  display: inline-flex;
+  gap: 6px;
+  flex: none;
+  font-family: var(--ks-mono);
+  font-size: 11.5px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+.ks-stat [data-kind="added"] {
+  color: var(--ks-added);
+}
+.ks-stat [data-kind="removed"] {
+  color: var(--ks-removed);
+}
+
+.ks-entry__toggle {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin: 6px 4px 0 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ks-muted);
+  cursor: pointer;
+  transition: background-color 120ms var(--ks-ease);
+}
+.ks-entry__toggle:hover {
+  background: var(--ks-press);
+  color: var(--ks-ink);
+}
+.ks-entry__toggle svg {
+  transition: transform 180ms var(--ks-ease);
+}
+.ks-entry__toggle[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+/* ---------- Details ---------- */
+
+.ks-entry__details {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 2px 10px 12px 23px;
+  font-size: 12px;
+}
+.ks-entry__label {
+  display: block;
+  margin: 0 0 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ks-muted);
+}
+.ks-entry__url {
+  margin: 0;
+}
+.ks-entry__url-text {
+  font-family: var(--ks-mono);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+.ks-entry__none {
+  margin: 0;
+  color: var(--ks-muted);
+}
+
+.ks-diff__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: var(--ks-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.ks-diff__line {
+  display: grid;
+  grid-template-columns: 1.4ch minmax(0, 1fr);
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.ks-diff__sign {
+  font-weight: 700;
+  text-align: center;
+}
+.ks-diff__line[data-kind="added"] .ks-diff__sign {
+  color: var(--ks-added);
+}
+.ks-diff__line[data-kind="removed"] {
+  color: var(--ks-muted);
+}
+.ks-diff__line[data-kind="removed"] .ks-diff__sign {
+  color: var(--ks-removed);
+}
+
+.ks-brief__text {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--ks-paper);
+  box-shadow: inset 0 0 0 1px var(--ks-line);
+  font-family: var(--ks-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Badge tones (theme.css has ok and fail) ---------- */
+
+.ks-badge--paused {
+  color: var(--ks-ink);
+}
+.ks-badge--paused svg {
+  color: var(--ks-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ks-entry[data-fresh] {
+    animation: none;
+  }
+}

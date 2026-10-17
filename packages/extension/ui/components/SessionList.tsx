@@ -1,16 +1,11 @@
-import type { ActivityEntry } from "@kitestring/protocol"
+import { describeAction } from "../activity-format"
 import type { UiSession } from "../messages"
 import { ChevronIcon } from "./icons"
 import { RelativeTime } from "./RelativeTime"
 import { SessionDot } from "./SessionDot"
 import { StatusBadge } from "./StatusBadge"
 
-/** `click "Pay now"`, `tab.new 127.0.0.1:5173/serial`: the action without the `act.` namespace or URL scheme. */
-export function describeAction(e: ActivityEntry): string {
-  const method = e.method.replace(/^act\./, "")
-  const target = e.target?.replace(/^https?:\/\//, "")
-  return target ? `${method} ${target}` : method
-}
+export { describeAction }
 
 const tabs = (n: number) => (n === 1 ? "1 tab" : `${n} tabs`)
 

@@ -25,7 +25,8 @@ export type UiRequest =
   | { kite: "ui"; op: "state" }
   | { kite: "ui"; op: "pause"; reason?: string }
   | { kite: "ui"; op: "resume" }
-  | { kite: "ui"; op: "focusTab"; session: string }
+  /** Brings a tab to the front: `tabId` when given and still open, else the session's active tab. */
+  | { kite: "ui"; op: "focusTab"; session: string; tabId?: number }
   | { kite: "ui"; op: "openPanel"; windowId?: number }
 
 export type UiResponse = { ok: true; state: UiState } | { ok: false; error: string }
@@ -51,8 +52,12 @@ export function parseUiRequest(m: unknown): UiRequest | null {
       const reason = typeof r.reason === "string" ? r.reason.trim().slice(0, REASON_MAX) : ""
       return reason ? { kite: "ui", op: "pause", reason } : { kite: "ui", op: "pause" }
     }
-    case "focusTab":
-      return typeof r.session === "string" && r.session ? { kite: "ui", op: "focusTab", session: r.session } : null
+    case "focusTab": {
+      if (typeof r.session !== "string" || !r.session) return null
+      if (r.tabId === undefined) return { kite: "ui", op: "focusTab", session: r.session }
+      if (!Number.isSafeInteger(r.tabId) || (r.tabId as number) < 0) return null
+      return { kite: "ui", op: "focusTab", session: r.session, tabId: r.tabId as number }
+    }
     case "openPanel":
       if (r.windowId !== undefined && !Number.isInteger(r.windowId)) return null
       return r.windowId === undefined ? { kite: "ui", op: "openPanel" } : { kite: "ui", op: "openPanel", windowId: r.windowId as number }

@@ -35,14 +35,25 @@ export async function uiState(): Promise<UiState> {
   }
 }
 
-async function focusSession(name: string): Promise<void> {
+async function focusTab(tabId: number): Promise<void> {
+  const tab = await chrome.tabs.update(tabId, { active: true })
+  if (tab?.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true })
+}
+
+async function focusSession(name: string, preferTabId?: number): Promise<void> {
+  if (preferTabId !== undefined) {
+    try {
+      return await focusTab(preferTabId)
+    } catch {
+      // tab closed since; fall back to the session's current tab
+    }
+  }
   await sessions.loadSessions()
   const s = sessions.findSession(name)
   if (!s) throw new Error(`no session "${name}"`)
   const tabId = s.activeTabId ?? [...s.tabs][0]
   if (tabId === undefined) throw new Error(`session "${name}" has no tabs`)
-  const tab = await chrome.tabs.update(tabId, { active: true })
-  if (tab?.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true })
+  await focusTab(tabId)
 }
 
 async function handle(req: UiRequest): Promise<UiState> {
@@ -58,7 +69,7 @@ async function handle(req: UiRequest): Promise<UiState> {
       await control.resume()
       break
     case "focusTab":
-      await focusSession(req.session)
+      await focusSession(req.session, req.tabId)
       break
     case "openPanel": {
       const windowId = req.windowId ?? (await chrome.windows.getLastFocused()).id!

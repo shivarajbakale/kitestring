@@ -49,6 +49,12 @@ describe("parseUiRequest", () => {
     expect(parseUiRequest({ kite: "ui", op: "resume", extra: 1 })).toEqual({ kite: "ui", op: "resume" })
     expect(parseUiRequest({ kite: "ui", op: "focusTab", session: "default" })).toEqual({ kite: "ui", op: "focusTab", session: "default" })
     expect(parseUiRequest({ kite: "ui", op: "openPanel", windowId: 3 })).toEqual({ kite: "ui", op: "openPanel", windowId: 3 })
+    expect(parseUiRequest({ kite: "ui", op: "focusTab", session: "s", tabId: 42 })).toEqual({ kite: "ui", op: "focusTab", session: "s", tabId: 42 })
+  })
+  it("requires focusTab's tabId to be a non-negative integer", () => {
+    for (const tabId of ["42", 1.5, -1, NaN, Infinity, null, {}]) {
+      expect(parseUiRequest({ kite: "ui", op: "focusTab", session: "s", tabId })).toBeNull()
+    }
   })
   it("trims and caps the pause reason; blank means none", () => {
     expect(parseUiRequest({ kite: "ui", op: "pause", reason: "  lunch " })).toEqual({ kite: "ui", op: "pause", reason: "lunch" })
