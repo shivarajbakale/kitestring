@@ -12,6 +12,8 @@ export interface PageAgent {
   resolve(ref: string): Element | null
   find(target: Target, intent: FindIntent): FindResult
   check(ref: string): CheckResult
+  /** Scrolls the element into view; its box in document (page) coordinates, or null if absent/empty. */
+  rect(ref: string): { x: number; y: number; width: number; height: number } | null
   waitQuiet(): Promise<{ quiet: boolean; waitedMs: number }>
   brief(): string
   readValue(ref: string): string | null
@@ -28,6 +30,14 @@ export function createAgent(win: Window): PageAgent {
     check: (ref) => {
       const el = reg.resolve(ref)
       return el ? check(el) : { kind: "hidden" }
+    },
+    rect: (ref) => {
+      const el = reg.resolve(ref)
+      if (!el || !el.isConnected) return null
+      el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" })
+      const r = el.getBoundingClientRect()
+      if (r.width <= 0 || r.height <= 0) return null
+      return { x: r.left + win.scrollX, y: r.top + win.scrollY, width: r.width, height: r.height }
     },
     waitQuiet: () => waitQuiet(win),
     brief: () => brief(doc),

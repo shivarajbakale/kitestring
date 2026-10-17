@@ -1,4 +1,6 @@
 import { ErrorCode } from "@kitestring/protocol"
+import { isRestrictedUrl } from "./agent-bridge"
+import { ensureAttached, onEvent, send } from "./cdp"
 import { RpcError } from "./errors"
 
 export interface Session {
@@ -144,16 +146,51 @@ async function addToGroup(s: Session, tabId: number): Promise<void> {
 
 const info = (t: chrome.tabs.Tab): TabInfo => ({ id: t.id!, url: t.url || t.pendingUrl || "", title: t.title ?? "" })
 
+/**
+ * Opens the tab on about:blank, attaches the debugger (capture starts) and only then navigates, so the
+ * first load's console and network traffic is captured. Falls back to opening the URL directly when the
+ * debugger can't attach.
+ */
 export async function newTab(s: Session, url?: string): Promise<TabInfo> {
-  const tab = await chrome.tabs.create({ url: url ?? "about:blank", active: true })
+  const target = url && !isRestrictedUrl(url) ? url : undefined
+  const tab = await chrome.tabs.create({ url: target ? "about:blank" : (url ?? "about:blank"), active: true })
   const id = tab.id!
   s.tabs.add(id)
   s.activeTabId = id
   await persist()
   await addToGroup(s, id)
   await persist()
+  let navigated = false
+  if (target) {
+    try {
+      await ensureAttached(id)
+      const loaded = waitLoadEvent(id, LOAD_TIMEOUT_MS)
+      await send(id, "Page.navigate", { url: target })
+      await loaded
+      navigated = true
+    } catch (e) {
+      console.warn("[kite] tab.new: debugger navigation failed, opening the URL directly", e)
+    }
+    if (!navigated) await chrome.tabs.update(id, { url: target })
+  } else {
+    void ensureAttached(id).catch(() => {}) // restricted page: nothing to capture
+  }
   await waitForLoad(id)
   return info(await chrome.tabs.get(id))
+}
+
+function waitLoadEvent(tabId: number, timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer)
+      off()
+      resolve()
+    }
+    const off = onEvent(tabId, (e) => {
+      if (e.method === "Page.loadEventFired") done()
+    })
+    const timer = setTimeout(done, timeoutMs)
+  })
 }
 
 /** Adds a tab the session's page opened (popup, target=_blank) to the session and its group. */
@@ -170,6 +207,7 @@ export async function useTab(s: Session, tabId: number): Promise<TabInfo> {
   const tab = await chrome.tabs.update(tabId, { active: true })
   s.activeTabId = tabId
   await persist()
+  void ensureAttached(tabId).catch(() => {}) // start capturing; restricted pages just stay unattached
   return info(tab ?? (await chrome.tabs.get(tabId)))
 }
 

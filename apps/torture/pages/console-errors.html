@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>console-errors</title></head><body style="margin:0">
+<main><h1>Console errors</h1>
+<button type="button">Report</button>
+<div style="height:3000px"></div>
+<p>Bottom of a tall page</p></main>
+<script>
+console.error("boom")
+console.log("hello", { a: 1 })
+setTimeout(() => { throw new Error("kaboom") }, 0)
+fetch("/status/500").catch(() => {})
+fetch("/missing").catch(() => {})
+fetch("/analytics/x").catch(() => {})
+</script>
+</body></html>

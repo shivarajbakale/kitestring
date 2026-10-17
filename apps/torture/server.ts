@@ -13,6 +13,11 @@ export async function startTorture(port = 4173): Promise<{ url: string; close():
       res.writeHead(204).end()
       return
     }
+    const status = /^\/status\/([1-5][0-9]{2})$/.exec(path)
+    if (status) {
+      res.writeHead(Number(status[1]), { "content-type": "text/plain" }).end(`status ${status[1]}`)
+      return
+    }
     if (path === "/hang") {
       // A document that never finishes loading (never reaches document_idle): partial HTML, connection kept open.
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })

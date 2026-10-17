@@ -9,6 +9,7 @@ import {
 } from "@kitestring/protocol"
 import * as activity from "./activity"
 import { callAgent } from "./agent-bridge"
+import * as capture from "./capture"
 import * as control from "./control"
 import { RestrictedPageError, RpcError } from "./errors"
 import { goto, runAction } from "./pipeline"
@@ -67,6 +68,13 @@ function targetParam(params: Record<string, unknown>): Target {
   badRequest("params.target must be {ref} or {text, within?, role?}")
 }
 
+function limitParam(params: Record<string, unknown>): number {
+  const limit = params.limit
+  if (limit === undefined) return 50
+  if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1) badRequest("params.limit must be a positive integer")
+  return limit
+}
+
 const handlers: Partial<Record<Method, Handler>> = {
   status: async () => ({ connected: true, sessions: sessions.sessionNames(), paused: control.isPaused() }),
 
@@ -122,6 +130,43 @@ const handlers: Partial<Record<Method, Handler>> = {
       `TIMEOUT: snapshot did not finish within ${SNAPSHOT_CAP_MS} ms (page still loading?)`,
     )
     return { text }
+  },
+
+  "page.console": async (params, s) => {
+    const level = params.level
+    if (level !== undefined && level !== "error" && level !== "warn" && level !== "all") {
+      badRequest('params.level must be "error", "warn" or "all"')
+    }
+    const tabId = sessions.activeTab(s)
+    await capture.ensureCapturing(tabId)
+    return {
+      entries: capture.consoleEntries(tabId, {
+        ...(level !== undefined ? { level } : {}),
+        limit: limitParam(params),
+        clear: params.clear === true,
+      }),
+    }
+  },
+
+  "page.network": async (params, s) => {
+    const filter = params.filter
+    if (filter !== undefined && typeof filter !== "string") badRequest("params.filter must be a string")
+    const tabId = sessions.activeTab(s)
+    await capture.ensureCapturing(tabId)
+    return {
+      entries: capture.networkEntries(tabId, {
+        failed: params.failed === true,
+        ...(filter ? { filter } : {}),
+        limit: limitParam(params),
+        clear: params.clear === true,
+      }),
+    }
+  },
+
+  "page.screenshot": async (params, s) => {
+    const ref = params.ref
+    if (ref !== undefined && typeof ref !== "string") badRequest("params.ref must be a string")
+    return capture.screenshot(sessions.activeTab(s), { full: params.full === true, ...(ref !== undefined ? { ref } : {}) })
   },
 
   "page.goto": async (params, s) => goto(s, stringParam(params, "url")),

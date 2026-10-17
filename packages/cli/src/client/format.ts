@@ -1,4 +1,4 @@
-import type { ActionResult, ActivityEntry } from "@kitestring/protocol"
+import type { ActionResult, ActivityEntry, ConsoleEntry, NetworkEntry } from "@kitestring/protocol"
 
 export function formatResult(r: ActionResult): string {
   const lines: string[] = []
@@ -27,6 +27,36 @@ export function formatActivity(entries: ActivityEntry[]): string {
       const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
       const what = e.target ? `${e.method} ${e.target}` : e.method
       return `${time}  ${e.session}  tab ${e.tabId ?? "-"}  ${what}  ${e.summary}  (${e.ms} ms)`
+    })
+    .join("\n")
+}
+
+function where(url: string | undefined, line: number | undefined): string {
+  if (!url) return ""
+  let name = url
+  try {
+    const u = new URL(url)
+    name = u.pathname.split("/").filter(Boolean).pop() ?? u.host
+  } catch {
+    // not a URL (e.g. "<anonymous>"): keep as is
+  }
+  return ` (${name}${line !== undefined ? `:${line}` : ""})`
+}
+
+/** `[error] kaboom (app.js:12)`, one entry per line, oldest first. */
+export function formatConsole(entries: ConsoleEntry[]): string {
+  if (!entries.length) return "no console entries"
+  return entries.map((e) => `[${e.level}] ${e.text}${where(e.url, e.line)}`).join("\n")
+}
+
+/** `GET 500 http://host/status/500 (34 ms)`; `GET ERR url net::ERR_FAILED` when the request failed without a response. */
+export function formatNetwork(entries: NetworkEntry[]): string {
+  if (!entries.length) return "no network entries"
+  return entries
+    .map((e) => {
+      const status = e.status !== undefined ? String(e.status) : e.failed ? "ERR" : "..."
+      const tail = e.ms !== undefined ? ` (${e.ms} ms)` : ""
+      return `${e.method} ${status} ${e.url}${e.error ? ` ${e.error}` : ""}${tail}`
     })
     .join("\n")
 }

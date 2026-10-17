@@ -65,3 +65,35 @@ export interface ControlState {
   /** Epoch ms of the last pause/resume. */
   since?: number
 }
+
+export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug"
+
+export interface ConsoleEntry {
+  ts: number
+  level: ConsoleLevel
+  text: string
+  url?: string
+  line?: number
+  /** Count of main-frame navigations seen since capture started (entries of older pages have smaller values). */
+  nav: number
+}
+
+export interface NetworkEntry {
+  ts: number
+  method: string
+  url: string
+  status?: number
+  /** CDP resource type: Document, Fetch, XHR, Script, ... */
+  type: string
+  ms?: number
+  failed: boolean
+  error?: string
+  nav: number
+}
+
+export interface ScreenshotResult {
+  mime: "image/png"
+  data: string
+  width: number
+  height: number
+}

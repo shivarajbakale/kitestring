@@ -1,10 +1,10 @@
-import { existsSync } from "node:fs"
+import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { Command, CommanderError } from "commander"
-import { EXTENSION_ID, parseTarget, type ActionResult, type ActivityEntry, type Method } from "@kitestring/protocol"
+import { EXTENSION_ID, parseTarget, type ActionResult, type ActivityEntry, type ConsoleEntry, type Method, type NetworkEntry, type ScreenshotResult } from "@kitestring/protocol"
 import { KiteError, call } from "./client/rpc-client.js"
-import { formatActivity, formatResult } from "./client/format.js"
+import { formatActivity, formatConsole, formatNetwork, formatResult } from "./client/format.js"
 import { installHost } from "./install/host-manifest.js"
 import { kiteHome } from "./paths.js"
 
@@ -20,6 +20,10 @@ function human(method: Method, result: unknown): string {
   switch (method) {
     case "page.snapshot":
       return String(r?.text ?? "")
+    case "page.console":
+      return formatConsole((r?.entries ?? []) as ConsoleEntry[])
+    case "page.network":
+      return formatNetwork((r?.entries ?? []) as NetworkEntry[])
     case "tab.new":
     case "tab.use":
     case "tab.close":
@@ -77,6 +81,50 @@ export async function main(argv: string[]): Promise<number> {
     .action((o: { full?: boolean; scope?: string }) =>
       run("page.snapshot", { full: !!o.full, ...(o.scope ? { scope: o.scope } : {}) }),
     )
+  const limitOpt = (n: string): number => {
+    if (!/^[1-9]\d*$/.test(n)) throw new UsageError(`--limit must be a positive integer: ${n}`)
+    return Number(n)
+  }
+  program
+    .command("console")
+    .description("console messages and uncaught errors of the active tab")
+    .option("--errors", "only errors")
+    .option("--limit <n>", "how many entries (newest)", "50")
+    .option("--clear", "empty the buffer after reading")
+    .action((o: { errors?: boolean; limit: string; clear?: boolean }) =>
+      run("page.console", { level: o.errors ? "error" : "all", limit: limitOpt(o.limit), clear: !!o.clear }),
+    )
+  program
+    .command("network")
+    .description("network requests of the active tab")
+    .option("--failed", "only failed requests (status >= 400 or no response)")
+    .option("--filter <s>", "only URLs containing this text")
+    .option("--limit <n>", "how many entries (newest)", "50")
+    .option("--clear", "empty the buffer after reading")
+    .action((o: { failed?: boolean; filter?: string; limit: string; clear?: boolean }) =>
+      run("page.network", {
+        failed: !!o.failed,
+        ...(o.filter ? { filter: o.filter } : {}),
+        limit: limitOpt(o.limit),
+        clear: !!o.clear,
+      }),
+    )
+  program
+    .command("screenshot")
+    .description("PNG of the active tab; prints the file path")
+    .option("--full", "the whole page, not just the viewport")
+    .option("--ref <ref>", "only this element (@e…)")
+    .option("-o, --output <file>", "where to write it (default $KITE_HOME/shots/<timestamp>.png)")
+    .action(async (o: { full?: boolean; ref?: string; output?: string }) => {
+      const g = program.opts<Globals>()
+      const session = g.session || process.env.KITE_SESSION || "default"
+      const r = (await call("page.screenshot", { full: !!o.full, ...(o.ref ? { ref: o.ref } : {}) }, { session })) as ScreenshotResult
+      const file = resolve(o.output ?? join(kiteHome(), "shots", `${new Date().toISOString().replace(/:/g, "-")}.png`))
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, Buffer.from(r.data, "base64"))
+      if (g.json) process.stdout.write(JSON.stringify({ path: file, mime: r.mime, width: r.width, height: r.height }) + "\n")
+      else process.stdout.write(file + "\n")
+    })
   program
     .command("click <target>")
     .option("--within <name>")

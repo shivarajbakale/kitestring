@@ -523,8 +523,9 @@ export function goto(s: Session, url: string): Promise<ActionResult> {
   if (isRestrictedUrl(url)) throw new RestrictedPageError(url)
   return capped(tabId, async (p) => {
     let navigated = false
-    if (isRestrictedUrl(await tabUrl(tabId))) {
-      // The debugger can't attach to the current page (e.g. about:blank): let the browser navigate first.
+    const current = await tabUrl(tabId)
+    if (isRestrictedUrl(current) && current !== "about:blank") {
+      // The debugger can't attach to the current page (e.g. chrome://newtab): let the browser navigate first.
       const loaded = waitTabComplete(tabId, READY.timeoutMs)
       if (p.expired) throw new Expired()
       await chrome.tabs.update(tabId, { url })

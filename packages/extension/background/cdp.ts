@@ -9,6 +9,12 @@ const PROTOCOL_VERSION = "1.3"
 /** Tabs we are attached to (or attaching to). Cleared on detach / tab close. */
 const attached = new Map<number, Promise<void>>()
 const handlers = new Map<number, Set<Handler>>()
+/** Run right after attaching, before the domains are enabled (so their replayed events are seen). */
+const attachHooks = new Set<(tabId: number) => void>()
+
+export function onAttach(hook: (tabId: number) => void): void {
+  attachHooks.add(hook)
+}
 
 /** attach() failures that mean "the browser won't let extensions debug this page". */
 const CANNOT_ATTACH_RE = /cannot access|cannot attach|chrome:\/\/|chrome-extension:\/\/|extensions gallery/i
@@ -39,13 +45,14 @@ async function tabUrl(tabId: number): Promise<string> {
   return t.url || t.pendingUrl || ""
 }
 
-/** Attaches the debugger to the tab (once) and enables the Page, Network and Runtime domains. */
+/** Attaches the debugger to the tab (once) and enables the Page, Network, Runtime and Log domains. */
 export function ensureAttached(tabId: number): Promise<void> {
   let p = attached.get(tabId)
   if (!p) {
     p = (async () => {
       const url = await tabUrl(tabId)
-      if (isRestrictedUrl(url)) throw new RestrictedPageError(url)
+      // about:blank is debuggable: attaching there lets tab.new / page.goto capture the first load.
+      if (url !== "about:blank" && isRestrictedUrl(url)) throw new RestrictedPageError(url)
       try {
         await chrome.debugger.attach({ tabId }, PROTOCOL_VERSION)
       } catch (e) {
@@ -54,9 +61,11 @@ export function ensureAttached(tabId: number): Promise<void> {
         // E.g. the service worker restarted while Chrome kept our session: reuse it.
         if (!ALREADY_ATTACHED_RE.test(message)) throw e
       }
+      for (const hook of attachHooks) hook(tabId)
       await send(tabId, "Page.enable")
       await send(tabId, "Network.enable")
       await send(tabId, "Runtime.enable")
+      await send(tabId, "Log.enable")
     })()
     attached.set(tabId, p)
     p.catch(() => {
@@ -78,12 +87,17 @@ export function isNotAttached(e: unknown): boolean {
  */
 const SEND_TIMEOUT_MS = 30_000
 
-export async function send<T = unknown>(tabId: number, method: string, params?: Record<string, unknown>): Promise<T> {
+export async function send<T = unknown>(
+  tabId: number,
+  method: string,
+  params?: Record<string, unknown>,
+  timeoutMs = SEND_TIMEOUT_MS,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`CDP ${method} in tab ${tabId} did not answer within ${SEND_TIMEOUT_MS} ms`)),
-      SEND_TIMEOUT_MS,
+      () => reject(new Error(`CDP ${method} in tab ${tabId} did not answer within ${timeoutMs} ms`)),
+      timeoutMs,
     )
   })
   try {

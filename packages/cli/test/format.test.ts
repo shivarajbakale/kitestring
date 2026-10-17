@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { ActionResult } from "@kitestring/protocol"
-import { formatResult } from "../src/client/format.js"
+import { formatConsole, formatNetwork, formatResult } from "../src/client/format.js"
 
 const base: ActionResult = { ok: true, status: "done", diff: { added: [], removed: [] }, page: "P" }
 
@@ -37,5 +37,23 @@ describe("formatActivity", () => {
   it("says so when empty", async () => {
     const { formatActivity } = await import("../src/client/format.js")
     expect(formatActivity([])).toBe("no activity yet")
+  })
+})
+
+describe("formatConsole / formatNetwork", () => {
+  it("prints [level] text (file:line)", () => {
+    expect(formatConsole([{ ts: 1, level: "error", text: "kaboom", url: "https://s.test/js/app.js", line: 12, nav: 0 }])).toBe(
+      "[error] kaboom (app.js:12)",
+    )
+    expect(formatConsole([{ ts: 1, level: "log", text: "hi", nav: 0 }])).toBe("[log] hi")
+    expect(formatConsole([])).toBe("no console entries")
+  })
+  it("prints METHOD status url (ms)", () => {
+    expect(
+      formatNetwork([
+        { ts: 1, method: "GET", url: "https://s.test/status/500", status: 500, type: "Fetch", ms: 34, failed: true, nav: 0 },
+        { ts: 1, method: "GET", url: "https://s.test/x", type: "Fetch", failed: true, error: "net::ERR_FAILED", nav: 0 },
+      ]),
+    ).toBe("GET 500 https://s.test/status/500 (34 ms)\nGET ERR https://s.test/x net::ERR_FAILED")
   })
 })

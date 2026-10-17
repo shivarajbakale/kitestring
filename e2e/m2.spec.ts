@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test, type KiteRun } from "./fixtures"
 
@@ -130,5 +133,85 @@ test.describe("R14", () => {
     expect(r.stderr).not.toContain("TIMEOUT")
     expect(r.code).toBe(1)
     expect(r.ms).toBeLessThan(17_000)
+  })
+})
+
+test.describe("debug capture", () => {
+  const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+  const readPng = (file: string) => {
+    const b = readFileSync(file)
+    return { sig: [...b.subarray(0, 8)], width: b.readUInt32BE(16), height: b.readUInt32BE(20) }
+  }
+
+  test("console, network and screenshot of a page that misbehaves", async ({ kite, torture }) => {
+    expect((await kite("tab", "new", `${torture}/console-errors`)).code).toBe(0)
+
+    const c = await kite("console", "--errors")
+    expect(c.code, out(c)).toBe(0)
+    expect(c.stdout).toMatch(/\[error\] boom/)
+    expect(c.stdout).toContain("kaboom")
+    expect(c.stdout).not.toContain("hello")
+
+    const all = await kite("console", "--json")
+    const entries = JSON.parse(all.stdout).entries as { level: string; text: string }[]
+    expect(entries.some((e) => e.level === "log" && e.text.startsWith("hello"))).toBe(true)
+
+    const n = await kite("network", "--failed")
+    expect(n.code, out(n)).toBe(0)
+    expect(n.stdout).toMatch(/GET 500 \S*\/status\/500/)
+    expect(n.stdout).toMatch(/GET 404 \S*\/missing/)
+    expect(n.stdout).not.toContain("/analytics/x")
+
+    const ok = await kite("network", "--filter", "/analytics/x")
+    expect(ok.stdout).toMatch(/GET 204 \S*\/analytics\/x/)
+
+    const cleared = await kite("console", "--clear")
+    expect(cleared.code).toBe(0)
+    expect((await kite("console")).stdout.trim()).toBe("no console entries")
+
+    const dir = mkdtempSync(join(tmpdir(), "kites-"))
+    try {
+      const full = join(dir, "full.png")
+      const fr = await kite("screenshot", "--full", "-o", full)
+      expect(fr.code, out(fr)).toBe(0)
+      expect(fr.stdout.trim()).toBe(full)
+      const f = readPng(full)
+      expect(f.sig).toEqual(PNG_SIG)
+      expect(f.width).toBeGreaterThan(0)
+
+      const view = join(dir, "view.png")
+      expect((await kite("screenshot", "-o", view)).code).toBe(0)
+      expect(readPng(view).height).toBeLessThan(f.height)
+
+      const snap = await kite("snapshot")
+      const ref = /"Report" \[(@e[0-9a-z]{5})\]/.exec(snap.stdout)?.[1]
+      expect(ref, snap.stdout).toBeTruthy()
+      const el = join(dir, "el.png")
+      const er = await kite("screenshot", "--ref", ref!, "-o", el)
+      expect(er.code, out(er)).toBe(0)
+      const e = readPng(el)
+      expect(e.sig).toEqual(PNG_SIG)
+      expect(e.height).toBeGreaterThan(0)
+      expect(e.height).toBeLessThanOrEqual(f.height)
+
+      // default path under $KITE_HOME/shots
+      const d = await kite("screenshot")
+      expect(d.code, out(d)).toBe(0)
+      expect(d.stdout.trim()).toMatch(/shots\/.+\.png$/)
+      expect(readPng(d.stdout.trim()).sig).toEqual(PNG_SIG)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("capture methods are blocked while paused", async ({ kite, torture }) => {
+    expect((await kite("tab", "new", `${torture}/console-errors`)).code).toBe(0)
+    expect((await kite("pause")).code).toBe(0)
+    for (const args of [["console"], ["network"], ["screenshot"]]) {
+      const r = await kite(...args)
+      expect(r.code).toBe(1)
+      expect(out(r)).toContain("PAUSED")
+    }
+    await kite("resume")
   })
 })
