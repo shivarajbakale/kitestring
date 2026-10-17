@@ -7,7 +7,6 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import type { ActionResult } from "@kitestring/protocol"
 import { startDaemon, type Daemon } from "../src/host/daemon.js"
-import { TOOL_NAMES } from "../src/mcp/tools.js"
 
 const BIN = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "bin.js")
 const done: ActionResult = { ok: true, status: "done", diff: { added: ["button Saved"], removed: [] }, page: "Page" }
@@ -65,7 +64,13 @@ describe("kite mcp", () => {
   it("lists all 15 tools with the server name", async () => {
     await connect()
     const { tools } = await client!.listTools()
-    expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort())
+    expect(tools.map((t) => t.name).sort()).toEqual(
+      [
+        "browser_status", "browser_tabs", "browser_tab_new", "browser_tab_use", "browser_tab_close",
+        "browser_goto", "browser_snapshot", "browser_click", "browser_fill", "browser_select",
+        "browser_press", "browser_scroll", "browser_console", "browser_network", "browser_screenshot",
+      ].sort(),
+    )
     expect(tools).toHaveLength(15)
     expect(client!.getServerVersion()?.name).toBe("kitestring")
     for (const t of tools) expect(t.description).toBeTruthy()
@@ -85,6 +90,8 @@ describe("kite mcp", () => {
     await connect({ KITE_SESSION: "codex" })
     await client!.callTool({ name: "browser_click", arguments: { target: "@e1k2d9" } })
     await client!.callTool({ name: "browser_fill", arguments: { target: "Name", text: "Ada", within: "Form" } })
+    await client!.callTool({ name: "browser_click", arguments: { target: "Save", role: "button" } })
+    expect(received[2].params.target).toEqual({ text: "Save", role: "button" })
     expect(received[0].session).toBe("codex")
     expect(received[0].params.target).toEqual({ ref: "@e1k2d9" })
     expect(received[1].method).toBe("act.fill")

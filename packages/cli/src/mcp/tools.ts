@@ -23,6 +23,18 @@ const within = z.string().optional().describe("name of a section/dialog the elem
 const role = z.string().optional().describe("ARIA role to disambiguate, e.g. button")
 const tgt = (a: { target: string; within?: string; role?: string }) => parseTarget(a.target, { within: a.within, role: a.role })
 
+/**
+ * Bound on one MCP tool call. Sits under the smallest agent tool timeout (Codex `tool_timeout_sec = 60`)
+ * so a stuck browser surfaces kite's own `TIMEOUT: timed out waiting for the browser`, and above the
+ * extension's own caps (15 s action/snapshot, page agent 30 s), including screenshots.
+ * `KITE_TIMEOUT_MS` overrides it.
+ */
+export const MCP_TIMEOUT_MS = 45_000
+function mcpTimeout(): number {
+  const n = Number(process.env.KITE_TIMEOUT_MS)
+  return Number.isInteger(n) && n > 0 ? n : MCP_TIMEOUT_MS
+}
+
 const LOOP = "Loop: snapshot, act by visible text or @ref, read the returned diff."
 
 export const TOOLS: ToolDef[] = [
@@ -35,12 +47,12 @@ export const TOOLS: ToolDef[] = [
     shape: { url: z.string().optional() },
     params: (a) => (a.url ? { url: a.url } : {}),
   },
-  { name: "browser_tab_use", description: "Make a tab of this session the active one.", method: "tab.use", shape: { id: z.number().int() }, params: (a) => ({ id: a.id }) },
+  { name: "browser_tab_use", description: "Make a tab of this session the active one.", method: "tab.use", shape: { id: z.number().int().nonnegative() }, params: (a) => ({ id: a.id }) },
   {
     name: "browser_tab_close",
     description: "Close a tab of this session (the active tab if no id).",
     method: "tab.close",
-    shape: { id: z.number().int().optional() },
+    shape: { id: z.number().int().nonnegative().optional() },
     params: (a) => (a.id !== undefined ? { id: a.id } : {}),
   },
   { name: "browser_goto", description: `Navigate the active tab to a URL. ${LOOP}`, method: "page.goto", shape: { url: z.string() }, params: (a) => ({ url: a.url }) },
@@ -69,7 +81,7 @@ export const TOOLS: ToolDef[] = [
     name: "browser_select",
     description: "Choose an option in a select found by visible text or @ref. Read the returned diff.",
     method: "act.select",
-    shape: { target, value: z.string() },
+    shape: { target, value: z.string(), within, role },
     params: (a) => ({ target: tgt(a), value: a.value }),
   },
   { name: "browser_press", description: "Press a key (e.g. Enter, Escape, Tab). Read the returned diff.", method: "act.press", shape: { key: z.string() }, params: (a) => ({ key: a.key }) },
@@ -107,7 +119,7 @@ export const TOOL_NAMES: string[] = TOOLS.map((t) => t.name)
 
 export async function runTool(def: ToolDef, args: unknown, session: string): Promise<ToolResult> {
   try {
-    const result = await call(def.method, def.params(args ?? {}), { session })
+    const result = await call(def.method, def.params(args ?? {}), { session, timeoutMs: mcpTimeout() })
     if (def.method === "page.screenshot") {
       return { content: [{ type: "image", data: (result as ScreenshotResult).data, mimeType: "image/png" }] }
     }
