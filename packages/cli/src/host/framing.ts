@@ -19,14 +19,22 @@ export function encodeFrame(msg: unknown): Buffer {
 export class FrameDecoder {
   private buf: Buffer = Buffer.alloc(0)
 
+  /** onError is called for a frame whose body is not valid JSON; that frame is skipped. */
+  constructor(private onError?: (e: Error) => void) {}
+
   push(chunk: Buffer): unknown[] {
     this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk
     const out: unknown[] = []
     while (this.buf.length >= 4) {
       const len = this.buf.readUInt32LE(0)
       if (this.buf.length < 4 + len) break
-      out.push(JSON.parse(this.buf.subarray(4, 4 + len).toString("utf8")))
+      const body = this.buf.subarray(4, 4 + len)
       this.buf = this.buf.subarray(4 + len)
+      try {
+        out.push(JSON.parse(body.toString("utf8")))
+      } catch (e) {
+        this.onError?.(e instanceof Error ? e : new Error(String(e)))
+      }
     }
     return out
   }

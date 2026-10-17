@@ -21,10 +21,11 @@ async function main(): Promise<void> {
     toExtension: (msg) => {
       process.stdout.write(encodeFrame(msg))
     },
+    log,
   })
   log("host started")
 
-  const decoder = new FrameDecoder()
+  const decoder = new FrameDecoder((e) => log(`bad frame: ${e.message}`))
   process.stdin.on("data", (chunk: Buffer) => {
     try {
       for (const msg of decoder.push(chunk)) daemon.fromExtension(msg)

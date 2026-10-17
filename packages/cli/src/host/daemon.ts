@@ -11,6 +11,7 @@ export interface Daemon {
 export interface DaemonOptions {
   socketPath: string
   toExtension: (msg: unknown) => void
+  log?: (msg: string) => void
 }
 
 interface Pending {
@@ -18,16 +19,23 @@ interface Pending {
   originalId: number
 }
 
-function probe(path: string): Promise<"live" | "stale"> {
-  return new Promise((resolve) => {
+function probe(path: string, timeoutMs = 1000): Promise<"live" | "stale"> {
+  return new Promise((resolve, reject) => {
     const s = net.connect(path)
+    const timer = setTimeout(() => {
+      s.destroy()
+      resolve("live") // unresponsive: assume something owns it
+    }, timeoutMs)
     s.once("connect", () => {
+      clearTimeout(timer)
       s.destroy()
       resolve("live")
     })
-    s.once("error", () => {
+    s.once("error", (e: NodeJS.ErrnoException) => {
+      clearTimeout(timer)
       s.destroy()
-      resolve("stale")
+      if (e.code === "ECONNREFUSED" || e.code === "ENOENT" || e.code === "ENOTSOCK") resolve("stale")
+      else reject(e)
     })
   })
 }
@@ -116,7 +124,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
         return
       }
       const parsed = RpcResponse.safeParse(msg)
-      if (!parsed.success) return // unknown message: ignored by design
+      if (!parsed.success) {
+        opts.log?.(`ignored unrecognized message from extension: ${JSON.stringify(msg)?.slice(0, 200)}`)
+        return
+      }
       const p = pending.get(parsed.data.id)
       if (!p) return
       pending.delete(parsed.data.id)

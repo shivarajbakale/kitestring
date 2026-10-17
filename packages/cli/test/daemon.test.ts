@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process"
 import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
 import net from "node:net"
 import { tmpdir } from "node:os"
@@ -104,6 +105,30 @@ describe("daemon", () => {
     await start()
     const a = await client()
     expect(a).toBeTruthy()
+  })
+
+  it("starts over a dead socket left by a killed process (ECONNREFUSED)", async () => {
+    const child = spawn(
+      process.execPath,
+      ["-e", `require("net").createServer().listen(${JSON.stringify(sock)},()=>console.log("up"))`],
+      { stdio: ["ignore", "pipe", "inherit"] },
+    )
+    await new Promise<void>((r) => child.stdout.once("data", () => r()))
+    child.kill("SIGKILL")
+    await new Promise((r) => child.once("exit", r))
+    expect(statSync(sock).isSocket()).toBe(true)
+    await start()
+    const a = await client()
+    expect(a).toBeTruthy()
+  })
+
+  it("logs and ignores unrecognized extension messages", async () => {
+    const logs: string[] = []
+    const d = await startDaemon({ socketPath: sock, toExtension: () => {}, log: (m) => logs.push(m) })
+    daemons.push(d)
+    d.fromExtension({ type: "weird" })
+    expect(logs).toHaveLength(1)
+    expect(logs[0]).toContain("weird")
   })
 
   it("refuses to start when a live daemon owns the socket", async () => {
