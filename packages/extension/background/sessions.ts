@@ -85,7 +85,8 @@ export function getOrCreateSession(name: string): Session {
   return s
 }
 
-function colorOf(s: Session): chrome.tabGroups.ColorEnum {
+/** The color the session's tab group is created with. */
+export function colorOf(s: Session): chrome.tabGroups.ColorEnum {
   const i = [...sessions.keys()].indexOf(s.name)
   return GROUP_COLORS[Math.max(i, 0) % GROUP_COLORS.length]!
 }

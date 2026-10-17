@@ -1,0 +1,85 @@
+/* Toolbar popup layout (360 px wide). Shared pieces live in theme.css. */
+
+body {
+  width: 360px;
+}
+
+.popup {
+  display: grid;
+  gap: 14px;
+  padding: 14px 16px 0;
+}
+
+.popup__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+}
+.popup__brand {
+  display: flex;
+  margin: 0;
+  line-height: 0;
+}
+
+.popup__h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ks-muted);
+}
+.popup__h2-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.popup__sessions {
+  margin: 0 -10px;
+}
+.popup__sessions .ks-sessions {
+  max-height: 264px;
+  overflow-y: auto;
+}
+
+.popup__empty {
+  margin: 0;
+  padding: 4px 10px 6px;
+  color: var(--ks-muted);
+  font-size: 12.5px;
+  text-wrap: pretty;
+}
+.popup__empty code {
+  color: var(--ks-ink);
+}
+
+.popup__error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--ks-radius);
+  background: var(--ks-accent-wash);
+  font-size: 12.5px;
+}
+
+.popup__loading {
+  height: 150px;
+}
+
+.popup__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 -16px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--ks-line);
+  font-size: 12.5px;
+}
+.popup__version {
+  color: var(--ks-muted);
+  font-variant-numeric: tabular-nums;
+}

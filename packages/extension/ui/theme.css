@@ -1,0 +1,469 @@
+/*
+ * Kitestring UI theme, shared by the popup and the side panel.
+ * Brand tokens come from brand/tokens.json; everything else is derived from them.
+ * Fonts are bundled (Geist, SIL OFL 1.1, see fonts/OFL.txt): the UI makes no network requests.
+ */
+
+@font-face {
+  font-family: "Geist";
+  src: url("./fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+
+:root {
+  color-scheme: light dark;
+
+  /* brand/tokens.json — light */
+  --ks-ink: #16181d;
+  --ks-paper: #faf9f6;
+  --ks-accent: #d63b1f;
+  --ks-accent-ink: #ffffff;
+  --ks-muted: #5f646c;
+
+  /* Derived. Light accent on paper is 4.4:1: fills, icons and large text only, never small text. */
+  --ks-surface: #f2f0eb;
+  --ks-line: color-mix(in srgb, var(--ks-muted) 22%, transparent);
+  --ks-hover: color-mix(in srgb, var(--ks-ink) 5%, transparent);
+  --ks-press: color-mix(in srgb, var(--ks-ink) 9%, transparent);
+  --ks-accent-wash: color-mix(in srgb, var(--ks-accent) 9%, var(--ks-paper));
+  --ks-accent-hover: #c0341b;
+  --ks-ok: #1f8a4c;
+  --ks-focus: var(--ks-ink);
+
+  /* chrome.tabGroups colors as Chrome draws them on a light toolbar. */
+  --ks-group-grey: #5f6368;
+  --ks-group-blue: #1a73e8;
+  --ks-group-red: #d93025;
+  --ks-group-yellow: #f9ab00;
+  --ks-group-green: #1e8e3e;
+  --ks-group-pink: #d01884;
+  --ks-group-purple: #9334e6;
+  --ks-group-cyan: #007b83;
+  --ks-group-orange: #fa903e;
+
+  --ks-font: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ks-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --ks-radius: 10px;
+  --ks-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* brand/tokens.json — dark */
+    --ks-ink: #ecedef;
+    --ks-paper: #141619;
+    --ks-accent: #ff6b47;
+    --ks-accent-ink: #1a0904;
+    --ks-muted: #9ba1aa;
+
+    --ks-surface: #1c1f23;
+    --ks-line: color-mix(in srgb, var(--ks-muted) 20%, transparent);
+    --ks-hover: color-mix(in srgb, var(--ks-ink) 6%, transparent);
+    --ks-press: color-mix(in srgb, var(--ks-ink) 10%, transparent);
+    --ks-accent-wash: color-mix(in srgb, var(--ks-accent) 11%, var(--ks-paper));
+    --ks-accent-hover: #ff8463;
+    --ks-ok: #4cc27f;
+
+    --ks-group-grey: #dadce0;
+    --ks-group-blue: #8ab4f8;
+    --ks-group-red: #f28b82;
+    --ks-group-yellow: #fdd663;
+    --ks-group-green: #81c995;
+    --ks-group-pink: #ff8bcb;
+    --ks-group-purple: #d7aefb;
+    --ks-group-cyan: #78d9ec;
+    --ks-group-orange: #fcad70;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--ks-paper);
+  color: var(--ks-ink);
+  font-family: var(--ks-font);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01";
+}
+
+::selection {
+  background: color-mix(in srgb, var(--ks-accent) 28%, transparent);
+  color: var(--ks-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ks-focus);
+  outline-offset: 2px;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+code,
+kbd {
+  font-family: var(--ks-mono);
+  font-size: 0.92em;
+  font-weight: 500;
+  padding: 0.05em 0.35em;
+  border-radius: 4px;
+  background: var(--ks-surface);
+  box-shadow: inset 0 0 0 1px var(--ks-line);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ks-muted) 35%, transparent);
+  border: 3px solid var(--ks-paper);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ks-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------- Buttons ---------- */
+
+.ks-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--ks-radius);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  transition:
+    background-color 160ms var(--ks-ease),
+    transform 160ms var(--ks-ease);
+}
+.ks-btn:active {
+  transform: translateY(1px);
+}
+.ks-btn:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+.ks-btn svg {
+  flex: none;
+}
+.ks-btn--accent {
+  background: var(--ks-accent);
+  color: var(--ks-accent-ink);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ks-accent) 30%, transparent);
+}
+.ks-btn--accent:hover {
+  background: var(--ks-accent-hover);
+}
+.ks-btn--ink {
+  background: var(--ks-ink);
+  color: var(--ks-paper);
+}
+.ks-btn--ink:hover {
+  background: color-mix(in srgb, var(--ks-ink) 86%, var(--ks-paper));
+}
+.ks-btn--block {
+  width: 100%;
+}
+
+.ks-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin: -6px -8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-weight: 550;
+  cursor: pointer;
+}
+.ks-link:hover {
+  background: var(--ks-hover);
+}
+
+/* ---------- Connection pill ---------- */
+
+.ks-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--ks-surface);
+  box-shadow: inset 0 0 0 1px var(--ks-line);
+  white-space: nowrap;
+}
+.ks-pill code {
+  background: none;
+  box-shadow: none;
+  padding: 0;
+}
+.ks-pill--off {
+  background: var(--ks-accent-wash);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ks-accent) 30%, transparent);
+}
+
+.ks-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ks-muted);
+}
+.ks-dot--ok {
+  background: var(--ks-ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ks-ok) 18%, transparent);
+}
+.ks-dot--warn {
+  background: var(--ks-accent);
+}
+
+/* Session color: matches the session's Chrome tab group. */
+.ks-session-dot {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--ks-group, var(--ks-muted));
+}
+
+/* ---------- Status badge (activity status) ---------- */
+
+.ks-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ks-muted);
+  white-space: nowrap;
+}
+.ks-badge svg {
+  flex: none;
+}
+.ks-badge--ok svg {
+  color: var(--ks-ok);
+}
+.ks-badge--fail {
+  color: var(--ks-ink);
+}
+.ks-badge--fail svg {
+  color: var(--ks-accent);
+}
+
+.ks-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--ks-muted);
+  white-space: nowrap;
+}
+
+/* ---------- Pause control ---------- */
+
+.ks-control {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--ks-surface);
+  transition: background-color 240ms var(--ks-ease);
+}
+.ks-control[data-paused="true"] {
+  background: var(--ks-accent-wash);
+}
+.ks-control__state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+}
+.ks-control__state strong {
+  font-weight: 600;
+}
+.ks-control__state .ks-time {
+  margin-left: auto;
+  font-size: 12px;
+}
+.ks-control__glyph {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--ks-paper);
+  color: var(--ks-accent);
+  box-shadow: inset 0 0 0 1px var(--ks-line);
+}
+.ks-field {
+  display: grid;
+  gap: 4px;
+}
+.ks-field label {
+  font-size: 12px;
+  font-weight: 550;
+}
+.ks-field input {
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ks-paper);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ks-muted) 45%, transparent);
+  caret-color: var(--ks-accent);
+}
+.ks-field input::placeholder {
+  color: var(--ks-muted);
+}
+.ks-field input:focus-visible {
+  outline: 2px solid var(--ks-focus);
+  outline-offset: 0;
+}
+.ks-field__hint {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--ks-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+  }
+}
+
+/* ---------- Session list ---------- */
+
+.ks-sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.ks-session {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: var(--ks-radius);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms var(--ks-ease);
+}
+.ks-session:hover:not(:disabled) {
+  background: var(--ks-hover);
+}
+.ks-session:active:not(:disabled) {
+  background: var(--ks-press);
+}
+.ks-session:disabled {
+  cursor: default;
+}
+.ks-session__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.ks-session__name {
+  font-weight: 600;
+  font-size: 13.5px;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ks-session__count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ks-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ks-session__last {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding-left: 19px;
+  font-size: 12px;
+  color: var(--ks-muted);
+}
+.ks-session__action {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ks-session__last .ks-badge {
+  align-self: center;
+}
+.ks-session__go {
+  display: grid;
+  margin-right: -2px;
+  color: var(--ks-muted);
+  opacity: 0.45;
+  transition:
+    opacity 120ms var(--ks-ease),
+    transform 160ms var(--ks-ease);
+}
+.ks-session:hover .ks-session__go,
+.ks-session:focus-visible .ks-session__go {
+  opacity: 1;
+  transform: translateX(2px);
+}
+.ks-session:disabled .ks-session__go {
+  visibility: hidden;
+}
+.ks-session__last {
+  padding-right: 18px;
+}
+
+.ks-dot--live {
+  background: var(--ks-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ks-accent) 20%, transparent);
+}

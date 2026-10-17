@@ -1,16 +1,33 @@
 {
   "extends": "plasmo/templates/tsconfig.base",
-  "exclude": ["node_modules"],
-  "include": [".plasmo/index.d.ts", "./**/*.ts"],
+  "exclude": [
+    "node_modules"
+  ],
+  "include": [
+    ".plasmo/index.d.ts",
+    "./**/*.ts",
+    "./**/*.tsx"
+  ],
   "compilerOptions": {
     "strict": true,
     "module": "ESNext",
     "moduleResolution": "bundler",
     "noEmit": true,
     "skipLibCheck": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["chrome"],
-    "paths": { "~*": ["./*"] },
-    "baseUrl": "."
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "chrome"
+    ],
+    "paths": {
+      "~*": [
+        "./*"
+      ]
+    },
+    "baseUrl": ".",
+    "jsx": "react-jsx"
   }
 }
