@@ -1,0 +1,85 @@
+import type { PageAgent } from "@bx/page-agent"
+import { RestrictedPageError } from "./errors"
+
+export { RestrictedPageError }
+
+export interface AgentMessage {
+  bx: true
+  method: keyof PageAgent
+  args: unknown[]
+}
+
+export type AgentReply = { ok: true; value: unknown } | { ok: false; error: string }
+
+const RESTRICTED_PREFIXES = [
+  "chrome://",
+  "chrome-extension://",
+  "edge://",
+  "about:",
+  "devtools://",
+  "view-source:",
+  "https://chrome.google.com/webstore",
+  "https://chromewebstore.google.com",
+]
+
+const AGENT_TIMEOUT_MS = 30_000
+
+export function isRestrictedUrl(url: string): boolean {
+  return RESTRICTED_PREFIXES.some((p) => url.startsWith(p))
+}
+
+/** executeScript failure messages that mean "the browser won't let extensions touch this page". */
+const CANNOT_ACCESS_RE = /cannot access|cannot be scripted|extensions gallery|chrome:\/\/|chrome-extension:\/\/|missing host permission/i
+const NO_RECEIVER_RE = /receiving end does not exist|could not establish connection/i
+
+function send(tabId: number, msg: AgentMessage): Promise<AgentReply | undefined> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`page agent in tab ${tabId} did not answer within ${AGENT_TIMEOUT_MS} ms`)),
+      AGENT_TIMEOUT_MS,
+    )
+    chrome.tabs.sendMessage(tabId, msg, { frameId: 0 }).then(
+      (r: AgentReply | undefined) => {
+        clearTimeout(timer)
+        resolve(r)
+      },
+      (e: unknown) => {
+        clearTimeout(timer)
+        reject(e)
+      },
+    )
+  })
+}
+
+async function inject(tabId: number, url: string): Promise<void> {
+  const file = chrome.runtime.getManifest().content_scripts?.[0]?.js?.[0]
+  if (!file) throw new Error("content script missing from manifest")
+  try {
+    await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files: [file] })
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    if (CANNOT_ACCESS_RE.test(message)) throw new RestrictedPageError(url)
+    throw e
+  }
+}
+
+const tabUrl = (t: chrome.tabs.Tab) => t.url || t.pendingUrl || ""
+
+/** Calls `method` on the page agent in the tab's top frame, injecting the content script if needed. */
+export async function callAgent<T>(tabId: number, method: keyof PageAgent, args: unknown[]): Promise<T> {
+  const url = tabUrl(await chrome.tabs.get(tabId))
+  if (isRestrictedUrl(url)) throw new RestrictedPageError(url)
+
+  const msg: AgentMessage = { bx: true, method, args }
+  let reply: AgentReply | undefined
+  try {
+    reply = await send(tabId, msg)
+  } catch (e) {
+    if (!NO_RECEIVER_RE.test(e instanceof Error ? e.message : String(e))) throw e
+    await inject(tabId, url)
+    reply = await send(tabId, msg)
+  }
+  if (!reply) throw new Error(`page agent in tab ${tabId} sent no reply`)
+  if (!reply.ok) throw new Error(reply.error)
+  return reply.value as T
+}

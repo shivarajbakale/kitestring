@@ -1,0 +1,17 @@
+{
+  "name": "@bx/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@bx/protocol": "workspace:*",
+    "@playwright/test": "^1.48.0",
+    "@types/chrome": "^0.0.287",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

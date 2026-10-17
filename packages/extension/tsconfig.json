@@ -4,6 +4,8 @@
   "include": [".plasmo/index.d.ts", "./**/*.ts"],
   "compilerOptions": {
     "strict": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "noEmit": true,
     "skipLibCheck": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
