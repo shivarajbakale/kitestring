@@ -264,7 +264,8 @@ export async function ensureCapturing(tabId: number): Promise<void> {
 }
 
 /**
- * Chrome cannot render a texture taller than this; a full-page shot is clipped to it rather than failing.
+ * Chrome cannot render a texture taller than this many device pixels; a full-page shot is clipped to it
+ * (in CSS px: MAX_FULL_HEIGHT / devicePixelRatio) rather than failing.
  * (Its CDP command also gets its own, longer bound than the default 30 s.)
  */
 export const MAX_FULL_HEIGHT = 16_384
@@ -307,7 +308,14 @@ async function shoot(tabId: number, opts: { full?: boolean; ref?: string }): Pro
       "Page.getLayoutMetrics",
     )
     const size = m.cssContentSize ?? m.contentSize
-    params.clip = { x: 0, y: 0, width: Math.ceil(size.width), height: Math.min(Math.ceil(size.height), MAX_FULL_HEIGHT), scale: 1 }
+    // The clip is in CSS px but the texture limit is in device px.
+    let dpr = 1
+    try {
+      const r = await send<{ result: { value?: unknown } }>(tabId, "Runtime.evaluate", { expression: "window.devicePixelRatio", returnByValue: true })
+      if (typeof r.result.value === "number" && r.result.value > 0) dpr = r.result.value
+    } catch {} // keep 1: the page may be mid-navigation
+    const maxCss = Math.floor(MAX_FULL_HEIGHT / dpr)
+    params.clip = { x: 0, y: 0, width: Math.ceil(size.width), height: Math.min(Math.ceil(size.height), maxCss), scale: 1 }
     params.captureBeyondViewport = true
   }
   const { data } = await send<{ data: string }>(tabId, "Page.captureScreenshot", params, SCREENSHOT_TIMEOUT_MS)
