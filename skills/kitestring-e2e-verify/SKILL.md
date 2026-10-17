@@ -39,6 +39,7 @@ The **Not verified** list is required, even if empty ("none"). Never write "work
 
 ## Rules
 
+- If `kite` is not found, use the `browser_*` MCP tools and ask the human to run `kite doctor`.
 - A step that returned anything but `done` is not verified. A `timeout` is not a pass.
 - Use obviously fake test data (`test@example.com`) and list it in the report. Submits on localhost / dev URLs are fine.
 - End with the Report block above, always, even when the verdict is "not ready" (say why: the failing step or error line).

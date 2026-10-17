@@ -25,6 +25,7 @@ import { detect } from "../src/init/detect.js"
 import { jsonRemove, jsonSet } from "../src/init/json-edit.js"
 import { tomlRemoveTable, tomlSetTable } from "../src/init/toml-edit.js"
 import { runInit, runUninstall, type InitOptions } from "../src/init/init.js"
+import { hostsDir } from "../src/install/host-manifest.js"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FIXTURES = join(HERE, "fixtures", "homes")
@@ -473,6 +474,98 @@ describe("kite uninstall-agents", () => {
     const before = snapshot(home)
     expect(await runUninstall(opts({ dryRun: true }))).toBe(0)
     expect(snapshot(home)).toEqual(before)
+  })
+})
+
+describe("kite init: the kite CLI shim", () => {
+  /** A temp dir with `node` → this node, so the shim runs without any real node path. */
+  function tempNode(): string {
+    const dir = join(tmp, "node bin")
+    if (!existsSync(dir)) {
+      mkdirSync(dir)
+      symlinkSync(process.execPath, join(dir, "node"))
+    }
+    return join(dir, "node")
+  }
+  const kh = () => join(tmp, "kite home") // a space in the path: quoting must hold
+  const shimOpts = (extra: Partial<InitOptions> = {}) =>
+    opts({ env: { PATH: emptyBin, KITE_HOME: kh() }, shimNodes: [join(tmp, "missing", "node"), tempNode()], ...extra })
+
+  it("writes an executable $KITE_HOME/bin/kite that runs the CLI, and prints the PATH line", async () => {
+    useFixture("partial")
+    expect(await runInit(shimOpts())).toBe(0)
+    const shim = join(kh(), "bin", "kite")
+    expect(statSync(shim).mode & 0o111).toBe(0o111)
+    const r = spawnSync(shim, ["--help"], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } })
+    expect(r.status, r.stderr).toBe(0)
+    expect(r.stdout).toMatch(/Usage: kite/)
+    // KITE_HOME defaults to the one init used, and an explicit one wins.
+    const sock = (env: Record<string, string>) => {
+      const d = spawnSync(shim, ["--json", "doctor"], { encoding: "utf8", env: { PATH: emptyBin, HOME: home, ...env } })
+      return (JSON.parse(d.stdout) as { id: string; detail: string }[]).find((c) => c.id === "bridge")!.detail
+    }
+    expect(sock({})).toContain(join(kh(), "kite.sock"))
+    expect(sock({ KITE_HOME: join(tmp, "other") })).toContain(join(tmp, "other", "kite.sock"))
+    const text = out.join("\n")
+    expect(text).toContain(`write ${shim}`)
+    expect(text).toContain(`export PATH="${join(kh(), "bin")}:$PATH"`)
+  })
+
+  it("shows $HOME in the PATH line when KITE_HOME is under home, and no hint when already on PATH", async () => {
+    useFixture("partial")
+    const k = join(home, ".kitestring")
+    expect(await runInit(opts({ env: { PATH: emptyBin, KITE_HOME: k } }))).toBe(0)
+    expect(out.join("\n")).toContain('  export PATH="$HOME/.kitestring/bin:$PATH"')
+    out = []
+    expect(await runInit(opts({ env: { PATH: `${emptyBin}:${join(k, "bin")}`, KITE_HOME: k } }))).toBe(0)
+    expect(out.join("\n")).not.toContain("export PATH")
+    expect(out.join("\n")).toMatch(/^cli: .* up to date$/m)
+  })
+
+  it("is idempotent, --dry-run writes no shim, and never touches shell profiles", async () => {
+    useFixture("full")
+    expect(await runInit(shimOpts({ dryRun: true }))).toBe(0)
+    expect(existsSync(join(kh(), "bin", "kite"))).toBe(false)
+    expect(out.join("\n")).toContain("export PATH=")
+    expect(await runInit(shimOpts())).toBe(0)
+    const shim = readFileSync(join(kh(), "bin", "kite"), "utf8")
+    out = []
+    expect(await runInit(shimOpts())).toBe(0)
+    expect(out.join("\n")).not.toContain("write ")
+    expect(readFileSync(join(kh(), "bin", "kite"), "utf8")).toBe(shim)
+    for (const rc of [".zshrc", ".bashrc", ".profile", ".bash_profile", ".zprofile"]) expect(existsSync(join(home, rc)), rc).toBe(false)
+  })
+
+  it("uninstall-agents removes the shim; a subset uninstall keeps it; a foreign file is left alone", async () => {
+    useFixture("full")
+    const shim = join(kh(), "bin", "kite")
+    expect(await runInit(shimOpts())).toBe(0)
+    expect(await runUninstall(shimOpts({ agents: ["cursor"] }))).toBe(0)
+    expect(existsSync(shim)).toBe(true)
+    expect(await runUninstall(shimOpts())).toBe(0)
+    expect(existsSync(shim)).toBe(false)
+    writeFileSync(shim, "#!/bin/sh\necho mine\n")
+    out = []
+    expect(await runUninstall(shimOpts())).toBe(0)
+    expect(readFileSync(shim, "utf8")).toBe("#!/bin/sh\necho mine\n")
+    expect(out.join("\n")).toMatch(/not written by kite init — left alone/)
+  })
+})
+
+describe("kite init: old bx install", () => {
+  it("removes the legacy manifest and says ~/.bx can be deleted, without deleting it", async () => {
+    useFixture("partial")
+    const hosts = hostsDir({ browser: "chrome", home })
+    mkdirSync(hosts, { recursive: true })
+    writeFileSync(join(hosts, "com.bx.bridge.json"), "{}")
+    mkdirSync(join(home, ".bx"))
+    writeFileSync(join(home, ".bx", "keep"), "x")
+    expect(await runInit(opts())).toBe(0)
+    const text = out.join("\n")
+    expect(text).toContain(`host: removed legacy manifest ${join(hosts, "com.bx.bridge.json")}`)
+    expect(text).toContain("host: old bx home ~/.bx is no longer used — delete it when ready")
+    expect(existsSync(join(hosts, "com.bx.bridge.json"))).toBe(false)
+    expect(readFileSync(join(home, ".bx", "keep"), "utf8")).toBe("x")
   })
 })
 

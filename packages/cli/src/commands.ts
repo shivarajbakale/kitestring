@@ -1,11 +1,11 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { mkdirSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { Command, CommanderError } from "commander"
 import { EXTENSION_ID, parseTarget, type Method, type ScreenshotResult } from "@kitestring/protocol"
 import { KiteError, call } from "./client/rpc-client.js"
 import { human } from "./client/human.js"
-import { installHost } from "./install/host-manifest.js"
+import { installHost, legacyNotices } from "./install/host-manifest.js"
 import { kiteHome } from "./paths.js"
 import { AGENTS, parseAgents } from "./init/agents.js"
 
@@ -159,8 +159,7 @@ export async function main(argv: string[]): Promise<number> {
       if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(r) + "\n")
       else {
         process.stdout.write(`installed native host manifest: ${r.manifestPath}\nwrapper: ${r.wrapperPath}\n`)
-        for (const p of r.removedLegacy) process.stdout.write(`removed legacy manifest ${p}\n`)
-        if (existsSync(join(homedir(), ".bx"))) process.stdout.write("old bx home ~/.bx is no longer used — delete it when ready\n")
+        for (const line of legacyNotices(r)) process.stdout.write(line + "\n")
       }
     })
 

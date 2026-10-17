@@ -26,7 +26,7 @@ Two equivalent surfaces. Use MCP tools if your harness has them, else the `kite`
 | Console / network | `browser_console` / `browser_network` | `kite console --errors` / `kite network --failed` |
 | Picture | `browser_screenshot` | `kite screenshot` (`--full`, `--ref @ref`) |
 
-CLI: exit code 1 when status is not done; call errors print `kite: <message>` (exit 2 = not connected); `--json` gives raw results and error codes. Keep one session name for the whole task: pass `--session <name>` on every call, or set `KITE_SESSION=<name>`. You only see and touch your session's tabs.
+CLI: exit code 1 when status is not done; call errors print `kite: <message>` (exit 2 = not connected); `--json` gives raw results and error codes. If `kite` is not found, use the `browser_*` MCP tools and ask the human to run `kite doctor`. Keep one session name for the whole task: pass `--session <name>` on every call, or set `KITE_SESSION=<name>`. You only see and touch your session's tabs.
 
 ## The loop
 

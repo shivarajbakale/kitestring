@@ -57,17 +57,18 @@ const init = async () => {
 }
 
 describe("kite doctor", () => {
-  it("fresh home with agents: host, extension and agent checks fail with specific fixes", async () => {
+  it("fresh home with agents: host, cli and extension checks fail with specific fixes; unregistered agents are skipped", async () => {
     useFixture("full")
     const cs = await doctor()
     expect(by(cs, "node").ok).toBe(true)
     expect(by(cs, "host-manifest")).toMatchObject({ ok: false, fix: expect.stringContaining("kite install-host") })
     expect(by(cs, "host-wrapper").ok).toBe(false)
+    expect(by(cs, "cli")).toMatchObject({ ok: false, fix: expect.stringMatching(/kite init.*export PATH="[^"]*\/kh\/bin:\$PATH"/) })
     expect(by(cs, "bridge")).toMatchObject({ ok: false, fix: expect.stringMatching(/never started.*load or reload the Kitestring extension.*chrome:\/\/extensions/s) })
     expect(by(cs, "extension").ok).toBe(false)
     for (const a of ["claude-code", "codex", "cursor", "gemini", "opencode"]) {
-      expect(by(cs, `mcp:${a}`), a).toMatchObject({ ok: false, fix: expect.stringContaining("kite init") })
-      expect(by(cs, `skills:${a}`), a).toMatchObject({ ok: false, fix: expect.stringContaining("kite init") })
+      expect(by(cs, `mcp:${a}`), a).toMatchObject({ ok: true, detail: expect.stringMatching(/not registered \(skipped\).*kite init/) })
+      expect(by(cs, `skills:${a}`), a).toMatchObject({ ok: true, detail: expect.stringContaining("not registered") })
     }
     expect(formatChecks(cs)).toMatch(/✗ bridge[\s\S]*fix: /)
   })
@@ -89,7 +90,7 @@ describe("kite doctor", () => {
     const cs = await doctor()
     expect(cs.filter((c) => !c.ok)).toEqual([])
     expect(cs.map((c) => c.id)).toEqual([
-      "node", "host-manifest", "host-wrapper", "bridge", "extension",
+      "node", "host-manifest", "host-wrapper", "cli", "bridge", "extension",
       "mcp:claude-code", "skills:claude-code", "mcp:codex", "skills:codex", "mcp:cursor", "skills:cursor",
       "mcp:gemini", "skills:gemini", "mcp:opencode", "skills:opencode",
     ])
@@ -135,7 +136,7 @@ describe("kite doctor", () => {
     writeFileSync(join(fb, "claude"), `#!/bin/sh\nPATH=/usr/bin:/bin\nif [ "$1 $2" = "mcp get" ]; then\n  [ -f '${state}' ] || { echo "No MCP server found with name: $3" >&2; exit 1; }\n  cat '${state}'; exit 0\nfi\nexit 3\n`)
     chmodSync(join(fb, "claude"), 0o755)
     const run = () => runDoctor({ home, env: { PATH: fb, KITE_HOME: kh } })
-    expect(by(await run(), "mcp:claude-code")).toMatchObject({ ok: false, fix: expect.stringContaining("kite init") })
+    expect(by(await run(), "mcp:claude-code")).toMatchObject({ ok: true, detail: expect.stringContaining("not registered") })
     writeFileSync(state, `kitestring:\n  Scope: User config (available in all your projects)\n  Status: ✓ Connected\n  Type: stdio\n  Command: /opt/x/node\n  Args: ${BIN} mcp\n  Environment:\n    KITE_SESSION=claude-code\n`)
     expect(by(await run(), "mcp:claude-code")).toMatchObject({ ok: true, detail: expect.stringContaining(BIN) })
     writeFileSync(state, readFileSync(state, "utf8").replace(BIN, "/gone/bin.js"))
@@ -163,6 +164,34 @@ describe("kite doctor", () => {
     expect(by(cs, "host-manifest").ok).toBe(false)
     expect(by(cs, "host-wrapper").ok).toBe(false)
     expect(by(cs, "mcp:claude-code")).toMatchObject({ ok: false, detail: expect.stringContaining("/nonexistent/bin.js") })
+  })
+
+  it("after kite init --agents claude-code, the other installed agents are skipped, not failed", async () => {
+    useFixture("full")
+    const lines: string[] = []
+    expect(await runInit({ home, env: env(), agents: ["claude-code"], yes: true, out: (s) => lines.push(s), isConnected: async () => false }), lines.join("\n")).toBe(0)
+    await startFake()
+    const cs = await doctor()
+    expect(cs.filter((c) => !c.ok)).toEqual([])
+    expect(by(cs, "mcp:claude-code").detail).toContain("bin.js")
+    for (const a of ["codex", "cursor", "gemini", "opencode"]) expect(by(cs, `mcp:${a}`).detail, a).toContain("not registered (skipped)")
+    // A registered agent is still checked strictly.
+    const cj = join(home, ".claude.json")
+    writeFileSync(cj, readFileSync(cj, "utf8").replace(/[^"]*dist\/bin\.js/, "/nonexistent/bin.js"))
+    expect(by(await doctor(), "mcp:claude-code").ok).toBe(false)
+  })
+
+  it("cli: the shim from kite init; on-PATH status is detail only; not executable fails", async () => {
+    useFixture("partial")
+    await init()
+    const shim = join(kh, "bin", "kite")
+    let c = by(await doctor(), "cli")
+    expect(c).toMatchObject({ ok: true, detail: expect.stringContaining("not on PATH") })
+    expect(c.detail).toContain(`export PATH="${join(kh, "bin")}:$PATH"`)
+    c = by(await runDoctor({ home, env: { PATH: `${emptyBin}:${join(kh, "bin")}`, KITE_HOME: kh } }), "cli")
+    expect(c).toMatchObject({ ok: true, detail: expect.stringContaining("(on PATH)") })
+    chmodSync(shim, 0o644)
+    expect(by(await doctor(), "cli")).toMatchObject({ ok: false, detail: expect.stringContaining("not executable"), fix: expect.stringContaining("kite init") })
   })
 
   it("old node fails the node check", async () => {

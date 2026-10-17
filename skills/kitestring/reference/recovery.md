@@ -5,6 +5,8 @@ Two kinds of failure:
 - **Action status** — the action ran and reports why it did not succeed (`✗ <status>: <detail>`; CLI exit code 1).
 - **RPC error** — the call did not run. CLI prints `kite: <message>` on stderr (exit 1; exit 2 for NOT_CONNECTED); only some messages contain the code, so recognise them by the text below, or use `--json` to get `{"error":{"code":"…","message":"…"}}` on stdout. MCP returns an error result with text `<CODE>: <message>`.
 
+If `kite` is not found, use the `browser_*` MCP tools and ask the human to run `kite doctor`.
+
 Rule for all of them: **never repeat the identical call unchanged.** Change something based on the detail, or stop and tell the human.
 
 ## Action statuses

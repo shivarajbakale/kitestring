@@ -10,6 +10,7 @@ import { EXTENSION_BUILD, defaultExec, findOnPath, parseClaudeGet, type ExecResu
 import { jsonGet } from "../init/json-edit.js"
 import { SKILL_NAMES, agentsSkillsDir, claudeSkillsDir, linkState } from "../init/skills.js"
 import { tomlHasTable } from "../init/toml-edit.js"
+import { isExecutableFile, onPath, pathLine, shimDir, shimPath } from "../install/shim.js"
 
 export interface Check {
   id: string
@@ -120,13 +121,33 @@ async function checkBridge(sock: string): Promise<{ bridge: Check; extension: Ch
 
 const initFix = "run `kite init`"
 
+/** `$KITE_HOME/bin/kite` (written by kite init) exists and runs; whether it is on PATH is only reported. */
+function checkCli(o: DoctorOptions, kiteHome: string): Check {
+  const id = "cli"
+  const shim = shimPath(kiteHome)
+  const line = pathLine(o.home, kiteHome)
+  const where = tilde(o.home, shim)
+  if (!existsSync(shim)) return { id, ok: false, detail: `${where} not found`, fix: `${initFix}, then add \`${line}\` to your shell profile` }
+  if (!isExecutableFile(shim)) return { id, ok: false, detail: `${where} is not executable`, fix: `${initFix} (rewrites it)` }
+  const on = onPath(shimDir(kiteHome), o.env.PATH)
+  return { id, ok: true, detail: on ? `${where} (on PATH)` : `${where} (not on PATH — add \`${line}\` to your shell profile)` }
+}
+
 /** Reads the launch args (bin.js path) that agent `id`'s config has for our MCP server; undefined = no entry. */
-async function mcpBin(o: DoctorOptions, id: AgentId, dir: string): Promise<{ bin?: string; where: string; error?: string }> {
+interface McpEntry {
+  bin?: string
+  where: string
+  error?: string
+  /** No kitestring entry at all (as opposed to a broken one): the agent is not registered. */
+  missing?: boolean
+}
+
+async function mcpBin(o: DoctorOptions, id: AgentId, dir: string): Promise<McpEntry> {
   const json = (file: string, path: string[], pick: (v: any) => unknown) => {
-    if (!existsSync(file)) return { where: tilde(o.home, file), error: `${tilde(o.home, file)} not found` }
+    if (!existsSync(file)) return { where: tilde(o.home, file), error: `${tilde(o.home, file)} not found`, missing: true }
     try {
       const v = jsonGet(readFileSync(file, "utf8"), path)
-      if (v === undefined) return { where: tilde(o.home, file), error: `no ${path.join(".")} entry in ${tilde(o.home, file)}` }
+      if (v === undefined) return { where: tilde(o.home, file), error: `no ${path.join(".")} entry in ${tilde(o.home, file)}`, missing: true }
       const bin = pick(v)
       return typeof bin === "string" ? { where: tilde(o.home, file), bin } : { where: tilde(o.home, file), error: `${path.join(".")} in ${tilde(o.home, file)} has no launch path` }
     } catch (e) {
@@ -138,7 +159,7 @@ async function mcpBin(o: DoctorOptions, id: AgentId, dir: string): Promise<{ bin
       const claude = findOnPath("claude", o.env.PATH)
       if (claude) {
         const got = parseClaudeGet(await (o.exec ?? defaultExec)(claude, claudeGetArgv(), o.env))
-        if (!got.found) return { where: "claude mcp get", error: `claude mcp get ${SERVER_NAME}: no such server` }
+        if (!got.found) return { where: "claude mcp get", error: `claude mcp get ${SERVER_NAME}: no such server`, missing: true }
         const bin = got.args?.replace(/\s+mcp$/, "")
         return bin ? { where: "claude mcp get", bin } : { where: "claude mcp get", error: "claude mcp get shows no args" }
       }
@@ -147,9 +168,9 @@ async function mcpBin(o: DoctorOptions, id: AgentId, dir: string): Promise<{ bin
     case "codex": {
       const file = join(dir, "config.toml")
       const where = tilde(o.home, file)
-      if (!existsSync(file)) return { where, error: `${where} not found` }
+      if (!existsSync(file)) return { where, error: `${where} not found`, missing: true }
       const text = readFileSync(file, "utf8")
-      if (!tomlHasTable(text, `mcp_servers.${SERVER_NAME}`)) return { where, error: `no [mcp_servers.${SERVER_NAME}] in ${where}` }
+      if (!tomlHasTable(text, `mcp_servers.${SERVER_NAME}`)) return { where, error: `no [mcp_servers.${SERVER_NAME}] in ${where}`, missing: true }
       // The table's own lines: from its header to the next table header.
       const start = text.search(new RegExp(`^\\[mcp_servers\\.${SERVER_NAME}\\]\\s*$`, "m"))
       const rest = start < 0 ? "" : text.slice(start).split("\n").slice(1).join("\n")
@@ -173,8 +194,7 @@ async function mcpBin(o: DoctorOptions, id: AgentId, dir: string): Promise<{ bin
   }
 }
 
-async function checkMcp(o: DoctorOptions, id: AgentId, dir: string): Promise<Check> {
-  const r = await mcpBin(o, id, dir)
+function checkMcp(id: AgentId, r: McpEntry): Check {
   const cid = `mcp:${id}`
   if (r.error || !r.bin) return { id: cid, ok: false, detail: r.error ?? "no entry", fix: initFix }
   if (!existsSync(r.bin)) return { id: cid, ok: false, detail: `${r.where} points at ${r.bin}, which does not exist`, fix: `${initFix} (re-registers with the current install path)` }
@@ -215,11 +235,19 @@ export async function runDoctor(o: DoctorOptions): Promise<Check[]> {
   )
   checks.push(checkManifest(o, dir, wrapper))
   checks.push(checkWrapper(o, wrapper))
+  checks.push(checkCli(o, kiteHome))
   const { bridge, extension } = await checkBridge(join(kiteHome, "kite.sock"))
   checks.push(bridge, extension)
   for (const a of detect(o.home)) {
     if (!a.present) continue
-    checks.push(await checkMcp(o, a.id, a.configDir))
+    const entry = await mcpBin(o, a.id, a.configDir)
+    if (entry.missing) {
+      // Installed but never registered (e.g. kite init --agents for another agent): not a failure.
+      const detail = `not registered (skipped) — run \`kite init\` to add`
+      checks.push({ id: `mcp:${a.id}`, ok: true, detail }, { id: `skills:${a.id}`, ok: true, detail })
+      continue
+    }
+    checks.push(checkMcp(a.id, entry))
     checks.push(checkSkills(o, a.id))
   }
   return checks

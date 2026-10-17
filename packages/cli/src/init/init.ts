@@ -21,7 +21,7 @@ import { delimiter, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { EXTENSION_ID, HOST_NAME } from "@kitestring/protocol"
 import { tilde } from "../paths.js"
-import { hostsDir, installHost } from "../install/host-manifest.js"
+import { hostsDir, installHost, legacyNotices } from "../install/host-manifest.js"
 import {
   AGENTS,
   CODEX_TABLE,
@@ -39,7 +39,8 @@ import {
 } from "./agents.js"
 import { detect, type DetectedAgent } from "./detect.js"
 import { jsonGet, jsonRemove, jsonSet } from "./json-edit.js"
-import { resolveNode } from "./node-path.js"
+import { nodeCandidates, resolveNode } from "./node-path.js"
+import { isExecutableFile, isOurShim, onPath, pathLine, shimDir, shimPath, shimScript } from "../install/shim.js"
 import { SKILL_NAMES, agentsSkillsDir, claudeSkillsDir, linkState, pointsInto, repoSkillsDir, sameTree } from "./skills.js"
 import { tomlRemoveTable, tomlSetTable } from "./toml-edit.js"
 
@@ -67,6 +68,8 @@ export interface InitOptions {
   node?: string
   /** Absolute path of packages/cli/dist/bin.js (default: resolved from this file). */
   bin?: string
+  /** Node candidates for the `$KITE_HOME/bin/kite` shim (default nodeCandidates()). */
+  shimNodes?: string[]
   skillsDir?: string
   /** Is the extension connected (status RPC)? Default false-on-error check via the socket. */
   isConnected?: () => Promise<boolean>
@@ -81,6 +84,8 @@ type Step =
   | { kind: "copy"; agent: string; from: string; to: string; backupTo?: string; what: string }
   | { kind: "remove"; agent: string; path: string; what: string }
   | { kind: "symlink"; agent: string; path: string; target: string; what: string }
+  /** Write an executable file (the CLI shim). */
+  | { kind: "write"; agent: string; path: string; text: string; what: string }
 
 interface Plan {
   steps: Step[]
@@ -316,6 +321,20 @@ function planSkills(ctx: Ctx, install: boolean, sharedSkills: boolean, claudeLin
   }
 }
 
+/** `$KITE_HOME/bin/kite`: install or refresh it; on a full uninstall remove it (only if it is ours). */
+function planShim(ctx: Ctx, install: boolean): void {
+  const { o, plan } = ctx
+  const path = shimPath(kiteHomeOf(o))
+  if (install) {
+    const text = shimScript(kiteHomeOf(o), o.shimNodes ?? nodeCandidates(), ctx.launch.bin)
+    if (readOrNull(path) === text && isExecutableFile(path)) plan.notes.push(`cli: ${tilde(o.home, path)} up to date`)
+    else plan.steps.push({ kind: "write", agent: "cli", path, text, what: `write ${path} (runs kite)` })
+  } else if (existsSync(path)) {
+    if (isOurShim(path)) plan.steps.push({ kind: "remove", agent: "cli", path, what: `remove ${path}` })
+    else plan.notes.push(`cli: ${tilde(o.home, path)} was not written by kite init — left alone`)
+  }
+}
+
 async function buildPlan(o: InitOptions, install: boolean): Promise<{ ctx: Ctx; selected: DetectedAgent[] }> {
   const launch: Launch = { node: o.node ?? resolveNode(), bin: o.bin ?? DEFAULT_BIN }
   const ctx: Ctx = {
@@ -341,9 +360,11 @@ async function buildPlan(o: InitOptions, install: boolean): Promise<{ ctx: Ctx; 
   const claudeLinks = selected.some((a) => a.id === "claude-code")
   if (install) {
     if (selected.length > 0) planSkills(ctx, true, true, claudeLinks)
+    planShim(ctx, true)
   } else {
-    // Shared skills serve every agent: only remove them when uninstalling all agents.
+    // Shared skills and the CLI shim serve every agent: only remove them when uninstalling all agents.
     planSkills(ctx, false, o.agents === undefined, claudeLinks)
+    if (o.agents === undefined) planShim(ctx, false)
   }
   return { ctx, selected }
 }
@@ -427,6 +448,19 @@ async function applyPlan(ctx: Ctx): Promise<string[]> {
           if (lstatSync(s.path).isSymbolicLink()) unlinkSync(s.path)
           else rmSync(s.path, { recursive: true, force: true })
           break
+        case "write": {
+          mkdirSync(dirname(s.path), { recursive: true })
+          const tmp = `${s.path}.kite-tmp-${process.pid}`
+          writeFileSync(tmp, s.text)
+          try {
+            chmodSync(tmp, 0o755)
+            renameSync(tmp, s.path)
+          } catch (e) {
+            rmSync(tmp, { force: true })
+            throw e
+          }
+          break
+        }
         case "symlink":
           mkdirSync(dirname(s.path), { recursive: true })
           if (linkState(s.path, s.target) === "other-symlink") unlinkSync(s.path)
@@ -447,6 +481,15 @@ function kiteHomeOf(o: InitOptions): string {
   return o.env.KITE_HOME || join(o.home, ".kitestring")
 }
 
+/** When `$KITE_HOME/bin` is not on PATH: the exact line to add to the shell profile (never edited for you). */
+function printPathHint(o: InitOptions): void {
+  const kh = kiteHomeOf(o)
+  if (onPath(shimDir(kh), o.env.PATH)) return
+  o.out("")
+  o.out(`cli: ${shimDir(kh)} is not on your PATH. To run \`kite\` from any shell or agent, add this line to your shell profile (~/.zshrc, ~/.bashrc, …):`)
+  o.out(`  ${pathLine(o.home, kh)}`)
+}
+
 export async function runInit(o: InitOptions): Promise<number> {
   const { ctx, selected } = await buildPlan(o, true)
   const { plan } = ctx
@@ -454,7 +497,10 @@ export async function runInit(o: InitOptions): Promise<number> {
   printPlan(o, plan, o.dryRun ? "kite init — dry run (nothing will be written):" : "kite init — plan:")
   o.out(`host: install native host manifest ${manifest}`)
   if (selected.length === 0) o.out("No supported agents found (looked for ~/.claude, ~/.codex, ~/.cursor, ~/.gemini, ~/.config/opencode).")
-  if (o.dryRun) return plan.problems.length ? 1 : 0
+  if (o.dryRun) {
+    printPathHint(o)
+    return plan.problems.length ? 1 : 0
+  }
   const stop = await confirmed(o)
   if (stop !== undefined) return stop
 
@@ -462,7 +508,7 @@ export async function runInit(o: InitOptions): Promise<number> {
   try {
     const r = installHost({ browser: "chrome", extensionId: EXTENSION_ID, kiteHome: kiteHomeOf(o), home: o.home })
     o.out(`host: native host manifest ${r.manifestPath}`)
-    for (const p of r.removedLegacy) o.out(`host: removed legacy manifest ${p}`)
+    for (const line of legacyNotices(r, o.home)) o.out(`host: ${line}`)
   } catch (e) {
     failures.push(`host: FAILED — ${e instanceof Error ? e.message : String(e)}`)
     o.out(failures[failures.length - 1]!)
@@ -478,6 +524,7 @@ export async function runInit(o: InitOptions): Promise<number> {
     o.out(`  3. Check the extension ID is ${EXTENSION_ID}`)
     o.out("Then restart your agents to pick up the kitestring MCP server.")
   }
+  printPathHint(o)
   return failures.length || plan.problems.length ? 1 : 0
 }
 

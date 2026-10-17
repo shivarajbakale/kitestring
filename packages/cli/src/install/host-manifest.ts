@@ -38,6 +38,16 @@ function wrapperScript(kiteHome: string, candidates: string[], mainJs: string): 
   ].join("\n")
 }
 
+/**
+ * What to tell the user after installHost: each legacy (bx) manifest it removed, and that the old
+ * `~/.bx` home can be deleted. Never deletes `~/.bx` itself.
+ */
+export function legacyNotices(r: { removedLegacy: string[] }, home: string = homedir()): string[] {
+  const lines = r.removedLegacy.map((p) => `removed legacy manifest ${p}`)
+  if (existsSync(join(home, ".bx"))) lines.push("old bx home ~/.bx is no longer used — delete it when ready")
+  return lines
+}
+
 export function installHost(o: InstallOpts): { manifestPath: string; wrapperPath: string; removedLegacy: string[] } {
   // Always point at the built host (dist/host/main.js), even when running from src (tests).
   const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..")

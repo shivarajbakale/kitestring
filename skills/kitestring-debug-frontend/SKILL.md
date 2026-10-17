@@ -37,6 +37,7 @@ Not verified: <anything you could not check>
 
 ## Rules
 
+- If `kite` is not found, use the `browser_*` MCP tools and ask the human to run `kite doctor`.
 - "It does nothing" is a symptom, not a cause. `disabled-until-valid`-style pages refuse clicks by design until inputs are valid: check the status detail before touching code.
 - Do not "fix" by changing what the test clicks or by removing validation.
 - On localhost / dev URLs, the clicks, fills and submits needed to reproduce or verify are fine without asking. On production or a real logged-in account: read only, unless the human says otherwise.

@@ -20,18 +20,25 @@ pnpm i && pnpm build
 2. Register Kitestring with your agents:
 
    ```sh
-   alias kite="node $PWD/packages/cli/dist/bin.js"
-   kite init              # or: node packages/cli/dist/bin.js init
+   node packages/cli/dist/bin.js init
    ```
 
    `kite init` adds the `kitestring` MCP server to every supported agent it finds (Claude Code, Codex, Cursor, Gemini, OpenCode), installs the skills into `~/.agents/skills` (with symlinks in `~/.claude/skills`), and installs the native host. It never overwrites your other config, backs each file up once as `<file>.kite-backup-<timestamp>`, skips agents you do not have, and is safe to re-run. Use `--dry-run` to see the plan, `--agents claude,codex` to pick a subset, `--yes` to skip the prompt.
+
+   It also writes a `kite` command to `~/.kitestring/bin/kite` (`$KITE_HOME/bin/kite`) and, if that directory is not on your `PATH`, prints the line to add to your shell profile (`~/.zshrc`, `~/.bashrc`, …). It never edits shell profiles itself:
+
+   ```sh
+   export PATH="$HOME/.kitestring/bin:$PATH"
+   ```
+
+   Open a new terminal (and restart your agents) so `kite` is found. Agents use the same command for the CLI side of the skills.
 3. Reload the extension (or restart Chrome), then check everything:
 
    ```sh
    kite doctor
    ```
 
-   Then start a new agent session and ask it to open a page in your browser. To undo the agent side, run `kite uninstall-agents`.
+   Then start a new agent session and ask it to open a page in your browser. To undo the agent side, run `kite uninstall-agents` (it also removes `$KITE_HOME/bin/kite`).
 
 ## What agents can do
 
@@ -116,11 +123,7 @@ pnpm build
 
 `pnpm build` builds `@kitestring/protocol`, the extension (`packages/extension/build/chrome-mv3-prod`) and the CLI (`packages/cli/dist`).
 
-For convenience, alias the CLI:
-
-```sh
-alias kite="node $PWD/packages/cli/dist/bin.js"
-```
+To get a `kite` command, run `node packages/cli/dist/bin.js init` (it writes `$KITE_HOME/bin/kite`; add `export PATH="$HOME/.kitestring/bin:$PATH"` to your shell profile). Until then, `node packages/cli/dist/bin.js <command>` works the same.
 
 #### Extension identity (optional)
 
