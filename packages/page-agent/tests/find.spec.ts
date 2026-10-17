@@ -10,7 +10,6 @@ interface Agent {
   find(t: T, intent: "click" | "fill" | "select"): FR
   resolve(ref: string): Element | null
 }
-const ag = (): Agent => (window as unknown as { __bxAgent: Agent }).__bxAgent
 
 test("exact name beats contains", async ({ fixture }) => {
   const page = await fixture("find.html")
