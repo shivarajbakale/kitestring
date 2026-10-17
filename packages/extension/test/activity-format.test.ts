@@ -22,6 +22,8 @@ describe("describeAction", () => {
     expect(describeAction(entry({ method: "page.goto", target: "https://example.com/a/b" }))).toBe("goto example.com/a/b")
     expect(describeAction(entry({ method: "tab.new", target: "http://127.0.0.1:5173/serial" }))).toBe("tab.new 127.0.0.1:5173/serial")
     expect(describeAction(entry({ method: "tab.close" }))).toBe("tab.close")
+    expect(describeAction(entry({ method: "control.pause" }))).toBe("pause")
+    expect(describeAction(entry({ method: "control.resume" }))).toBe("resume")
   })
 })
 
@@ -39,6 +41,11 @@ describe("summaryDetail", () => {
   })
   it("leaves out tab.new's tab id and URL: the action line and details already show the page", () => {
     expect(summaryDetail(entry({ method: "tab.new", status: "done", summary: "✓ tab 4 http://x/" }))).toEqual({ text: "" })
+  })
+  it("shows only the reason for pause and nothing for resume: the action line says which", () => {
+    expect(summaryDetail(entry({ method: "control.pause", status: "done", summary: "✓ paused: lunch +1" }))).toEqual({ text: "lunch +1" })
+    expect(summaryDetail(entry({ method: "control.pause", status: "done", summary: "✓ paused" }))).toEqual({ text: "" })
+    expect(summaryDetail(entry({ method: "control.resume", status: "done", summary: "✓ resumed" }))).toEqual({ text: "" })
   })
 })
 

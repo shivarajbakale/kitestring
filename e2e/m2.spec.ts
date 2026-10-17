@@ -110,17 +110,26 @@ test.describe("activity log", () => {
     const r = await kite("activity")
     expect(r.code, out(r)).toBe(0)
     const lines = r.stdout.trim().split("\n")
-    expect(lines).toHaveLength(3)
-    expect(lines[0]).toMatch(/act\.click "Fast task"\s+✗ PAUSED: Kitestring is paused by the user/)
-    expect(lines[1]).toMatch(/act\.click "Fast task"\s+✓ done \+\d+\/−\d+/)
-    expect(lines[2]).toMatch(/tab\.new .*serial/)
+    expect(lines).toHaveLength(5)
+    expect(lines[0]).toMatch(/tab -\s+control\.resume\s+✓ resumed/)
+    expect(lines[1]).toMatch(/act\.click "Fast task"\s+✗ PAUSED: Kitestring is paused by the user/)
+    expect(lines[2]).toMatch(/tab -\s+control\.pause\s+✓ paused/)
+    expect(lines[3]).toMatch(/act\.click "Fast task"\s+✓ done \+\d+\/−\d+/)
+    expect(lines[4]).toMatch(/tab\.new .*serial/)
 
-    const json = JSON.parse((await kite("activity", "--json", "--limit", "1")).stdout)
-    expect(json.entries).toHaveLength(1)
-    expect(json.entries[0]).toMatchObject({ method: "act.click", status: "PAUSED", session: "default" })
+    const json = JSON.parse((await kite("activity", "--json", "--limit", "2")).stdout)
+    expect(json.entries).toHaveLength(2)
+    expect(json.entries[0]).toMatchObject({ method: "control.resume", status: "done", session: "default", tabId: null })
+    expect(json.entries[1]).toMatchObject({ method: "act.click", status: "PAUSED", session: "default" })
 
     const stored = await sw.evaluate(() => chrome.storage.session.get("activity"))
-    expect((stored.activity as { method: string }[]).map((e) => e.method)).toEqual(["tab.new", "act.click", "act.click"])
+    expect((stored.activity as { method: string }[]).map((e) => e.method)).toEqual([
+      "tab.new",
+      "act.click",
+      "control.pause",
+      "act.click",
+      "control.resume",
+    ])
   })
 })
 

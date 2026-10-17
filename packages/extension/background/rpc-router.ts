@@ -207,7 +207,9 @@ const WHILE_PAUSED: ReadonlySet<Method> = new Set([
 
 /** Methods that change something: recorded in the activity log, successful or not. */
 function isRecorded(m: Method): boolean {
-  return m === "tab.new" || m === "tab.close" || m === "page.goto" || m.startsWith("act.")
+  return (
+    m === "tab.new" || m === "tab.close" || m === "page.goto" || m.startsWith("act.") || m === "control.pause" || m === "control.resume"
+  )
 }
 
 function describeTarget(method: Method, params: Record<string, unknown>): string | undefined {
@@ -264,6 +266,11 @@ async function recordActivity(
     entry.tabId = r.id
     entry.url = r.url
     entry.summary = `✓ tab ${r.id} ${r.url}`.trimEnd()
+  } else if (req.method === "control.pause" || req.method === "control.resume") {
+    // Global, not about any tab.
+    entry.tabId = null
+    const reason = typeof req.params.reason === "string" && req.params.reason ? req.params.reason : undefined
+    entry.summary = activity.controlSummary(req.method, reason)
   } else if (req.method === "tab.close") {
     entry.summary = tabBefore === null ? "✓ closed" : `✓ closed tab ${tabBefore}`
   } else {

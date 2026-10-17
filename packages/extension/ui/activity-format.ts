@@ -6,11 +6,11 @@ function shortUrl(url: string): string {
 }
 
 /**
- * `click "Pay now"`, `goto example.com`, `tab.new 127.0.0.1:5173/serial`: the action without the
- * `act.` namespace or URL scheme.
+ * `click "Pay now"`, `goto example.com`, `tab.new 127.0.0.1:5173/serial`, `pause`: the action without
+ * the `act.`/`control.` namespace or URL scheme.
  */
 export function describeAction(e: Pick<ActivityEntry, "method" | "target">): string {
-  const method = e.method === "page.goto" ? "goto" : e.method.replace(/^act\./, "")
+  const method = e.method === "page.goto" ? "goto" : e.method.replace(/^(act|control)\./, "")
   const target = e.target === undefined ? undefined : shortUrl(e.target)
   return target ? `${method} ${target}` : method
 }
@@ -36,6 +36,9 @@ export function summaryDetail(e: Pick<ActivityEntry, "method" | "status" | "summ
     }
   }
   if (e.method === "tab.new" && /^tab \d+\b/.test(s)) return { text: "" }
+  // The action line already says pause/resume: keep only the reason.
+  if (e.method === "control.resume" && s === "resumed") return { text: "" }
+  if (e.method === "control.pause" && /^paused\b/.test(s)) return { text: s.replace(/^paused:?\s*/, "") }
   const m = /(?:^|\s)\+(\d+)\/−(\d+)$/.exec(s)
   if (!m) return { text: s }
   return { text: s.slice(0, m.index).trim(), added: Number(m[1]), removed: Number(m[2]) }

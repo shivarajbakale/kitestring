@@ -62,3 +62,9 @@ export function errorSummary(code: string, message: string): string {
   const m = message.startsWith(`${code}: `) ? message.slice(code.length + 2) : message
   return `✗ ${code}: ${m}`
 }
+
+/** `✓ paused: lunch`, `✓ paused`, `✓ resumed`: the pause switch flipped over RPC (kite pause / resume). */
+export function controlSummary(method: "control.pause" | "control.resume", reason?: string): string {
+  if (method === "control.resume") return "✓ resumed"
+  return reason ? `✓ paused: ${reason}` : "✓ paused"
+}

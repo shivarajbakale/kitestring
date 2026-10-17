@@ -169,6 +169,15 @@ test.describe("live side panel", () => {
     await panel.getByRole("button", { name: "Resume" }).click()
     await expect(panel.getByRole("button", { name: "Pause agents" })).toBeVisible()
 
+    // kite pause / resume (RPC) are recorded: verb plus the reason, status done.
+    expect((await kite("pause", "lunch")).code).toBe(0)
+    await expect(rows.nth(0).locator(".ks-entry__action")).toHaveText("pause")
+    await expect(rows.nth(0)).toContainText("lunch")
+    await expect(rows.nth(0).locator(".ks-badge")).toHaveText("done")
+    expect((await kite("resume")).code).toBe(0)
+    await expect(rows.nth(0).locator(".ks-entry__action")).toHaveText("resume")
+    await expect(rows.nth(0).locator(".ks-badge")).toHaveText("done")
+
     // Clicking an entry brings its tab to the front.
     await panel.bringToFront()
     await feed.getByRole("button", { name: /fill "Name"/ }).click()

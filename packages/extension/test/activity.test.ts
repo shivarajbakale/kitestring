@@ -74,4 +74,12 @@ describe("summaries", () => {
     expect(errorSummary("NOT_OWNER", "NOT_OWNER: tab 3 does not belong")).toBe("✗ NOT_OWNER: tab 3 does not belong")
     expect(errorSummary("PAUSED", "Kitestring is paused by the user")).toBe("✗ PAUSED: Kitestring is paused by the user")
   })
+  it("summarizes pause (with its reason) and resume", async () => {
+    const { controlSummary, record, list } = await import("../background/activity")
+    expect(controlSummary("control.pause", "lunch")).toBe("✓ paused: lunch")
+    expect(controlSummary("control.pause")).toBe("✓ paused")
+    expect(controlSummary("control.resume")).toBe("✓ resumed")
+    record({ session: "default", tabId: null, method: "control.pause", status: "done", ms: 1, summary: controlSummary("control.pause", "lunch") })
+    expect(list(1)[0]).toMatchObject({ method: "control.pause", status: "done", tabId: null, summary: "✓ paused: lunch" })
+  })
 })
