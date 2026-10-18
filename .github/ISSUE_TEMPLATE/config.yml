@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/shivarajbakale/kitestring/security/advisories/new
+    about: Report a vulnerability privately, as described in SECURITY.md. Please do not open a public issue.
+  - name: Troubleshooting guide
+    url: https://github.com/shivarajbakale/kitestring/blob/main/docs/troubleshooting.md
+    about: Common errors (NOT_CONNECTED, PAUSED, NO_TAB, restricted pages) and how to fix them.

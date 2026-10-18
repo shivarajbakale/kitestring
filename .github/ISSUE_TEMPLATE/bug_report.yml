@@ -1,0 +1,79 @@
+name: Bug report
+description: Something in the extension, the kite CLI or the MCP server does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please do not paste passwords, tokens, cookies or private page content.
+        For a security problem, follow SECURITY.md instead of opening an issue.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran or asked your agent to do, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The kite commands or batch JSON, and a public page or a torture page (apps/torture) that shows it, if you can.
+      placeholder: |
+        1. kite tab new https://example.com
+        2. kite click "Sign in"
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: kite output
+      description: The command's output with --json, and the relevant lines of $KITE_HOME/logs/host.log.
+      render: shell
+  - type: textarea
+    id: doctor
+    attributes:
+      label: kite doctor
+      description: The output of `kite doctor`.
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      options:
+        - None (kite CLI only)
+        - Claude Code
+        - Codex
+        - Cursor
+        - Gemini CLI
+        - OpenCode
+        - Other MCP client
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows (untested)
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Chrome or Chromium version, `node --version`, and the commit you built from.
+      placeholder: Chrome 141, Node 22.12, commit abc1234
+    validations:
+      required: true
