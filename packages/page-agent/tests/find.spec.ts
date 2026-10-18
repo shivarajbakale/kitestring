@@ -122,3 +122,24 @@ test("ambiguous capped at 3, sorted desc", async ({ fixture }) => {
   expect(c).toHaveLength(3)
   expect(c[0].score).toBeGreaterThanOrEqual(c[2].score)
 })
+
+test("found carries role, name and the nearest named scope", async ({ fixture }) => {
+  const page = await fixture("find.html")
+  const r = await page.evaluate(() => {
+    const a = (window as unknown as { __kiteAgent: Agent }).__kiteAgent
+    return [a.find({ text: "Apply", within: "Billing" }, "click"), a.find({ text: "Save changes" }, "click"), a.find({ text: "Save", within: "Plain" }, "click")]
+  })
+  expect(r[0]).toMatchObject({ kind: "found", role: "button", name: "Apply", within: "Billing" })
+  expect(r[1]).toMatchObject({ kind: "found", role: "button", name: "Save changes" })
+  expect((r[1] as { within?: string }).within).toBeUndefined()
+  expect(r[2]).toMatchObject({ role: "button", name: "Save", within: "Plain" })
+})
+
+test("hasText is a case-folded substring of the visible text", async ({ fixture }) => {
+  const page = await fixture("find.html")
+  const r = await page.evaluate(() => {
+    const a = (window as unknown as { __kiteAgent: { hasText(t: string): boolean } }).__kiteAgent
+    return [a.hasText("profile"), a.hasText("BILLING"), a.hasText("nope")]
+  })
+  expect(r).toEqual([true, true, false])
+})

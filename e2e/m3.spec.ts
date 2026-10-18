@@ -142,3 +142,111 @@ test.describe("file upload", () => {
     }
   })
 })
+
+test.describe("batch", () => {
+  const batch = async (kiteStdin: (input: string, ...args: string[]) => Promise<{ code: number | null; stdout: string; stderr: string }>, steps: unknown) => {
+    const r = await kiteStdin(JSON.stringify(steps), "--json", "batch", "-")
+    try {
+      return { code: r.code, res: JSON.parse(r.stdout) }
+    } catch {
+      throw new Error(`kite batch printed no JSON: ${r.stdout}${r.stderr}`)
+    }
+  }
+
+  test("a form filled and submitted in one call; one activity entry per step with a shared batch id", async ({ kite, kiteStdin, context, torture, result }) => {
+    const url = `${torture}/basic-form`
+    await kite("tab", "new", url)
+    const { code, res } = await batch(kiteStdin, [
+      { action: "fill", target: "Name", value: "Ada" },
+      { action: "fill", target: "Email", value: "ada@x.io" },
+      { action: "click", target: "Submit" },
+    ])
+    expect(res.ok, JSON.stringify(res)).toBe(true)
+    expect(code).toBe(0)
+    expect(res.steps.map((s: { status: string }) => s.status)).toEqual(["done", "done", "done"])
+    expect(await result(context.pages().find((p) => p.url() === url)!)).toBe("submitted:Ada:ada@x.io")
+
+    const entries = JSON.parse((await kite("--json", "activity")).stdout).entries as { method: string; batch?: number; target?: string }[]
+    const steps = entries.filter((e) => e.batch !== undefined).reverse()
+    expect(steps.map((e) => e.method)).toEqual(["act.fill", "act.fill", "act.click"])
+    expect(new Set(steps.map((e) => e.batch)).size).toBe(1)
+    expect(entries.some((e) => e.method === "act.batch")).toBe(false)
+    expect(steps.map((e) => e.target)).toEqual(['"Name"', '"Email"', '"Submit"']) // never the filled value
+  })
+
+  test("a prompt without a dialog policy halts dialog; the alert before it is reported too", async ({ kite, kiteStdin, torture }) => {
+    // "Rename" (prompt), not "Delete everything" (confirm): the risk guard would refuse that click first.
+    await kite("tab", "new", `${torture}/alert-box`)
+    const { code, res } = await batch(kiteStdin, [
+      { action: "click", target: "Show alert" },
+      { action: "click", target: "Rename" },
+      { action: "click", target: "Show alert" },
+    ])
+    expect(code).toBe(1)
+    expect(res.halted).toMatchObject({ index: 1, reason: "dialog" })
+    expect(res.next).toBe(2)
+    expect(res.dialogs).toEqual([
+      { type: "alert", message: "Hello", handled: "accepted" },
+      { type: "prompt", message: "New name", handled: "dismissed" },
+    ])
+  })
+
+  test("a risky click is refused before any input", async ({ kite, kiteStdin, context, torture, result }) => {
+    const url = `${torture}/alert-box`
+    await kite("tab", "new", url)
+    const { res } = await batch(kiteStdin, [{ action: "click", target: "Delete everything" }])
+    expect(res.halted).toMatchObject({ index: 0, reason: "risky" })
+    expect(res.next).toBe(0)
+    expect(res.dialogs).toBeUndefined()
+    expect(await result(context.pages().find((p) => p.url() === url)!)).toBe("undefined")
+  })
+
+  test("a cookie wall in the way is closed and the batch goes on", async ({ kite, kiteStdin, context, torture, result }) => {
+    const url = `${torture}/cookie-wall`
+    await kite("tab", "new", url)
+    const { res } = await batch(kiteStdin, [
+      { action: "fill", target: "Email", value: "a@b.co" },
+      { action: "click", target: "Continue" },
+    ])
+    expect(res.ok, JSON.stringify(res)).toBe(true)
+    expect(res.closedPopups.length).toBeGreaterThan(0)
+    expect(await result(context.pages().find((p) => p.url() === url)!)).toBe("continued:none")
+  })
+
+  test("switch_tab new follows a target=_blank tab", async ({ kite, kiteStdin, torture }) => {
+    await kite("tab", "new", `${torture}/new-tab-link`)
+    const { res } = await batch(kiteStdin, [
+      { action: "click", target: "Open report" },
+      { action: "switch_tab", to: "new" },
+      { action: "click", target: "Confirm report" },
+    ])
+    expect(res.ok, JSON.stringify(res)).toBe(true)
+    expect(res.newTabs).toHaveLength(1)
+    expect(await (await fetch(`${torture}/__last-result`)).text()).toBe("report-confirmed")
+    expect(await kite("tab", "list").then((r) => r.stdout)).toMatch(new RegExp(`tab ${res.newTabs[0]} .*\\(active\\)`))
+  })
+
+  test("kite pause mid-batch: the running step finishes, the batch halts paused before the next", async ({ kite, kiteStdin, torture }) => {
+    await kite("tab", "new", `${torture}/slow-button`)
+    const running = batch(kiteStdin, [
+      { action: "click", target: "Load data" },
+      { action: "wait", ms: 2_000 },
+      { action: "click", target: "Load data" },
+    ])
+    await new Promise((r) => setTimeout(r, 600))
+    expect((await kite("pause", "e2e")).code).toBe(0)
+    const { code, res } = await running
+    await kite("resume")
+    expect(code).toBe(1)
+    expect(res.halted?.reason, JSON.stringify(res)).toBe("paused")
+    expect(res.next).toBe(res.halted.index)
+    expect(res.halted.index).toBeGreaterThanOrEqual(1)
+    expect(res.steps[0].status).toBe("done")
+  })
+
+  test("malformed JSON is a usage error", async ({ kiteStdin }) => {
+    const r = await kiteStdin("[{", "batch", "-")
+    expect(r.code).toBe(2)
+    expect(r.stderr).toContain("invalid batch: ")
+  })
+})

@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { Command, CommanderError } from "commander"
@@ -128,6 +128,16 @@ export async function main(argv: string[]): Promise<number> {
         files: resolveUploads(files, { cwd: process.cwd(), home: homedir(), kiteHome: kiteHome(), env: process.env }),
       }),
     )
+  program
+    .command("batch <file>")
+    .description("run steps from a JSON file (or - for stdin) under one tab lock: a Step[] or {steps, allow_domains?, budget_ms?}")
+    .action(async (file: string) => {
+      const params = batchParams(file === "-" ? await readStdin() : readFileSync(file, "utf8"))
+      const g = program.opts<Globals>()
+      const result = (await call("act.batch", params, { session: g.session || process.env.KITE_SESSION || "default" })) as { ok?: boolean }
+      process.stdout.write(JSON.stringify(result) + "\n")
+      exitCode = result?.ok ? 0 : 1
+    })
   program.command("press <key>").action((key: string) => run("act.press", { key }))
   program
     .command("select <target> <value>")
@@ -261,6 +271,25 @@ async function askYesNo(question: string): Promise<boolean> {
   } finally {
     rl.close()
   }
+}
+
+/** A Step[] or {steps, ...}; the extension validates the steps themselves. */
+function batchParams(text: string): Record<string, unknown> {
+  let v: unknown
+  try {
+    v = JSON.parse(text)
+  } catch (e) {
+    throw new UsageError(`invalid batch: ${(e as Error).message}`)
+  }
+  if (Array.isArray(v)) return { steps: v }
+  if (v && typeof v === "object" && Array.isArray((v as { steps?: unknown }).steps)) return v as Record<string, unknown>
+  throw new UsageError("invalid batch: expected a JSON array of steps or an object with a steps array")
+}
+
+async function readStdin(): Promise<string> {
+  let s = ""
+  for await (const chunk of process.stdin) s += chunk
+  return s
 }
 
 function tabId(s: string): number {

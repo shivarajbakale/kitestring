@@ -6,7 +6,8 @@ import { elementLine } from "./snapshot.js"
 
 export type FindIntent = "click" | "fill" | "select"
 export type FindResult =
-  | { kind: "found"; ref: string; line: string }
+  /** `role`/`name`: the resolved element; `within`: the name of its nearest named scope (for text targets that re-find it). */
+  | { kind: "found"; ref: string; line: string; role: string; name: string; within?: string }
   | { kind: "ambiguous"; candidates: Candidate[] }
   | { kind: "not_found" }
 
@@ -100,7 +101,7 @@ export function find(doc: Document, reg: RefRegistry, target: Target, intent: Fi
   if (typeof ref === "string") {
     const el = reg.resolve(ref)
     if (!el) return { kind: "not_found" }
-    return { kind: "found", ref, line: lineFor(el, reg) }
+    return found(el, ref, reg)
   }
   const t = target as { text: string; within?: string; role?: string }
   const text = norm(t.text)
@@ -141,7 +142,25 @@ export function find(doc: Document, reg: RefRegistry, target: Target, intent: Fi
       candidates: group.map((c) => ({ ref: reg.refFor(c.el), line: lineFor(c.el, reg), score: c.score }))
     }
   }
-  return { kind: "found", ref: reg.refFor(a.el), line: lineFor(a.el, reg) }
+  return found(a.el, reg.refFor(a.el), reg)
+}
+
+function found(el: Element, ref: string, reg: RefRegistry): FindResult {
+  const role = roleOf(el) ?? "generic"
+  const res: Extract<FindResult, { kind: "found" }> = { kind: "found", ref, line: elementLine(el, role, reg), role, name: nameOf(el) }
+  const within = scopeName(el)
+  if (within) res.within = within
+  return res
+}
+
+/** Name of the nearest enclosing scope `within` can match: its accessible name, else its own heading. */
+function scopeName(el: Element): string | undefined {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (!isScope(p)) continue
+    const name = nameOf(p) || (ownHeading(p)?.textContent ?? "").replace(/\s+/g, " ").trim()
+    if (name) return name
+  }
+  return undefined
 }
 
 function lineFor(el: Element, reg: RefRegistry): string {

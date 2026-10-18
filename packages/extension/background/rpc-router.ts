@@ -1,6 +1,7 @@
 import {
   ErrorCode,
   RpcRequest,
+  parseBatchParams,
   type ActionResult,
   type ActivityEntry,
   type Method,
@@ -12,6 +13,7 @@ import { callAgent } from "./agent-bridge"
 import * as capture from "./capture"
 import * as control from "./control"
 import { RestrictedPageError, RpcError } from "./errors"
+import { runBatch } from "./batch"
 import { goto, runAction } from "./pipeline"
 import { rejectWaiters } from "./serial"
 import * as sessions from "./sessions"
@@ -20,6 +22,9 @@ import * as sessions from "./sessions"
 control.onChange((st) => {
   if (st.paused) rejectWaiters(control.pausedError())
 })
+
+/** Batch ids: increasing, and unlikely to repeat ids from before a service-worker restart. */
+let nextBatchId = Date.now()
 
 /** Bound on page.snapshot (the only handler outside the action pipeline's cap). */
 const SNAPSHOT_CAP_MS = 15_000
@@ -191,6 +196,23 @@ const handlers: Partial<Record<Method, Handler>> = {
     return runAction(s, { kind: "upload", target: targetParam(params), files: files as string[] })
   },
 
+  "act.batch": async (params, s) => {
+    let batch
+    try {
+      batch = parseBatchParams(params)
+    } catch (e) {
+      badRequest(`invalid batch: ${(e as Error).message}`)
+    }
+    // Same backstop as act.upload: the CLI / MCP server resolve and vet upload paths.
+    for (const [i, step] of batch.steps.entries()) {
+      if (step.action === "upload" && !step.files.every((f) => f.startsWith("/") || /^[A-Za-z]:[\\/]/.test(f))) {
+        badRequest(`invalid batch: steps[${i}].files must be absolute paths`)
+      }
+    }
+    // Each step records its own activity entry (the router records nothing for the batch itself).
+    return runBatch(s, batch, { batchId: nextBatchId++, record: (e) => void activity.record(e) })
+  },
+
   "act.press": async (params, s) => runAction(s, { kind: "press", key: stringParam(params, "key") }),
 
   "act.scroll": async (params, s) => {
@@ -220,7 +242,12 @@ const WHILE_PAUSED: ReadonlySet<Method> = new Set([
 /** Methods that change something: recorded in the activity log, successful or not. */
 function isRecorded(m: Method): boolean {
   return (
-    m === "tab.new" || m === "tab.close" || m === "page.goto" || m.startsWith("act.") || m === "control.pause" || m === "control.resume"
+    m === "tab.new" ||
+    m === "tab.close" ||
+    m === "page.goto" ||
+    (m.startsWith("act.") && m !== "act.batch") ||
+    m === "control.pause" ||
+    m === "control.resume"
   )
 }
 

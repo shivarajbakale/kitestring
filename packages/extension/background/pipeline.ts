@@ -1,4 +1,13 @@
-import { ErrorCode, READY, type ActionResult, type DialogEvent, type Diff, type Status, type Target } from "@kitestring/protocol"
+import {
+  ErrorCode,
+  READY,
+  type ActionResult,
+  type DialogEvent,
+  type Diff,
+  type HaltReason,
+  type Status,
+  type Target,
+} from "@kitestring/protocol"
 import { diffSnapshots, type CheckResult, type Closer, type FindResult } from "@kitestring/page-agent"
 import { callAgent, isRestrictedUrl } from "./agent-bridge"
 import { ensureAttached, isNotAttached, onEvent, send } from "./cdp"
@@ -295,6 +304,24 @@ interface Run {
   dialogs: DialogWatch
 }
 
+/** The element FIND resolved, as `beforeAct` sees it. */
+export interface Found {
+  ref: string
+  line: string
+  role: string
+  name: string
+}
+
+/** Batch hooks into one action (single actions pass none). */
+interface Hooks {
+  /** After CHECK passed, before any input: a non-null reason refuses the action. */
+  beforeAct?: (found: Found) => HaltReason | null
+  /** Set when beforeAct refused. */
+  refused?: HaltReason
+  /** What FIND resolved (text targets for stored plans; refs are never stored). */
+  resolved?: { role: string; name: string; within?: string }
+}
+
 async function early(r: Run, status: Status, extra: Partial<ActionResult>): Promise<ActionResult> {
   const page = await safeBrief(r.tabId)
   const res: ActionResult = { ok: false, status, diff: EMPTY, page, ...extra }
@@ -356,7 +383,7 @@ async function finish(
   return res
 }
 
-async function act(r: Run, action: Action): Promise<ActionResult> {
+async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionResult> {
   const { tabId, p } = r
   const guard = () => {
     if (p.expired) throw new Expired()
@@ -379,8 +406,10 @@ async function act(r: Run, action: Action): Promise<ActionResult> {
     // An upload target is something to click (styled button, drop zone) unless it resolves to an input.
     const f = await callAgent<FindResult>(tabId, "find", [action.target, action.kind === "upload" ? "click" : action.kind])
     guard()
-    if (f.kind === "found") found = f
-    else if (f.kind === "ambiguous") {
+    if (f.kind === "found") {
+      found = f
+      hooks.resolved = { role: f.role, name: f.name, ...(f.within ? { within: f.within } : {}) }
+    } else if (f.kind === "ambiguous") {
       return early(r, "ambiguous", {
         detail: `${f.candidates.length} elements match ${targetText(action.target)}`,
         candidates: f.candidates,
@@ -440,6 +469,15 @@ async function act(r: Run, action: Action): Promise<ActionResult> {
   }
   if (c.kind === "hidden") return early(r, "not_found", { detail: "element hidden" })
 
+  const refused = hooks.beforeAct?.({ ref: found.ref, line: found.line, role: found.role, name: found.name })
+  if (refused) {
+    hooks.refused = refused
+    return early(r, "error", {
+      detail: `refused: "${found.name}" looks ${refused === "risky" ? "risky (it may pay, send or delete something)" : refused}; run it on its own if intended`,
+      ...(closedPopups.length ? { closedPopups } : {}),
+    })
+  }
+
   // Before-snapshot after CHECK's scroll, so scrolling doesn't show up as the action's diff.
   const before = await callAgent<string>(tabId, "snapshot", [{ full: false }])
   guard()
@@ -490,17 +528,28 @@ function withPopups(res: ActionResult, closedPopups: string[]): ActionResult {
   return closedPopups.length ? { ...res, closedPopups } : res
 }
 
-/**
- * Runs `body` with the 15 s cap, holding the tab's lock: actions on one tab run one at a time, and
- * time spent queued counts against the waiter's own cap. On cap, answers `timeout` with whatever is
- * known. Queued waiters re-check the pause switch when their turn comes (pause also rejects them).
- * Exported for unit tests.
- */
-export async function capped(tabId: number, body: (p: Progress) => Promise<ActionResult>): Promise<ActionResult> {
-  const p: Progress = { diff: EMPTY, expired: false, waiting: true }
+interface CapOpts {
+  /** Default ACTION_CAP_MS. */
+  capMs?: number
+  /** The caller (a batch) already holds the tab's lock: don't queue for it, keep the cap. */
+  holdsLock?: boolean
+}
+
+interface Capped {
+  res: ActionResult
+  /** The cap answered (the body may still be unwinding). */
+  expired: boolean
+  /** Resolves when the body has ended, or EXPIRED_HOLD_MS after the cap if it is stuck. */
+  tail: Promise<void>
+}
+
+async function cappedRun(tabId: number, body: (p: Progress) => Promise<ActionResult>, opts: CapOpts = {}): Promise<Capped> {
+  const capMs = opts.capMs ?? ACTION_CAP_MS
+  const p: Progress = { diff: EMPTY, expired: false, waiting: !opts.holdsLock }
   const queue = new AbortController()
   let lock: TabLock | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
+  let stuck: Promise<void> = Promise.resolve()
   const cap = new Promise<ActionResult>((resolve) => {
     timer = setTimeout(() => {
       p.expired = true
@@ -511,30 +560,41 @@ export async function capped(tabId: number, body: (p: Progress) => Promise<Actio
         )
         return
       }
-      setTimeout(() => lock?.release(), EXPIRED_HOLD_MS)
+      stuck = sleep(EXPIRED_HOLD_MS).then(() => {})
+      if (!opts.holdsLock) void stuck.then(() => lock?.release())
       void (p.page !== undefined ? Promise.resolve(p.page) : safeBrief(tabId, 1_000)).then((page) =>
         resolve({
           ok: false,
           status: "timeout",
-          detail: `action did not finish within ${ACTION_CAP_MS} ms`,
+          detail: `action did not finish within ${capMs} ms`,
           diff: p.diff,
           page,
           ...(p.dialogs?.length ? { dialogs: [...p.dialogs] } : {}),
         }),
       )
-    }, ACTION_CAP_MS)
+    }, Math.max(0, capMs))
   })
-  const run = withTabLock(
-    tabId,
-    async (l) => {
-      lock = l
-      p.waiting = false
-      if (p.expired) throw new Expired()
-      assertNotPaused()
-      return body(p)
-    },
-    { signal: queue.signal },
-  ).catch((e: unknown): ActionResult | Promise<ActionResult> => {
+  const guarded = async (): Promise<ActionResult> => {
+    p.waiting = false
+    if (p.expired) throw new Expired()
+    assertNotPaused()
+    return body(p)
+  }
+  const ran = opts.holdsLock
+    ? guarded()
+    : withTabLock(
+        tabId,
+        async (l) => {
+          lock = l
+          return guarded()
+        },
+        { signal: queue.signal },
+      )
+  const settled = ran.then(
+    () => {},
+    () => {},
+  )
+  const run = ran.catch((e: unknown): ActionResult | Promise<ActionResult> => {
     // The cap fired: its answer (built asynchronously) is the result, not the abandoned body's error.
     if (e instanceof Expired) return cap
     // R14: a browser-side TIMEOUT inside the pipeline (e.g. the page never became scriptable) is an
@@ -545,10 +605,21 @@ export async function capped(tabId: number, body: (p: Progress) => Promise<Actio
     throw e
   })
   try {
-    return await Promise.race([run, cap])
+    const res = await Promise.race([run, cap])
+    return { res, expired: p.expired, tail: p.expired ? Promise.race([settled, stuck]) : settled }
   } finally {
     clearTimeout(timer)
   }
+}
+
+/**
+ * Runs `body` with the cap (default 15 s), holding the tab's lock unless the caller does: actions on
+ * one tab run one at a time, and time spent queued counts against the waiter's own cap. On cap,
+ * answers `timeout` with whatever is known. Queued waiters re-check the pause switch when their turn
+ * comes (pause also rejects them). Exported for unit tests.
+ */
+export async function capped(tabId: number, body: (p: Progress) => Promise<ActionResult>, opts: CapOpts = {}): Promise<ActionResult> {
+  return (await cappedRun(tabId, body, opts)).res
 }
 
 interface DialogOpts {
@@ -614,37 +685,83 @@ function waitTabComplete(tabId: number, ms: number): Promise<void> {
 export function goto(s: Session, url: string): Promise<ActionResult> {
   const tabId = activeTab(s)
   if (isRestrictedUrl(url)) throw new RestrictedPageError(url)
-  return capped(tabId, async (p) => {
-    let navigated = false
-    const current = await tabUrl(tabId)
-    if (isRestrictedUrl(current) && current !== "about:blank") {
-      // The debugger can't attach to the current page (e.g. chrome://newtab): let the browser navigate first.
-      const loaded = waitTabComplete(tabId, READY.timeoutMs)
-      if (p.expired) throw new Expired()
-      await chrome.tabs.update(tabId, { url })
-      await loaded
-      navigated = true
+  return capped(tabId, (p) => navigate(s, tabId, url, p))
+}
+
+async function navigate(s: Session, tabId: number, url: string, p: Progress, policy?: DialogPolicy): Promise<ActionResult> {
+  let navigated = false
+  const current = await tabUrl(tabId)
+  if (isRestrictedUrl(current) && current !== "about:blank") {
+    // The debugger can't attach to the current page (e.g. chrome://newtab): let the browser navigate first.
+    const loaded = waitTabComplete(tabId, READY.timeoutMs)
+    if (p.expired) throw new Expired()
+    await chrome.tabs.update(tabId, { url })
+    await loaded
+    navigated = true
+  }
+  return begin(s, tabId, p, async (r) => {
+    if (!navigated) {
+      if (p.expired) throw new Expired() // the cap already answered: don't navigate after the fact
+      const nav = await send<{ loaderId?: string; errorText?: string }>(tabId, "Page.navigate", { url })
+      if (nav.errorText) return early(r, "error", { detail: `navigation failed: ${nav.errorText}` })
+      if (nav.loaderId) r.watch.expectLoad()
     }
-    return begin(s, tabId, p, async (r) => {
-      if (!navigated) {
-        if (p.expired) throw new Expired() // the cap already answered: don't navigate after the fact
-        const nav = await send<{ loaderId?: string; errorText?: string }>(tabId, "Page.navigate", { url })
-        if (nav.errorText) return early(r, "error", { detail: `navigation failed: ${nav.errorText}` })
-        if (nav.loaderId) r.watch.expectLoad()
-      }
-      const ready = await settle(tabId, r.watch, r.net, p)
-      const tab = await chrome.tabs.get(tabId)
-      const page = await safeBrief(tabId)
-      const res: ActionResult = {
-        ok: ready,
-        status: ready ? "done" : "timeout",
-        diff: EMPTY,
-        navigation: { url: tab.url || url, title: tab.title ?? "" },
-        page,
-      }
-      if (!ready) res.detail = `page not ready after ${READY.timeoutMs} ms`
-      if (r.dialogs.events.length) res.dialogs = [...r.dialogs.events]
-      return res
-    }, { navigating: () => true })
-  })
+    const ready = await settle(tabId, r.watch, r.net, p)
+    const tab = await chrome.tabs.get(tabId)
+    const page = await safeBrief(tabId)
+    const res: ActionResult = {
+      ok: ready,
+      status: ready ? "done" : "timeout",
+      diff: EMPTY,
+      navigation: { url: tab.url || url, title: tab.title ?? "" },
+      page,
+    }
+    if (!ready) res.detail = `page not ready after ${READY.timeoutMs} ms`
+    if (r.dialogs.events.length) res.dialogs = [...r.dialogs.events]
+    return res
+  }, { navigating: () => true, ...(policy ? { policy } : {}) })
+}
+
+export type StepAction = Action | { kind: "goto"; url: string }
+
+export interface StepOutcome extends ActionResult {
+  resolved?: { role: string; name: string; within?: string }
+  /** `risky` (beforeAct refused) or `time` (the step's cap expired). */
+  halt?: HaltReason
+}
+
+/**
+ * One batch step on `tabId`, whose lock the caller (the batch) already holds. `capMs` bounds it
+ * like ACTION_CAP_MS bounds a single action; `linger` gets a promise that resolves when the step
+ * has truly ended (after an expiry, at most EXPIRED_HOLD_MS later), so the batch can keep the lock
+ * until then.
+ */
+export async function runStep(
+  s: Session,
+  tabId: number,
+  action: StepAction,
+  opts: {
+    capMs: number
+    dialog?: DialogPolicy
+    beforeAct?: (found: Found) => HaltReason | null
+    linger?: (tail: Promise<void>) => void
+  },
+): Promise<StepOutcome> {
+  if (action.kind === "press") input.keyDef(action.key) // BAD_REQUEST before touching the page
+  if (action.kind === "goto" && isRestrictedUrl(action.url)) throw new RestrictedPageError(action.url)
+  const hooks: Hooks = opts.beforeAct ? { beforeAct: opts.beforeAct } : {}
+  const { res, expired, tail } = await cappedRun(
+    tabId,
+    (p) =>
+      action.kind === "goto"
+        ? navigate(s, tabId, action.url, p, opts.dialog)
+        : begin(s, tabId, p, (r) => act(r, action, hooks), opts.dialog ? { policy: opts.dialog } : {}),
+    { capMs: opts.capMs, holdsLock: true },
+  )
+  opts.linger?.(tail)
+  const out: StepOutcome = { ...res }
+  if (hooks.resolved) out.resolved = hooks.resolved
+  if (expired) out.halt = "time"
+  else if (hooks.refused) out.halt = hooks.refused
+  return out
 }

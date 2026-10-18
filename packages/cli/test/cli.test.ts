@@ -46,10 +46,15 @@ async function startFake(): Promise<void> {
   daemon = d
 }
 
-function kite(args: string[], env: Record<string, string> = {}): Promise<{ code: number | null; out: string; err: string; ms: number }> {
+function kite(
+  args: string[],
+  env: Record<string, string> = {},
+  input?: string,
+): Promise<{ code: number | null; out: string; err: string; ms: number }> {
   return new Promise((resolve) => {
     const t0 = Date.now()
     const p = spawn(process.execPath, [BIN, ...args], { env: { ...process.env, KITE_SESSION: "", KITE_HOME: dir, ...env } })
+    if (input !== undefined) p.stdin.end(input)
     let out = ""
     let err = ""
     p.stdout.on("data", (d) => (out += d))
@@ -59,6 +64,33 @@ function kite(args: string[], env: Record<string, string> = {}): Promise<{ code:
 }
 
 describe("kite cli", () => {
+  it("batch from stdin: a Step[] becomes {steps}; raw JSON out; exit 0 iff ok", async () => {
+    const result = { ok: true, steps: [{ i: 0, action: "click", status: "done", ms: 5 }], diff: { added: [], removed: [] }, page: "P" }
+    canned = result as unknown as ActionResult
+    await startFake()
+    const steps = [{ action: "click", target: "Save" }]
+    const r = await kite(["batch", "-"], {}, JSON.stringify(steps))
+    expect(r.code).toBe(0)
+    expect(received[0].method).toBe("act.batch")
+    expect(received[0].params).toEqual({ steps })
+    expect(JSON.parse(r.out)).toEqual(result)
+  })
+  it("batch from a file with {steps, budget_ms}; a halted batch exits 1", async () => {
+    canned = { ok: false, steps: [], halted: { index: 0, reason: "time" }, next: 0, diff: { added: [], removed: [] }, page: "" } as unknown as ActionResult
+    await startFake()
+    const file = join(dir, "b.json")
+    writeFileSync(file, JSON.stringify({ steps: [{ action: "press", key: "Enter" }], budget_ms: 12_000 }))
+    const r = await kite(["batch", file])
+    expect(r.code).toBe(1)
+    expect(received[0].params).toEqual({ steps: [{ action: "press", key: "Enter" }], budget_ms: 12_000 })
+  })
+  it.each(["{not json", '{"nope": 1}'])("malformed batch %s exits 2 before any RPC", async (text) => {
+    await startFake()
+    const r = await kite(["batch", "-"], {}, text)
+    expect(r.code).toBe(2)
+    expect(r.err).toContain("invalid batch: ")
+    expect(received).toHaveLength(0)
+  })
   it("click text target", async () => {
     await startFake()
     const r = await kite(["click", "Save"])

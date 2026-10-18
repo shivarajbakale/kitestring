@@ -27,16 +27,19 @@ export interface Fixtures {
   sw: Worker
   kite: (...args: string[]) => Promise<KiteRun>
   kiteEnv: (env: Record<string, string>, ...args: string[]) => Promise<KiteRun>
+  /** Runs kite with `input` written to its stdin (e.g. `kite batch -`). */
+  kiteStdin: (input: string, ...args: string[]) => Promise<KiteRun>
   /** Reads `window.__result` from the page whose tab is the given session's active tab. */
   result: (page: Page) => Promise<string>
 }
 
-function runKite(kiteHome: string, env: Record<string, string>, args: string[]): Promise<KiteRun> {
+function runKite(kiteHome: string, env: Record<string, string>, args: string[], input?: string): Promise<KiteRun> {
   return new Promise((resolve) => {
     const t0 = Date.now()
     const p = spawn(process.execPath, [BIN, ...args], {
       env: { ...process.env, KITE_SESSION: "", ...env, KITE_HOME: kiteHome },
     })
+    if (input !== undefined) p.stdin.end(input)
     let stdout = ""
     let stderr = ""
     p.stdout.on("data", (d) => (stdout += d))
@@ -107,6 +110,10 @@ export const test = base.extend<Fixtures>({
   kiteEnv: async ({ kiteHome, context }, use) => {
     void context
     await use((env, ...args) => runKite(kiteHome, env, args))
+  },
+  kiteStdin: async ({ kiteHome, context }, use) => {
+    void context
+    await use((input, ...args) => runKite(kiteHome, {}, args, input))
   },
   result: async ({}, use) => {
     await use(async (page) => String(await page.evaluate(() => (window as unknown as { __result?: unknown }).__result)))

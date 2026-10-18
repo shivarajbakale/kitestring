@@ -20,6 +20,8 @@ export interface PageAgent {
   rect(ref: string): { x: number; y: number; width: number; height: number } | null
   waitQuiet(): Promise<{ quiet: boolean; waitedMs: number }>
   brief(): string
+  /** Case-folded substring test against the page's visible text (batch `expect: {text}`). */
+  hasText(text: string): boolean
   readValue(ref: string): string | null
   setSelect(ref: string, value: string): boolean
   /** The file input a click on this element feeds (see files.ts), else null. */
@@ -30,6 +32,8 @@ export interface PageAgent {
   markFileInput(ref: string, token: string): boolean
   unmarkFileInput(token: string): void
 }
+
+const fold = (s: string): string => s.replace(/\s+/g, " ").toLowerCase()
 
 export function createAgent(win: Window): PageAgent {
   const doc = win.document
@@ -53,6 +57,7 @@ export function createAgent(win: Window): PageAgent {
     },
     waitQuiet: () => waitQuiet(win),
     brief: () => brief(doc),
+    hasText: (text) => fold(doc.body?.innerText ?? "").includes(fold(text)),
     readValue: (ref) => {
       const el = reg.resolve(ref)
       if (!el) return null
