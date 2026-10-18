@@ -127,6 +127,34 @@ describe("runStep action cache", () => {
     expect(plain.secret).toBeUndefined()
   })
 
+  it("never caches an option-like choice (option, menuitemradio, treeitem, gridcell): its text is data", async () => {
+    const cache = await import("../background/cache")
+    cache.resetForTest()
+    const { runStep } = await import("../background/pipeline")
+    for (const role of ["option", "menuitemradio", "treeitem", "gridcell"]) {
+      agent.extra.find = () => ({ ...FOUND, role, name: "Ada Lovelace", locator: { ...LOC, role, name: "Ada Lovelace" }, hinted: false })
+      const r = await runStep(s, 1, { kind: "click", target: { text: "Ada Lovelace" } }, { capMs: 15_000 })
+      expect(r.status).toBe("done")
+    }
+    expect(cache.stats().entries).toBe(0)
+  })
+
+  it("never caches (nor looks up) a target filled from a plan param (nocache)", async () => {
+    const cache = await import("../background/cache")
+    cache.resetForTest()
+    cache.remember(key("ada lovelace"), LOC)
+    const { runStep } = await import("../background/pipeline")
+    const hints: unknown[] = []
+    agent.extra.find = (args) => {
+      hints.push(args[2])
+      return { ...FOUND, name: "Ada Lovelace", locator: LOC, hinted: false }
+    }
+    const r = await runStep(s, 1, { kind: "click", target: { text: "Ada Lovelace" }, nocache: true }, { capMs: 15_000 })
+    expect(r.status).toBe("done")
+    expect(hints).toEqual([undefined])
+    expect(cache.stats().entries).toBe(1) // only the entry put there above; nothing new under the resolved name
+  })
+
   it("never caches a secret field or a ref target", async () => {
     const cache = await import("../background/cache")
     cache.resetForTest()

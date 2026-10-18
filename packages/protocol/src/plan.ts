@@ -1,6 +1,12 @@
 import type { Step, StepBase } from "./batch.js"
 import type { Target } from "./target.js"
 
+/**
+ * Roles whose accessible name is a picked value (a contact, a suggestion, a date cell), not page structure: a click on
+ * one is a plan param, its text is echo-checked like a typed value, and the action cache never keeps it.
+ */
+export const CHOICE_ROLES: ReadonlySet<string> = new Set(["option", "menuitemradio", "treeitem", "gridcell"])
+
 /** A target with no name text, stored when the field's name echoed a value. */
 export type RoleTarget = { role: string; within?: string }
 export type PlanTarget = Target | RoleTarget

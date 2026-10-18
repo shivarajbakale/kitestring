@@ -233,10 +233,11 @@ export async function runBatch(
           const present = await findTarget(target, step.action === "upload" ? "click" : step.action, waitMs)
           if (!present && step.if_present) return { status: "skipped", acted: false }
         }
+        const nocache = step.nocache ? { nocache: true } : {}
         action =
           step.action === "upload"
-            ? { kind: "upload", target, files: step.files }
-            : { kind: step.action, target, ...(step.action === "click" ? {} : { value: step.value }) }
+            ? { kind: "upload", target, files: step.files, ...nocache }
+            : { kind: step.action, target, ...(step.action === "click" ? {} : { value: step.value }), ...nocache }
       }
       try {
         const res = await runStep(s, tabId, action, {

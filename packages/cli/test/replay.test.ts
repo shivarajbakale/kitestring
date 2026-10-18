@@ -97,6 +97,25 @@ describe("runPlan", () => {
     expect(saved.createdAt).toBe(PLAN.createdAt)
   })
 
+  it("marks a step whose target text or scope came from a param nocache (the extension never caches it); others are not marked", async () => {
+    const plan: Plan = {
+      ...PLAN,
+      params: [{ name: "contact", secret: false }, { name: "team", secret: false }],
+      batches: [
+        [
+          { action: "click", target: { text: "{{contact}}", role: "option" } },
+          { action: "click", target: { text: "Remove", role: "button", within: "{{team}}" } },
+          { action: "click", target: { text: "Save draft", role: "button" } },
+        ],
+      ],
+    }
+    const rpc = fake([okBatch(3)])
+    await runPlan(plan, { contact: "Ada Lovelace", team: "Analytical" }, { call: rpc.call as any, home })
+    const sent = rpc.calls[0]!.params.steps
+    expect(sent.map((s: any) => s.nocache)).toEqual([true, true, undefined])
+    expect(sent[0].target.text).toBe("Ada Lovelace")
+  })
+
   it("missing params: lists every name, sends nothing", async () => {
     const rpc = fake([])
     const r = await runPlan(PLAN, { title: "x" }, { call: rpc.call as any, home })

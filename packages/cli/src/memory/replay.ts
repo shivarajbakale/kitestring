@@ -59,6 +59,13 @@ function originOf(url: string): string | undefined {
 const isRoleStep = (s: ReplayStep): boolean =>
   "target" in s && typeof s.target === "object" && !("text" in s.target) && !("ref" in s.target)
 
+/** The stored step's target text or scope is (or holds) a `{{param}}`. */
+function fromParam(s: PlanStep): boolean {
+  if (!("target" in s) || typeof s.target !== "object") return false
+  const t = s.target as { text?: string; within?: string }
+  return [t.text, t.within].some((x) => typeof x === "string" && /\{\{[a-z0-9_]+\}\}/.test(x))
+}
+
 /** The stored step as a short label: its target text quoted, or what it does. Never a filled value. */
 export function stepText(s: PlanStep): string {
   if ("target" in s && typeof s.target === "object") {
@@ -146,7 +153,8 @@ export async function runPlan(plan: Plan, values: Record<string, string>, deps: 
           }
         }
         const roleAt = steps.findIndex(isRoleStep)
-        const send = (roleAt < 0 ? steps : steps.slice(0, roleAt)) as Step[]
+        // a target filled from a param is a value: the extension must not keep it in its action cache
+        const send = (roleAt < 0 ? steps : steps.slice(0, roleAt)).map((s, i) => (fromParam(stored[i]!) ? { ...s, nocache: true } : s)) as Step[]
         if (send.length) {
           send.forEach((s, i) => {
             const p = stored[i]!

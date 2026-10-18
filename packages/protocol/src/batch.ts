@@ -25,6 +25,8 @@ export interface StepBase {
   role?: string
   /** Policy for a dialog this step triggers (overrides the guard default). */
   dialog?: "accept" | "dismiss"
+  /** Internal (set by plan replay): the target text came from a plan param, so the action cache must not keep it. */
+  nocache?: boolean
 }
 
 export type Step = StepBase &
@@ -123,6 +125,7 @@ const base = {
   within: z.string().optional(),
   role: z.string().optional(),
   dialog: z.enum(["accept", "dismiss"]).optional(),
+  nocache: z.boolean().optional(),
 }
 const req = (what: string) => ({ required_error: `required for ${what}` })
 

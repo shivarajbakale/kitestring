@@ -209,6 +209,12 @@ describe("runBatch", () => {
     expect(state.calls[0]!.opts.beforeAct).toBeUndefined()
   })
 
+  it("passes a step's nocache flag (set by plan replay) to the step's action, and never into the result", async () => {
+    const r = await (await run({ steps: [click("Ada", { nocache: true } as any), click("B")] })).p
+    expect(state.calls.map((c) => c.action.nocache)).toEqual([true, undefined])
+    expect(JSON.stringify(r)).not.toContain("nocache")
+  })
+
   it("fill steps get no risk check", async () => {
     await (await run({ steps: [{ action: "fill", target: { text: "Send to" }, value: "x" } as Step] })).p
     expect(state.calls[0]!.opts.beforeAct).toBeUndefined()

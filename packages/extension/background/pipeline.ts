@@ -1,4 +1,5 @@
 import {
+  CHOICE_ROLES,
   ErrorCode,
   READY,
   type ActionResult,
@@ -22,11 +23,12 @@ import { withTabLock, type TabLock } from "./serial"
 import { activeTab, agentActing, type Session } from "./sessions"
 import { TAB_CLOSED_ITSELF } from "./tab-closed"
 
+/** `nocache`: the target came from a plan param (plan replay), so the action cache neither looks it up nor keeps it. */
 export type Action =
-  | { kind: "click" | "fill" | "select"; target: Target; value?: string }
+  | { kind: "click" | "fill" | "select"; target: Target; value?: string; nocache?: boolean }
   | { kind: "press"; key: string }
   /** `files` are absolute paths (already vetted by the CLI). */
-  | { kind: "upload"; target: Target; files: string[] }
+  | { kind: "upload"; target: Target; files: string[]; nocache?: boolean }
   /** `px` defaults to one viewport height. */
   | { kind: "scroll"; direction: "up" | "down"; px?: number }
 
@@ -457,7 +459,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   }
 
   // FIND (not found → scroll one viewport and retry). A cached locator is only a hint the page agent verifies.
-  const key = cacheKey(r.urlBefore, action.target)
+  const key = action.nocache ? "" : cacheKey(r.urlBefore, action.target)
   if (key) await cacheReady().catch(() => {})
   const hint = key ? getHint(key) : undefined
   let found: Extract<FindResult, { kind: "found" }> | undefined
@@ -475,8 +477,9 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
         hooks.cached = true
         hit(key)
       }
-      // Never cache a secret field (password, card, one-time code); an upload caches the locator only.
-      else if (key && f.locator && !f.secret) {
+      // Never cache a secret field (password, card, one-time code) or a picked choice (its name is data, like a
+      // value); an upload caches the locator only.
+      else if (key && f.locator && !f.secret && !CHOICE_ROLES.has(f.role)) {
         remember(key, f.locator)
         // A stored plan replays this element by its resolved name/role/scope: let that find start from the hint too.
         const asStored = cacheKey(r.urlBefore, { text: f.name, role: f.role, ...(f.within ? { within: f.within } : {}) })

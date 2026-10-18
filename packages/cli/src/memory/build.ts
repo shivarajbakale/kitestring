@@ -1,5 +1,6 @@
 import { KiteError } from "../client/rpc-client.js"
 import {
+  CHOICE_ROLES,
   paramName,
   parseTarget,
   pathPattern,
@@ -15,8 +16,6 @@ import {
 
 const PLACEHOLDER = /\{\{([a-z0-9_]+)\}\}/g
 const RAN_OK = new Set(["done", "no_effect"])
-/** Clicking one of these picks a value from a list or autocomplete, so its name is data, not page structure. */
-const CHOICE_ROLES = new Set(["option", "menuitemradio", "treeitem", "gridcell"])
 const MIN_ECHO = 3
 
 const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim()

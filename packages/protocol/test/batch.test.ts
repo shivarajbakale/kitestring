@@ -20,6 +20,11 @@ describe("parseBatchParams", () => {
     expect(p.allow_domains).toEqual(["example.org"])
     expect(p.budget_ms).toBe(12_000)
   })
+  it("keeps the internal nocache flag plan replay sets on a step", () => {
+    const p = parseBatchParams({ steps: [{ action: "click", target: "Ada Lovelace", nocache: true }, { action: "click", target: "Save" }] })
+    expect((p.steps[0] as { nocache?: boolean }).nocache).toBe(true)
+    expect((p.steps[1] as { nocache?: boolean }).nocache).toBeUndefined()
+  })
   it("rejects more than 50 steps", () => {
     const steps = Array.from({ length: 51 }, () => ({ action: "press", key: "Enter" }))
     expect(() => parseBatchParams({ steps })).toThrow(/at most 50 steps/)

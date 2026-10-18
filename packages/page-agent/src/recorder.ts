@@ -1,4 +1,5 @@
 import {
+  CHOICE_ROLES,
   MIN_ECHO,
   echoEntry,
   findEcho,
@@ -20,8 +21,7 @@ const CLICK_ROLES = new Set([
   "button", "link", "checkbox", "radio", "switch", "tab", "option", "menuitem", "menuitemcheckbox", "menuitemradio",
   "treeitem", "gridcell", "combobox",
 ])
-/** Clicking one of these picks a value from a list, so its name is data (as in `buildPlan`). */
-const CHOICE_ROLES = new Set(["option", "menuitemradio", "treeitem", "gridcell"])
+/** A choice role's list container: clicking a choice inside one picks a value, so its name is data (as in `buildPlan`). */
 const CHOICE_BOX = "[role=listbox],[role=menu],[role=menubar],[role=tree],[role=grid],[role=treegrid],[role=combobox]"
 const TEXT_TYPES = new Set(["text", "email", "search", "tel", "url", "password", "number"])
 /** Inputs kite cannot set by typing: a change to one is reported by name in `skipped`, never recorded. */
