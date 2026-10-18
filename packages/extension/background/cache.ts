@@ -127,12 +127,3 @@ export function clear(site?: string): number {
   void flush()
   return n
 }
-
-/** Test hook: forget everything in memory and the load state. */
-export function resetForTest(): void {
-  map.clear()
-  loaded = null
-  if (timer) clearTimeout(timer)
-  timer = null
-  writes = Promise.resolve()
-}

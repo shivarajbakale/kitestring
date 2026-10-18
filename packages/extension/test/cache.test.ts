@@ -1,20 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { Locator } from "@kitestring/protocol"
-import * as cache from "../background/cache"
+
+/** A fresh module per test (vi.resetModules), so no entries, load state or timer carry over. */
+let cache: typeof import("../background/cache")
 
 let store: Record<string, unknown>
 let set: ReturnType<typeof vi.fn>
 
 const loc = (n: number | string): Locator => ({ ref: `@e${n}`, role: "button", name: `B${n}`, landmarkPath: ["main"], cssPath: `#b${n}`, nth: 0 })
 
-beforeEach(() => {
+beforeEach(async () => {
+  vi.resetModules()
   vi.useFakeTimers()
   store = {}
   set = vi.fn(async (o: Record<string, unknown>) => Object.assign(store, o))
   ;(globalThis as { chrome?: unknown }).chrome = {
     storage: { local: { get: vi.fn(async (k: string) => (k in store ? { [k]: store[k] } : {})), set } },
   }
-  cache.resetForTest()
+  cache = await import("../background/cache")
 })
 afterEach(() => vi.useRealTimers())
 

@@ -74,8 +74,8 @@ describe("runStep action cache", () => {
   const key = (text: string) => ["https://a.example", "/", text, "", ""].join("\n")
 
   it("remembers what FIND resolved and hands it back as a hint; a hinted find reports cached", async () => {
+    vi.resetModules() // a fresh, empty action cache (and a pipeline that uses it)
     const cache = await import("../background/cache")
-    cache.resetForTest()
     const { runStep } = await import("../background/pipeline")
     const hints: unknown[] = []
     agent.extra.find = (args) => {
@@ -93,8 +93,8 @@ describe("runStep action cache", () => {
   })
 
   it("also remembers the element under its resolved name, so a stored plan's replay is served from the cache", async () => {
+    vi.resetModules() // a fresh, empty action cache (and a pipeline that uses it)
     const cache = await import("../background/cache")
-    cache.resetForTest()
     const { runStep } = await import("../background/pipeline")
     agent.extra.find = () => ({ ...FOUND, locator: LOC, hinted: false })
     await runStep(s, 1, { kind: "click", target: { text: "delete" } }, { capMs: 15_000 })
@@ -103,8 +103,8 @@ describe("runStep action cache", () => {
   })
 
   it("a rejected hint is overwritten by the fresh find", async () => {
+    vi.resetModules() // a fresh, empty action cache (and a pipeline that uses it)
     const cache = await import("../background/cache")
-    cache.resetForTest()
     cache.remember(key("delete everything"), { ...LOC, ref: "@estale", role: "link" })
     const { runStep } = await import("../background/pipeline")
     agent.extra.find = () => ({ ...FOUND, locator: LOC, hinted: false })
@@ -114,8 +114,8 @@ describe("runStep action cache", () => {
   })
 
   it("reports a secret field as secret (and a plain one not)", async () => {
+    vi.resetModules() // a fresh, empty action cache (and a pipeline that uses it)
     const cache = await import("../background/cache")
-    cache.resetForTest()
     const { runStep } = await import("../background/pipeline")
     agent.extra.find = () => ({ ...FOUND, role: "textbox", hinted: false, secret: true })
     // (a click: this file's input mock has no typing; the flag comes from FIND either way)
@@ -128,8 +128,8 @@ describe("runStep action cache", () => {
   })
 
   it("never caches an option-like choice (option, menuitemradio, treeitem, gridcell): its text is data", async () => {
+    vi.resetModules() // a fresh, empty action cache (and a pipeline that uses it)
     const cache = await import("../background/cache")
-    cache.resetForTest()
     const { runStep } = await import("../background/pipeline")
     for (const role of ["option", "menuitemradio", "treeitem", "gridcell"]) {
       agent.extra.find = () => ({ ...FOUND, role, name: "Ada Lovelace", locator: { ...LOC, role, name: "Ada Lovelace" }, hinted: false })
@@ -140,8 +140,8 @@ describe("runStep action cache", () => {
   })
 
   it("never caches (nor looks up) a target filled from a plan param (nocache)", async () => {
+    vi.resetModules() // a fresh, empty action cache (and a pipeline that uses it)
     const cache = await import("../background/cache")
-    cache.resetForTest()
     cache.remember(key("ada lovelace"), LOC)
     const { runStep } = await import("../background/pipeline")
     const hints: unknown[] = []
@@ -156,8 +156,8 @@ describe("runStep action cache", () => {
   })
 
   it("never caches a secret field or a ref target", async () => {
+    vi.resetModules() // a fresh, empty action cache (and a pipeline that uses it)
     const cache = await import("../background/cache")
-    cache.resetForTest()
     const { runStep } = await import("../background/pipeline")
     agent.extra.find = () => ({ ...FOUND, role: "textbox", locator: LOC, hinted: false, secret: true })
     await runStep(s, 1, { kind: "fill", target: { text: "Password" }, value: "hunter2" }, { capMs: 15_000 })
