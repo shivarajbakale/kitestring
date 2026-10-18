@@ -52,4 +52,12 @@ Does not collect or transmit user data. See `privacy.md`.
 
 ## Screenshots
 
-`store/screenshots/` (1280x800), refreshed with `KITE_UPDATE_DOCS=1 pnpm exec playwright test store-shots` from `e2e/`.
+`store/screenshots/` (1280x800), refreshed with `KITE_UPDATE_DOCS=1 pnpm exec playwright test store-shots` from `e2e/`
+(copies go to `docs/screenshots/` for the README). Each is a real capture composed on the brand background:
+
+1. `1-popup-pause.png`: the popup with two agent sessions and the Pause switch.
+2. `2-live-view.png`: the side panel listing a batch next to the form it filled.
+3. `3-risky-halt.png`: a batch halted before "Submit for review", with the `kite batch` output.
+4. `4-replay.png`: a remembered task replayed with `kite run`.
+
+The page shown is the fictional "Lanternfly" console (`apps/torture/pages/showcase-listing.html`).
