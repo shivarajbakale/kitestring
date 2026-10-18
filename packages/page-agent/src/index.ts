@@ -7,7 +7,7 @@ import { waitQuiet } from "./quiet.js"
 import { brief } from "./brief.js"
 import { norm } from "./normalize.js"
 import { closerFor, type Closer } from "./popups.js"
-import { fileInputFor, fileNames } from "./files.js"
+import { fileInputFor, fileNames, watchFileInput } from "./files.js"
 
 export interface PageAgent {
   snapshot(opts?: SnapshotOpts): string
@@ -26,8 +26,10 @@ export interface PageAgent {
   setSelect(ref: string, value: string): boolean
   /** The file input a click on this element feeds (see files.ts), else null. */
   fileInputFor(ref: string): { ref: string; multiple: boolean } | null
-  /** Names of the files selected in this file input; null if the ref is not a file input. */
+  /** Names of the files selected in this file input (as recorded at dispatch if watched); null if not a file input. */
   fileNames(ref: string): string[] | null
+  /** Records the input's file names when it next dispatches input/change (see files.ts); false if not a file input. */
+  watchFileInput(ref: string): boolean
   /** Tags the element with `data-kite-upload=<token>` so the main world can find it (CDP upload). */
   markFileInput(ref: string, token: string): boolean
   unmarkFileInput(token: string): void
@@ -84,6 +86,7 @@ export function createAgent(win: Window): PageAgent {
       return input ? { ref: reg.refFor(input), multiple: input.multiple } : null
     },
     fileNames: (ref) => fileNames(reg.resolve(ref)),
+    watchFileInput: (ref) => watchFileInput(reg.resolve(ref)),
     markFileInput: (ref, token) => {
       const el = reg.resolve(ref)
       if (!el) return false
@@ -110,5 +113,5 @@ export { diffSnapshots } from "./diff.js"
 export type { Diff } from "./diff.js"
 export { brief } from "./brief.js"
 export { closerFor } from "./popups.js"
-export { fileInputFor, fileNames } from "./files.js"
+export { fileInputFor, fileNames, watchFileInput } from "./files.js"
 export type { Closer } from "./popups.js"

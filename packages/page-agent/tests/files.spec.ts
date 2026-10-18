@@ -6,6 +6,7 @@ interface Agent {
   resolve(ref: string): Element | null
   fileInputFor(ref: string): { ref: string; multiple: boolean } | null
   fileNames(ref: string): string[] | null
+  watchFileInput(ref: string): boolean
 }
 type Win = { __kiteAgent: Agent; __fileInputFor(el: Element): HTMLInputElement | null }
 
@@ -88,4 +89,40 @@ test("agent.fileNames reads input.files names", async ({ fixture }) => {
     return { before, after: a.fileNames(ref), notInput: a.fileNames(a.find({ text: "Choose screenshots" }, "click").ref) }
   })
   expect(r).toEqual({ before: [], after: ["s1.png", "s2.png"], notInput: null })
+})
+
+test("adjacent styled upload buttons each get their own hidden input (either order)", async ({ fixture }) => {
+  const page = await fixture("files.html")
+  expect(await pick(page, "#front")).toBe("front-input")
+  expect(await pick(page, "#back")).toBe("back-input")
+  expect(await pick(page, "#left")).toBe("left-input")
+  expect(await pick(page, "#right")).toBe("right-input")
+})
+
+test("agent.watchFileInput: names recorded at dispatch survive a page that clears the input", async ({ fixture }) => {
+  const page = await fixture("files.html")
+  const ref = await page.evaluate(() => {
+    const a = (window as unknown as Win).__kiteAgent
+    const r = a.fileInputFor(a.find({ text: "Clearing input" }, "click").ref)!.ref
+    ;(window as unknown as { __ref: string }).__ref = r
+    return { watched: a.watchFileInput(r), notInput: a.watchFileInput(a.find({ text: "Choose screenshots" }, "click").ref) }
+  })
+  expect(ref).toEqual({ watched: true, notInput: false })
+  await page.setInputFiles("#clearing", [{ name: "kite.zip", mimeType: "application/zip", buffer: Buffer.from("x") }])
+  const r = await page.evaluate(() => {
+    const a = (window as unknown as Win).__kiteAgent
+    const el = document.getElementById("clearing") as HTMLInputElement
+    return { seen: (window as unknown as { __seen: string[] }).__seen, live: el.files!.length, names: a.fileNames((window as unknown as { __ref: string }).__ref) }
+  })
+  expect(r).toEqual({ seen: ["kite.zip"], live: 0, names: ["kite.zip"] })
+})
+
+test("agent.fileNames without a watch reads the live input (cleared: empty)", async ({ fixture }) => {
+  const page = await fixture("files.html")
+  await page.setInputFiles("#clearing", [{ name: "kite.zip", mimeType: "application/zip", buffer: Buffer.from("x") }])
+  const names = await page.evaluate(() => {
+    const a = (window as unknown as Win).__kiteAgent
+    return a.fileNames(a.fileInputFor(a.find({ text: "Clearing input" }, "click").ref)!.ref)
+  })
+  expect(names).toEqual([])
 })

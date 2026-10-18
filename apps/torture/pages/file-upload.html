@@ -10,6 +10,10 @@
 <p><button id="pick">Choose screenshots</button><input type="file" id="b" multiple></p>
 
 <div id="drop" role="button" tabindex="0">Drop icon here</div>
+<section aria-label="Clearing">
+<p><label for="d">Resume (cleared after reading)</label> <input type="file" id="d"></p>
+<div id="drop2" role="button" tabindex="0">Drop avatar here</div>
+</section>
 <pre id="out"></pre></main>
 <script>
 // Three ways pages take files: a plain input, a hidden input behind a button, and a drop zone that
@@ -25,6 +29,22 @@ function update(key, input) {
 a.addEventListener("change", () => update("a", a))
 b.addEventListener("change", () => update("b", b))
 pick.addEventListener("click", () => b.click())
+// Pages that read the files in their change handler and then reset the input (so the same file can be
+// chosen again): input.files is empty by the time anyone looks.
+window.__cleared = undefined
+const cleared = { d: [], e: [] }
+function readAndClear(key, input) {
+  cleared[key] = names(input)
+  input.value = ""
+  window.__cleared = JSON.stringify(cleared)
+}
+d.addEventListener("change", () => readAndClear("d", d))
+drop2.addEventListener("click", () => {
+  const input = document.createElement("input")
+  input.type = "file"
+  input.addEventListener("change", () => readAndClear("e", input))
+  input.click()
+})
 drop.addEventListener("click", () => {
   const input = document.createElement("input")
   input.type = "file"

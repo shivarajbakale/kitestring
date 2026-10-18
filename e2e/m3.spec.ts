@@ -113,6 +113,28 @@ test.describe("file upload", () => {
     }
   })
 
+  test("a page that clears the input in its change handler still verifies (input and file chooser)", async ({ kite, context, torture }) => {
+    const dir = mkdtempSync(join(tmpdir(), "kitefiles-"))
+    try {
+      const f = (name: string) => {
+        writeFileSync(join(dir, name), name)
+        return join(dir, name)
+      }
+      const url = `${torture}/file-upload`
+      await kite("tab", "new", url)
+      const d = await kite("upload", "Resume (cleared after reading)", f("cv.pdf"))
+      expect(out(d)).toMatch(/^✓ done$/m)
+      expect(out(d)).toContain("↑ uploaded cv.pdf")
+      const e = await kite("upload", "Drop avatar here", f("me.png"))
+      expect(out(e)).toMatch(/^✓ done$/m)
+      expect(out(e)).toContain("↑ uploaded me.png")
+      const page = context.pages().find((p) => p.url() === url)!
+      expect(await page.evaluate(() => (window as unknown as { __cleared?: string }).__cleared)).toBe('{"d":["cv.pdf"],"e":["me.png"]}')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   test("a sensitive path is refused by the CLI before the browser is touched", async ({ kite, kiteEnv, torture }) => {
     await kite("tab", "new", `${torture}/file-upload`)
     const home = mkdtempSync(join(tmpdir(), "kitehome-"))

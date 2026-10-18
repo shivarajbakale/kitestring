@@ -25,6 +25,11 @@
     <div id="dropzone" role="button" tabindex="0">Drop here</div>
   </section>
 
+  <div id="pair"><button id="front">Upload front</button><input type="file" id="front-input" hidden><button id="back">Upload back</button><input type="file" id="back-input" hidden></div>
+  <div id="pair2"><input type="file" id="left-input" hidden><button id="left">Upload left</button><input type="file" id="right-input" hidden><button id="right">Upload right</button></div>
+
+  <p><label for="clearing">Clearing input</label> <input type="file" id="clearing" onchange="window.__seen = Array.from(this.files, (f) => f.name); this.value = ''"></p>
+
   <div id="none"><button id="nonebtn">No input here</button></div>
 </main>
 </body></html>
