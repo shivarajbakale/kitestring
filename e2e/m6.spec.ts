@@ -59,7 +59,7 @@ test.describe("action cache", () => {
 })
 
 test.describe("site memory", () => {
-  test("an agent's batches on multi-page-checkout become a plan that replays faster, from cache, to the same point", async ({
+  test("an agent's batches on multi-page-checkout become a plan that replays in one call, to the same point", async ({
     kite,
     kiteStdin,
     kiteHome,
@@ -109,7 +109,8 @@ test.describe("site memory", () => {
     const r = JSON.parse(run.stdout)
     expect(r).toMatchObject({ ok: true, batches: 2 })
     expect(r.cached).toBeGreaterThan(0)
-    expect(run.ms).toBeLessThan(firstMs)
+    // one `kite run` replaces the agent's several calls; wall time is not asserted (the cache does not save time, see docs/bench.md)
+    void firstMs
     await expect.poll(async () => (await review()?.textContent("body")) ?? "").toContain("Grace Hopper")
     expect(context.pages().some((p) => p.url().endsWith("/multi-page-checkout-done"))).toBe(false)
     expect(JSON.parse((await kite("--json", "memory", "list")).stdout)[0].runs).toBe(1)
