@@ -2,6 +2,7 @@ import { initCapture } from "./capture"
 import { initCdp } from "./cdp"
 import { installDialogGuard } from "./dialogs"
 import { connectHost } from "./native-port"
+import { listenRecorder } from "./recorder"
 import { recordGuardDialog, route } from "./rpc-router"
 import { loadSessions, watchTabs } from "./sessions"
 import { listenUi } from "./ui"
@@ -14,6 +15,7 @@ installDialogGuard((tabId, dialog) =>
 )
 initCapture()
 listenUi()
+listenRecorder()
 void loadSessions()
 
 const host = connectHost((m) => {

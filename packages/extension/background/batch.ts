@@ -22,6 +22,7 @@ import { assertNotPaused } from "./control"
 import { RestrictedPageError, RpcError } from "./errors"
 import { allowedSites, capDiff, dialogHalt, fitResult, haltFor, siteOf, stepTarget, urlMatches } from "./batch-result"
 import { runStep, type StepAction, type StepOutcome } from "./pipeline"
+import { RECORDED_TAB_DETAIL, TabRecordedError } from "./recorder"
 import { withTabLock, type TabLock } from "./serial"
 import { TAB_CLOSED_ITSELF } from "./tab-closed"
 import { activeTab, agentActing, newestAdopted, openerOf, useTab, type Session } from "./sessions"
@@ -153,6 +154,7 @@ export async function runBatch(
     lock = await holdLock(tabId, deadline - BATCH_STEP_MIN_START_MS)
   } catch (e) {
     if (isPaused(e)) halt(0, "paused", (e as Error).message)
+    else if (e instanceof TabRecordedError) halt(0, "error", RECORDED_TAB_DETAIL)
     else halt(0, "time", `waited ${Date.now() - t0} ms for another action on tab ${tabId}`)
     return fitResult({ ok: false, steps, halted, next, diff: EMPTY, page: await agentQuick("brief", [], "") })
   }
@@ -201,6 +203,7 @@ export async function runBatch(
           lock = await holdLock(to, deadline - STEP_MARGIN_MS)
         } catch (e) {
           if (isPaused(e)) return { status: "error", detail: (e as Error).message, halt: "paused", acted: false }
+          if (e instanceof TabRecordedError) return { status: "error", detail: RECORDED_TAB_DETAIL, halt: "error", acted: false }
           return { status: "timeout", detail: `waited for another action on tab ${to}`, halt: "time", acted: false }
         }
         tabId = to
@@ -304,7 +307,9 @@ export async function runBatch(
           } catch (e) {
             handoff = isPaused(e)
               ? { reason: "paused", detail: (e as Error).message }
-              : { reason: "time", detail: `waited for another action on tab ${to}` }
+              : e instanceof TabRecordedError
+                ? { reason: "error", detail: RECORDED_TAB_DETAIL }
+                : { reason: "time", detail: `waited for another action on tab ${to}` }
           }
         } else if (i + 1 < params.steps.length) {
           handoff = { reason: "error", detail: `tab ${closed} closed` }

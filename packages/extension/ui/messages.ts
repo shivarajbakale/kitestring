@@ -18,6 +18,8 @@ export interface UiState {
   /** Epoch ms of the last pause/resume. */
   since?: number
   sessions: UiSession[]
+  /** A recording in progress (`active`), or stopped from the panel and waiting for `kite record stop`. */
+  recording?: { name: string; active: boolean }
 }
 
 /** Messages the popup and side panel send the background over chrome.runtime.sendMessage. */
@@ -28,6 +30,8 @@ export type UiRequest =
   /** Brings a tab to the front: `tabId` when given and still open, else the session's active tab. */
   | { kite: "ui"; op: "focusTab"; session: string; tabId?: number }
   | { kite: "ui"; op: "openPanel"; windowId?: number }
+  /** Stops the recording in progress; `kite record stop` still saves it. */
+  | { kite: "ui"; op: "recordStop" }
 
 export type UiResponse = { ok: true; state: UiState } | { ok: false; error: string }
 
@@ -46,6 +50,7 @@ export function parseUiRequest(m: unknown): UiRequest | null {
   switch (r.op) {
     case "state":
     case "resume":
+    case "recordStop":
       return { kite: "ui", op: r.op }
     case "pause": {
       if (r.reason !== undefined && typeof r.reason !== "string") return null

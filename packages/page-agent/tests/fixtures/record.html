@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>record</title></head><body>
+<main><h1>Listing</h1>
+<form id="f">
+<label for="t">Store title</label><input id="t">
+<label for="c">Category</label><select id="c"><option value="">Pick one</option><option value="dev">Developer tools</option><option value="fun">Fun stuff</option></select>
+<label for="z">Package</label><input id="z" type="file">
+<div role="listbox" aria-label="Language"><div role="option" tabindex="0">English</div><div role="option" tabindex="0">French</div></div>
+<label for="v">Kite Pro</label><input id="v">
+<label><input type="checkbox" id="agree"> I agree</label>
+<button type="button" id="preview">Preview Kite Pro</button>
+<button type="button">Unrelated</button>
+<button type="button">Remove French</button>
+<label for="d">Birthday</label><input id="d" type="date">
+<button type="submit">Save</button>
+</form></main>
+<script>
+window.__result = undefined
+f.addEventListener("submit", e => e.preventDefault())
+</script>
+</body></html>

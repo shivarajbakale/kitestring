@@ -39,14 +39,14 @@ export function isRestrictedUrl(url: string): boolean {
 const CANNOT_ACCESS_RE = /cannot access|cannot be scripted|extensions gallery|chrome:\/\/|chrome-extension:\/\/|missing host permission/i
 const NO_RECEIVER_RE = /receiving end does not exist|could not establish connection/i
 
-function send(tabId: number, msg: AgentMessage): Promise<AgentReply | undefined> {
+function send<R>(tabId: number, msg: unknown): Promise<R | undefined> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error(`page agent in tab ${tabId} did not answer within ${AGENT_TIMEOUT_MS} ms`)),
       AGENT_TIMEOUT_MS,
     )
     chrome.tabs.sendMessage(tabId, msg, { frameId: 0 }).then(
-      (r: AgentReply | undefined) => {
+      (r: R | undefined) => {
         clearTimeout(timer)
         resolve(r)
       },
@@ -88,21 +88,24 @@ async function inject(tabId: number, url: string): Promise<void> {
 
 const tabUrl = (t: chrome.tabs.Tab) => t.url || t.pendingUrl || ""
 
-/** Calls `method` on the page agent in the tab's top frame, injecting the content script if needed. */
-export async function callAgent<T>(tabId: number, method: keyof PageAgent, args: unknown[]): Promise<T> {
+/** Sends `msg` to the content script in the tab's top frame, injecting it first if the page has none. */
+export async function messageTab<R>(tabId: number, msg: unknown): Promise<R | undefined> {
   const url = tabUrl(await chrome.tabs.get(tabId))
   if (isRestrictedUrl(url)) throw new RestrictedPageError(url)
-
-  const msg: AgentMessage = { kite: true, method, args }
-  let reply: AgentReply | undefined
   try {
-    reply = await send(tabId, msg)
+    return await send<R>(tabId, msg)
   } catch (e) {
     if (!NO_RECEIVER_RE.test(e instanceof Error ? e.message : String(e))) throw e
     stats.injections++
     await inject(tabId, url)
-    reply = await send(tabId, msg)
+    return await send<R>(tabId, msg)
   }
+}
+
+/** Calls `method` on the page agent in the tab's top frame, injecting the content script if needed. */
+export async function callAgent<T>(tabId: number, method: keyof PageAgent, args: unknown[]): Promise<T> {
+  const msg: AgentMessage = { kite: true, method, args }
+  const reply = await messageTab<AgentReply>(tabId, msg)
   if (!reply) throw new Error(`page agent in tab ${tabId} sent no reply`)
   if (!reply.ok) throw new Error(reply.error)
   return reply.value as T

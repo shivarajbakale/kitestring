@@ -1,5 +1,6 @@
 import {
   ErrorCode,
+  RECORD_NAME_RE,
   RpcRequest,
   parseBatchParams,
   type ActionResult,
@@ -17,6 +18,7 @@ import * as control from "./control"
 import { RestrictedPageError, RpcError } from "./errors"
 import { runBatch } from "./batch"
 import { goto, runAction } from "./pipeline"
+import * as recorder from "./recorder"
 import { rejectWaiters } from "./serial"
 import * as sessions from "./sessions"
 
@@ -229,6 +231,14 @@ const handlers: Partial<Record<Method, Handler>> = {
 
   "act.press": async (params, s) => runAction(s, { kind: "press", key: stringParam(params, "key") }),
 
+  "record.start": async (params, s) => {
+    const name = stringParam(params, "name")
+    if (!RECORD_NAME_RE.test(name)) badRequest("params.name must be a lowercase slug like ada-signup (a-z, 0-9, -; at most 48)")
+    return recorder.startRecording(sessions.activeTab(s), name)
+  },
+
+  "record.stop": async (params) => (params.peek === true ? recorder.peekRecording() : recorder.stopRecording()),
+
   "act.scroll": async (params, s) => {
     const direction = params.direction
     if (direction !== "up" && direction !== "down") badRequest('params.direction must be "up" or "down"')
@@ -253,7 +263,11 @@ const WHILE_PAUSED: ReadonlySet<Method> = new Set([
   "activity.list",
   "cache.stats",
   "cache.clear",
+  "record.stop",
 ])
+
+/** Methods that act in the session's tab: refused while the human is recording it, so only their actions are recorded. */
+const actsInTab = (m: Method): boolean => m.startsWith("act.") || m === "page.goto"
 
 /** Methods that change something: recorded in the activity log, successful or not. */
 function isRecorded(m: Method): boolean {
@@ -394,6 +408,12 @@ export async function route(raw: unknown): Promise<RpcResponse> {
     else if (req.method !== "tab.new") tabBefore = existing?.activeTabId ?? null
     // Before any session is created: a paused request must leave no trace but its activity entry.
     if (!WHILE_PAUSED.has(req.method)) control.assertNotPaused()
+    if (actsInTab(req.method)) {
+      // Loads the recording state for the tab lock's check; refuse early for the tab the call names or the active one.
+      await recorder.ready()
+      const target = req.method === "act.batch" && typeof req.params.tab === "number" ? req.params.tab : tabBefore
+      if (target !== null) recorder.assertNotRecorded(target)
+    }
     const s = CREATES_SESSION.has(req.method)
       ? sessions.getOrCreateSession(req.session)
       : (existing ?? sessions.emptySession(req.session))

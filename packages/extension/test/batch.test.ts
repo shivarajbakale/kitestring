@@ -12,7 +12,19 @@ const state = vi.hoisted(() => ({
   findResult: { kind: "found", ref: "@e00001", line: 'button "X" [@e00001]' } as any,
   script: [] as Script[],
   calls: [] as { tabId: number; action: any; opts: any }[],
+  /** The tab the user is recording (agents must not act in it). */
+  recorded: undefined as number | undefined,
 }))
+
+vi.mock("../background/recorder", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../background/recorder")>()
+  return {
+    ...real,
+    assertNotRecorded: (id: number) => {
+      if (state.recorded === id) throw new real.TabRecordedError(id)
+    },
+  }
+})
 
 vi.mock("@kitestring/page-agent", () => ({
   diffSnapshots: (a: string, b: string) => {
@@ -92,6 +104,7 @@ beforeEach(() => {
   state.findResult = { kind: "found", ref: "@e00001", line: 'button "X" [@e00001]' }
   state.script = []
   state.calls = []
+  state.recorded = undefined
   ;(globalThis as { chrome?: unknown }).chrome = {
     tabs: {
       get: vi.fn(async (id: number) => ({ id, url: state.urls.get(id) ?? "", title: `T${id}` })),
@@ -410,6 +423,20 @@ describe("runBatch", () => {
     const r = await (await run({ steps: [{ action: "switch_tab", to: 5 } as Step, click("A")] })).p
     expect(r.halted).toMatchObject({ index: 0, reason: "error" })
     expect(r.next).toBe(0)
+    expect(state.calls).toHaveLength(0)
+  })
+
+  it("switch_tab into the tab the user is recording halts error and acts on nothing there", async () => {
+    state.recorded = 2
+    const r = await (await run({ steps: [click("A"), { action: "switch_tab", to: 2 } as Step, click("B")] })).p
+    expect(r.halted).toEqual({ index: 1, reason: "error", detail: "tab is being recorded by the user" })
+    expect(state.calls.map((c) => c.tabId)).toEqual([1])
+  })
+
+  it("a batch aimed at the recorded tab with `tab` halts before any step", async () => {
+    state.recorded = 2
+    const r = await (await run({ tab: 2, steps: [click("A")] })).p
+    expect(r.halted).toEqual({ index: 0, reason: "error", detail: "tab is being recorded by the user" })
     expect(state.calls).toHaveLength(0)
   })
 

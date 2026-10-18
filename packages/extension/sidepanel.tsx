@@ -67,6 +67,24 @@ function SidePanel() {
           </p>
         ) : null}
 
+        {state?.recording ? (
+          <div className="panel__recording" role="status">
+            {state.recording.active ? (
+              <>
+                <span className="panel__rec-dot" aria-hidden="true" />
+                <span className="panel__rec-text">Recording {state.recording.name}</span>
+                <button type="button" className="panel__rec-stop" onClick={() => void act({ op: "recordStop" })}>
+                  Stop
+                </button>
+              </>
+            ) : (
+              <span className="panel__rec-text">
+                Stopped {state.recording.name}. Run <code>kite record stop</code> to save it as a skill.
+              </span>
+            )}
+          </div>
+        ) : null}
+
         {state ? (
           <PauseControl
             paused={state.paused}
