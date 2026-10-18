@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>store-listing</title>
+<style>[hidden] { display: none !important } label { display: block; margin-top: 8px }</style></head><body>
+<main><h1>Store listing</h1>
+<div role="tablist" aria-label="Sections">
+<button role="tab" id="t1" aria-selected="true" aria-controls="p1">Store listing</button>
+<button role="tab" id="t2" aria-selected="false" aria-controls="p2">Privacy</button>
+<button role="tab" id="t3" aria-selected="false" aria-controls="p3">Package</button></div>
+
+<section role="tabpanel" id="p1" aria-labelledby="t1">
+<label for="ftitle">Title</label><input id="ftitle">
+<label for="summary">Summary</label><input id="summary" size="60"> <span id="counter">0/132</span>
+<label for="desc">Description</label><textarea id="desc"></textarea>
+<label for="cat">Category</label><select id="cat"><option value="">Choose</option><option>Developer Tools</option><option>Productivity</option></select>
+<label for="lang">Language</label><select id="lang"><option value="">Choose</option><option>English</option><option>German</option></select>
+</section>
+
+<section role="tabpanel" id="p2" aria-labelledby="t2" hidden>
+<label for="purpose">Single purpose</label><textarea id="purpose"></textarea>
+<label for="j-debugger">debugger justification</label><textarea id="j-debugger"></textarea>
+<label for="j-native">nativeMessaging justification</label><textarea id="j-native"></textarea>
+<label for="j-tabs">tabs justification</label><textarea id="j-tabs"></textarea>
+<label for="j-host">host permissions justification</label><textarea id="j-host"></textarea>
+<p><label><input type="radio" name="data" id="nodata"> Does not collect user data</label></p>
+</section>
+
+<section role="tabpanel" id="p3" aria-labelledby="t3" hidden>
+<label for="zip">Extension zip</label><input type="file" id="zip">
+<label for="shots">Screenshots</label><input type="file" id="shots" multiple>
+</section>
+
+<p><button id="saveBtn" type="button">Save draft</button> <button id="submitBtn" type="button">Submit for review</button></p>
+<p id="state" role="status"></p><p id="errors" role="alert"></p></main>
+<script>
+window.__result = undefined
+const tabs = [t1, t2, t3], panels = [p1, p2, p3]
+tabs.forEach((t, i) => t.addEventListener("click", () => {
+  tabs.forEach((x, j) => { x.setAttribute("aria-selected", String(i === j)); panels[j].hidden = i !== j })
+}))
+const update = () => { counter.textContent = summary.value.length + "/132" }
+summary.addEventListener("input", update)
+const names = (input) => Array.from(input.files, (f) => f.name)
+let saved = false
+saveBtn.addEventListener("click", () => {
+  const missing = []
+  const need = (ok, label) => { if (!ok) missing.push(label) }
+  need(ftitle.value, "Title"); need(summary.value, "Summary"); need(summary.value.length <= 132, "Summary (max 132)")
+  need(desc.value, "Description"); need(cat.value, "Category"); need(lang.value, "Language")
+  need(purpose.value, "Single purpose"); need(document.getElementById("j-debugger").value, "debugger justification")
+  need(document.getElementById("j-native").value, "nativeMessaging justification"); need(document.getElementById("j-tabs").value, "tabs justification")
+  need(document.getElementById("j-host").value, "host permissions justification"); need(nodata.checked, "Does not collect user data")
+  need(zip.files.length === 1, "Extension zip"); need(shots.files.length >= 1, "Screenshots")
+  if (missing.length) { errors.textContent = "Missing: " + missing.join(", "); state.textContent = ""; return }
+  errors.textContent = ""
+  state.textContent = "Draft saved"
+  saved = true
+  window.__result = "saved:" + JSON.stringify({
+    title: ftitle.value, summary: summary.value, description: desc.value, category: cat.value, language: lang.value,
+    purpose: purpose.value,
+    justifications: { debugger: document.getElementById("j-debugger").value, nativeMessaging: document.getElementById("j-native").value, tabs: document.getElementById("j-tabs").value, hostPermissions: document.getElementById("j-host").value },
+    noData: nodata.checked, zip: names(zip), screenshots: names(shots),
+  })
+})
+submitBtn.addEventListener("click", () => {
+  if (!saved) { window.__result = "WRONG:submit-before-save"; return }
+  window.__result = "submitted"
+  state.textContent = "Submitted"
+})
+</script>
+</body></html>

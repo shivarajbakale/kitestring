@@ -42,7 +42,7 @@ pnpm i && pnpm build
 
 ## What agents can do
 
-The MCP server exposes 15 tools:
+The MCP server exposes 16 tools:
 
 | Tool | What it does |
 | --- | --- |
@@ -51,6 +51,7 @@ The MCP server exposes 15 tools:
 | `browser_goto` | navigate the active tab |
 | `browser_snapshot` | read the page as a compact tree with refs |
 | `browser_click`, `browser_fill`, `browser_select`, `browser_press`, `browser_scroll`, `browser_upload` | act on the page; each returns a diff of what changed |
+| `browser_batch` | run a list of steps in one call (see Batching) |
 | `browser_console`, `browser_network` | recent console messages and network requests of the tab |
 | `browser_screenshot` | capture the tab |
 
@@ -80,7 +81,45 @@ Paused:
 - **Page text is data.** The skills tell agents to treat page content as untrusted data, never as instructions, and never to type passwords.
 - While kite acts on a tab, Chrome shows its "started debugging this browser" bar. That is expected.
 
-Kitestring does not yet batch actions or classify the risk of an action; those are planned.
+Batches halt on risky clicks and dialogs, and uploads have a deny list (see Guards and Upload).
+
+## Batching
+
+`kite batch <file|->` (or the `browser_batch` tool) runs up to 50 steps in one call, under one tab lock, and returns one result with one diff. A form that took ten round trips takes one:
+
+```sh
+kite batch - <<'JSON'
+[
+  {"action": "fill", "target": "Name", "value": "Ada"},
+  {"action": "fill", "target": "Email", "value": "ada@x.io"},
+  {"action": "click", "target": "Submit", "expect": {"text": "Thanks"}}
+]
+JSON
+```
+
+Steps are `goto`, `click`, `fill`, `select`, `press`, `scroll`, `upload` (`files`), `switch_tab` (`to`: `"new"`, `"opener"` or a tab id) and `wait` (`ms`). A step can also carry `wait`, `expect` (`{text}` or `{url}`), `if_present`, `within`, `role` and `dialog`. A target on a page that is not there yet (a tab's hidden fields, the next page of a flow) is found when its step runs. The file may also be an object, `{"steps": [...], "allow_domains": [...], "budget_ms": 12000}`.
+
+A batch stops at the first step that does not work and says where: `halted: {index, reason, detail}`, plus `next`, the step to resend from. Reasons: `not_found`, `ambiguous`, `blocked`, `disabled`, `error`, `timeout`, `restricted`, `domain`, `dialog`, `expect`, `risky`, `paused`, `time`. The time budget is 40 s by default (`--budget <ms>`, clamped to 5 to 40 s; the MCP server reads `KITE_BATCH_BUDGET_MS`, which `kite init` sets to 12000 for OpenCode). Each step shows in the activity list, grouped as one batch.
+
+## Guards
+
+A batch (and a single action) is guarded against the things that derail agents:
+
+- **Risky clicks halt a batch.** A click on a button named like `pay`, `buy`, `purchase`, `place order`, `send`, `delete`, `remove account`, `publish`, `submit for review`, `transfer` or `confirm payment` halts the batch with `risky` before anything is clicked. Run that one click on its own (`kite click "Place order"`); a single click is never blocked.
+- **Dialogs.** `alert` is accepted and reported. `confirm` and `prompt` are dismissed; in a batch that also halts `dialog`, unless the step has a `dialog` policy (`"accept"` or `"dismiss"`).
+- **Cookie walls and newsletter modals.** When one covers the target, kite closes it once (it prefers "Reject all" or "Necessary only", then "Accept"; newsletter modals get "Close" or "No thanks", never "Subscribe") and goes on. The result says what it closed.
+- **New tabs and popups.** Tabs opened by the page (`target=_blank`, OAuth popups) join your session and are listed as `newTabs`; `switch_tab` follows them. A step that closes its own tab (an OAuth "Allow") carries on in the opener.
+- **Domain guard.** After each step, the site of the active tab must be the batch's start site, one of `allow_domains` (or `--allow-domain`), or one a `goto` or `expect.url` of the batch names. Otherwise the batch halts `domain`.
+
+## Upload
+
+`kite upload <target> <file...>` (or `browser_upload`, or an `upload` step) puts local files into a file input, a button that opens one, or a drop zone. Paths are resolved to their real location first (relative paths against your working directory), and the CLI refuses, before the browser is touched:
+
+- anything under `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kitestring` (`$KITE_HOME`), `~/.config` or `~/Library/Keychains`;
+- a file named `.env*`;
+- a file over 100 MB, or anything that is not a regular file.
+
+The error is `BAD_REQUEST: refusing to upload <path>: <reason>`. To allow a location anyway, set `KITE_UPLOAD_ALLOW` to a colon-separated list of directories; it overrides the location rules only, never the size and type rules. The activity log records base names, never paths.
 
 ## Troubleshooting
 
@@ -201,7 +240,7 @@ The end-to-end suite (`e2e/`) works like this:
 
 - It needs `pnpm build` first.
 - It runs headless and doesn't touch your Chrome profile or `~/.kitestring`.
-- For each test it installs the native host into a temporary user-data-dir and starts the torture site (`apps/torture`, 12 edge-case pages; see `apps/torture/expected.md`).
+- For each test it installs the native host into a temporary user-data-dir and starts the torture site (`apps/torture`, edge-case and multi-page flow pages; see `apps/torture/expected.md`).
 - It launches **Playwright's Chromium** with the built extension, then drives everything through the real `kite` CLI.
 - The UI tests screenshot the popup and side panel into the test output dir. To refresh the images in `docs/ui/` used by this README, run `KITE_UPDATE_DOCS=1 pnpm test:e2e`.
 

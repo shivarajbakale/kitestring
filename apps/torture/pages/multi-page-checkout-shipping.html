@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>multi-page-checkout-shipping</title></head><body>
+<main><h1>Shipping</h1>
+<form id="f" aria-label="Shipping">
+<p><label for="fullname">Full name</label> <input id="fullname"></p>
+<p><label for="addr">Address</label> <input id="addr"></p>
+<p><label for="city">City</label> <input id="city"></p>
+<p><label for="country">Country</label> <select id="country"><option value="">Choose</option><option value="IN">India</option><option value="GB">United Kingdom</option><option value="US">United States</option></select></p>
+<button id="go" type="button">Continue to payment</button></form>
+<p id="err" role="alert"></p></main>
+<script>
+window.__result = undefined
+go.addEventListener("click", () => {
+  if (!fullname.value || !addr.value || !city.value || !country.value) { err.textContent = "Fill in every field"; return }
+  sessionStorage.setItem("order", JSON.stringify({ name: fullname.value, addr: addr.value, city: city.value, country: country.value }))
+  location.href = "/multi-page-checkout-review"
+})
+</script>
+</body></html>

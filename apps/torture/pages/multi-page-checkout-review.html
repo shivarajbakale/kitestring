@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>multi-page-checkout-review</title></head><body>
+<main><h1>Review your order</h1>
+<dl id="summary"></dl>
+<button id="place" type="button">Place order</button></main>
+<script>
+window.__result = undefined
+const o = JSON.parse(sessionStorage.getItem("order") || "null")
+if (o) summary.innerHTML = "<dt>Name</dt><dd></dd><dt>Ship to</dt><dd></dd>"
+if (o) { summary.children[1].textContent = o.name; summary.children[3].textContent = o.addr + ", " + o.city + " (" + o.country + ")" }
+place.addEventListener("click", () => { location.href = "/multi-page-checkout-done" })
+</script>
+</body></html>

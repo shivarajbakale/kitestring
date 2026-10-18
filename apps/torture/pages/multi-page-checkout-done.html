@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>multi-page-checkout-done</title></head><body>
+<main><h1>Order placed</h1><p id="msg"></p></main>
+<script>
+window.__result = undefined
+const o = JSON.parse(sessionStorage.getItem("order") || "null")
+if (o) {
+  msg.textContent = "Thank you, " + o.name
+  window.__result = "order:" + o.name + ":" + o.country
+  fetch("/__last-result", { method: "POST", body: window.__result })
+} else window.__result = "WRONG:no-order"
+</script>
+</body></html>

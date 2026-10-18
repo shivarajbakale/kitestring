@@ -275,6 +275,20 @@ export async function runBatch(
       const stepTab = tabId
       const ran = await execute(step)
       const res = ran.res
+      if (!s.tabs.has(tabId) && s.activeTabId !== null && s.tabs.has(s.activeTabId)) {
+        // The step closed its own tab (an OAuth popup's "Allow"): carry on in the tab the session fell back to.
+        await linger
+        lock?.release()
+        lock = undefined
+        try {
+          lock = await holdLock(s.activeTabId, deadline - STEP_MARGIN_MS)
+          tabId = s.activeTabId
+          navigated = true
+        } catch (e) {
+          if (isPaused(e)) ran.halt = "paused"
+          else ran.halt = "time"
+        }
+      }
       if (res) {
         for (const e of res.dialogs ?? []) dialogs.push(e)
         for (const p of res.closedPopups ?? []) closedPopups.push(p)

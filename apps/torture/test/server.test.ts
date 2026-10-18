@@ -5,7 +5,7 @@ import { startTorture } from "../server.js"
 
 const expected = readFileSync(fileURLToPath(new URL("../expected.md", import.meta.url)), "utf8")
 const pages = [...expected.matchAll(/^\| `([a-z-]+)` \|/gm)].map((m) => m[1])
-pages.push("navigating-link-done", "new-tab-target", "oauth")
+pages.push("navigating-link-done", "new-tab-target", "oauth", "multi-page-checkout-shipping", "multi-page-checkout-review", "multi-page-checkout-done")
 
 let site: Awaited<ReturnType<typeof startTorture>>
 beforeAll(async () => {
@@ -17,7 +17,7 @@ afterAll(async () => {
 
 describe("torture server", () => {
   it("lists the pages in expected.md plus the navigation targets", () => {
-    expect(pages).toHaveLength(22)
+    expect(pages).toHaveLength(27)
   })
   it.each(pages)("serves /%s with 200", async (name) => {
     const res = await fetch(`${site.url}/${name}`)

@@ -331,8 +331,27 @@ async function early(r: Run, status: Status, extra: Partial<ActionResult>): Prom
   return res
 }
 
-/** WAIT → VERIFY → REPORT. */
+/**
+ * WAIT → VERIFY → REPORT. An action that closes its own tab (an OAuth "Allow", a "Done" button) is a
+ * success, not a "No tab with id" failure.
+ */
 async function finish(
+  r: Run,
+  before: string,
+  verify: { click?: { handled: boolean }; fill?: { ref: string; text: string }; upload?: { ref: string; names: string[] } },
+): Promise<ActionResult> {
+  try {
+    return await finishOpen(r, before, verify)
+  } catch (e) {
+    if (e instanceof Expired || (await chrome.tabs.get(r.tabId).then(() => true, () => false))) throw e
+    const res: ActionResult = { ok: true, status: "done", diff: EMPTY, page: "", detail: "the tab closed itself" }
+    if (r.watch.newTabs.length) res.newTabs = [...r.watch.newTabs]
+    if (r.dialogs.events.length) res.dialogs = [...r.dialogs.events]
+    return res
+  }
+}
+
+async function finishOpen(
   r: Run,
   before: string,
   verify: { click?: { handled: boolean }; fill?: { ref: string; text: string }; upload?: { ref: string; names: string[] } },

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>multi-page-checkout</title></head><body>
+<main><h1>Your cart</h1>
+<ul><li>Kite string, 50 m</li></ul>
+<button id="next" type="button">Proceed to shipping</button></main>
+<div id="onetrust-banner-sdk" style="position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center">
+<div style="background:#fff;padding:24px"><p>We use cookies.</p><button id="all">Accept all</button><button id="none">Reject all</button></div></div>
+<script>
+// Step 1 of 4. The order is carried across pages in sessionStorage.
+window.__result = undefined
+sessionStorage.removeItem("order")
+all.addEventListener("click", () => document.getElementById("onetrust-banner-sdk").remove())
+none.addEventListener("click", () => document.getElementById("onetrust-banner-sdk").remove())
+next.addEventListener("click", () => { location.href = "/multi-page-checkout-shipping" })
+</script>
+</body></html>
