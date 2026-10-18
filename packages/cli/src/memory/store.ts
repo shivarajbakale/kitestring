@@ -130,17 +130,17 @@ export function loadPlans(home: string, origin?: string): Plan[] {
 }
 
 /** Best plan for `origin` whose intent overlaps `intent` by >= 0.6 (Jaccard); the first listed wins ties. */
-export function findPlan(home: string, origin: string, intent: string): { plan: Plan; score: number; slug: string } | undefined {
-  let best: { plan: Plan; score: number; slug: string } | undefined
+export function findPlan(home: string, origin: string, intent: string): { plan: Plan; score: number; slug: string; id: string } | undefined {
+  let best: { plan: Plan; score: number; slug: string; id: string } | undefined
   for (const s of listPlans(home, origin)) {
     const score = intentScore(intent, s.plan.intent)
-    if (score >= MATCH_THRESHOLD && (!best || score > best.score)) best = { plan: s.plan, score, slug: s.id.split("/")[1]! }
+    if (score >= MATCH_THRESHOLD && (!best || score > best.score)) best = { plan: s.plan, score, slug: s.id.split("/")[1]!, id: s.id }
   }
   return best
 }
 
 /** {@link findPlan} for one origin, or across every stored origin when `origin` is undefined (best score wins). */
-export function findAnyPlan(home: string, intent: string, origin?: string): { plan: Plan; score: number; slug: string } | undefined {
+export function findAnyPlan(home: string, intent: string, origin?: string): ReturnType<typeof findPlan> {
   const origins = origin ? [origin] : [...new Set(listPlans(home).map((s) => s.plan.origin))]
   let best: ReturnType<typeof findPlan>
   for (const o of origins) {

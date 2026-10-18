@@ -292,7 +292,7 @@ describe("kite mcp plans", () => {
     expect(readFileSync(join(dir, "memory", "shop-example-com", "fill-the-shipping-form.json"), "utf8")).not.toContain("Ada")
 
     const f: any = await client!.callTool({ name: "browser_plan_find", arguments: { intent: "fill shipping form", url: "https://shop.example.com/x" } })
-    expect(JSON.parse(text(f))).toMatchObject({ slug: "fill-the-shipping-form", intent: "fill the shipping form", params: [{ name: "full_name", secret: false }] })
+    expect(JSON.parse(text(f))).toMatchObject({ id: "shop-example-com/fill-the-shipping-form", slug: "fill-the-shipping-form", intent: "fill the shipping form", params: [{ name: "full_name", secret: false }] })
     const miss: any = await client!.callTool({ name: "browser_plan_find", arguments: { intent: "delete my account", url: "https://shop.example.com/x" } })
     expect(text(miss)).toBe("no plan")
 
@@ -310,6 +310,53 @@ describe("kite mcp plans", () => {
     expect(missing.isError).toBe(true)
     expect(text(missing)).toContain("missing parameter: full_name")
     expect(received).toEqual([])
+  })
+
+  it("browser_plan_run takes the full plan id, so the same slug on two sites is not ambiguous", async () => {
+    const { savePlan } = await import("../src/memory/store.js")
+    const plan = (origin: string) => ({
+      version: 1 as const, intent: "sign up", origin, pathPattern: "/", params: [],
+      batches: [[{ action: "click" as const, target: { text: "Go", role: "button" } }]], createdAt: "2026-01-01T00:00:00.000Z", runs: 0, lastOk: null,
+    })
+    savePlan(dir, plan("https://a.example.com"))
+    savePlan(dir, plan("https://b.example.com"))
+    canned = { ok: true, steps: [{ i: 0, action: "click", status: "done", ms: 1 }], diff: { added: [], removed: [] }, page: "P" }
+    tabs = { tabs: [{ id: 1, url: "https://b.example.com/", active: true }] }
+    await startFake()
+    await connect()
+    const f: any = await client!.callTool({ name: "browser_plan_find", arguments: { intent: "sign up", url: "https://b.example.com/" } })
+    expect(JSON.parse(text(f)).id).toBe("b-example-com/sign-up")
+    const bare: any = await client!.callTool({ name: "browser_plan_run", arguments: { slug: "sign-up" } })
+    expect(bare.isError).toBe(true)
+    expect(text(bare)).toMatch(/ambiguous/)
+    const run: any = await client!.callTool({ name: "browser_plan_run", arguments: { slug: JSON.parse(text(f)).id } })
+    expect(run.isError, text(run)).toBeFalsy()
+  })
+
+  it("browser_plan_run secrets: those values are never hashed into the takeover journal", async () => {
+    const { savePlan } = await import("../src/memory/store.js")
+    savePlan(dir, {
+      version: 1, intent: "log in", origin: "https://a.example.com", pathPattern: "/",
+      params: [{ name: "user", secret: false }, { name: "pin", secret: false }], // "pin" misclassified as not secret
+      batches: [[
+        { action: "fill", target: { text: "User", role: "textbox" }, value: "{{user}}" },
+        { action: "fill", target: { text: "PIN", role: "textbox" }, value: "{{pin}}" },
+      ]],
+      createdAt: "2026-01-01T00:00:00.000Z", runs: 0, lastOk: null,
+    })
+    canned = { ok: false, steps: [{ i: 0, action: "fill", status: "not_found", ms: 1 }], halted: { index: 0, reason: "not_found" }, next: 0, diff: { added: [], removed: [] }, page: "P" }
+    tabs = { tabs: [{ id: 1, url: "https://a.example.com/", active: true }] }
+    await startFake()
+    await connect()
+    const seen = () => JSON.parse(readFileSync(join(dir, "memory", ".pending", "agent.json"), "utf8")).seen as string[]
+    await client!.callTool({ name: "browser_plan_run", arguments: { slug: "log-in", params: { user: "ada.lovelace", pin: "918273" } } })
+    expect(seen()).toHaveLength(2)
+    const r: any = await client!.callTool({ name: "browser_plan_run", arguments: { slug: "log-in", params: { user: "ada.lovelace", pin: "918273" }, secrets: ["pin"] } })
+    expect(r.isError, text(r)).toBeFalsy()
+    expect(seen()).toHaveLength(1)
+    const bad: any = await client!.callTool({ name: "browser_plan_run", arguments: { slug: "log-in", params: { user: "a", pin: "b" }, secrets: ["nope"] } })
+    expect(bad.isError).toBe(true)
+    expect(text(bad)).toMatch(/secrets.*nope/)
   })
 
   it("browser_plan_find without url uses the active tab's site", async () => {

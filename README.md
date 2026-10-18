@@ -84,11 +84,11 @@ When your agent runs a batch that works, `kite` journals its steps with every ty
 kite memory save "fill the shipping form"   # turn this session's journal into a plan
 kite memory list
 kite memory show <slug>
-kite run <slug> --param email=ada@x.io --secret password=...   # replay, no model involved
+kite run <site>/<slug> --param email=ada@x.io --secret password=...   # replay (a bare slug works when unique)
 kite run <slug> --dry-run                                       # print the filled batches, send nothing
 ```
 
-`kite run` checks that every parameter is given (exit 2, before the browser is touched), runs the plan with `act.batch` and stops at the first step that no longer works, saying which and why, and leaves the page where it stopped so the agent can take over. A risky click is never auto-continued (exit 3). Over MCP the same flow is `browser_plan_find` (is there a plan for this task?), `browser_plan_run` (replay it) and `browser_plan_save` (remember what just worked), and `browser_plan_discard` drops the unsaved journal.
+`kite run` checks that every parameter is given (exit 2, before the browser is touched), runs the plan with `act.batch` and stops at the first step that no longer works, saying which and why, and leaves the page where it stopped so the agent can take over. A risky click is never auto-continued (exit 3). Over MCP the same flow is `browser_plan_find` (is there a plan for this task?), `browser_plan_run` (replay it by the `id` find returned; `secrets` names the params whose values are never kept, like `--secret`) and `browser_plan_save` (remember what just worked), and `browser_plan_discard` drops the unsaved journal.
 
 ### Memory
 

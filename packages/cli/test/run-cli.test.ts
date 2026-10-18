@@ -112,6 +112,18 @@ describe("kite run", () => {
     expect(listPlans(dir)[0]!.plan.runs).toBe(1)
   })
 
+  it("takes the full plan id (<site>/<slug>); a bare slug on two sites is ambiguous (exit 2)", async () => {
+    await startFake()
+    savePlan(dir, PLAN)
+    savePlan(dir, { ...PLAN, origin: "https://other.example.com" })
+    const bare = await kite(["run", "publish-store-listing", "--param", "title=a", "--secret", "password=b"])
+    expect(bare.code).toBe(2)
+    expect(bare.err).toMatch(/ambiguous plan publish-store-listing/)
+    answers = [ok(1), ok(2)]
+    const r = await kite(["run", "dash-example-com/publish-store-listing", "--param", "title=a", "--secret", "password=b"])
+    expect(r.code, r.err).toBe(0)
+  })
+
   it("a risky halt exits 3 and says where it stopped", async () => {
     await startFake()
     savePlan(dir, PLAN)

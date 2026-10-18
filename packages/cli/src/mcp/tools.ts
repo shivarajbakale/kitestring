@@ -201,7 +201,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "browser_plan_find",
     description:
-      "Before a multi-step task on a site, look for a plan saved from an earlier run of the same task. Returns {slug, intent, params, score} or \"no plan\". Run it with browser_plan_run.",
+      "Before a multi-step task on a site, look for a plan saved from an earlier run of the same task. Returns {id, slug, intent, params, score} or \"no plan\". Run it with browser_plan_run, passing its id (<site>/<slug>).",
     shape: {
       intent: z.string().min(1).describe("the task in a few words, e.g. \"fill the shipping form\""),
       url: z.string().optional().describe("the site the task is on (default: the active tab's)"),
@@ -224,7 +224,7 @@ export const TOOLS: ToolDef[] = [
       }
       const best = findAnyPlan(kiteHome(), a.intent, origin)
       if (!best) return "no plan"
-      return JSON.stringify({ slug: best.slug, intent: best.plan.intent, params: best.plan.params, score: Math.round(best.score * 100) / 100 })
+      return JSON.stringify({ id: best.id, slug: best.slug, intent: best.plan.intent, params: best.plan.params, score: Math.round(best.score * 100) / 100 })
     },
   },
   {
@@ -232,10 +232,14 @@ export const TOOLS: ToolDef[] = [
     description:
       "Replay a saved plan with its parameter values (every param, by name). Stops at the first problem and leaves the page there: take over from stoppedAt with browser_snapshot / browser_batch, finish the task, then browser_plan_save updates the plan.",
     shape: {
-      slug: z.string().min(1).describe("the plan's slug from browser_plan_find"),
+      slug: z.string().min(1).describe("the plan's id from browser_plan_find (<site>/<slug>); a bare slug works when only one site has it"),
       params: z.record(z.string()).optional().describe("value for each of the plan's params, by name"),
+      secrets: z
+        .array(z.string())
+        .optional()
+        .describe("names of params whose values are secret (passwords, codes): never kept, not even hashed"),
     },
-    run: async (a: { slug: string; params?: Record<string, string> }, session) => {
+    run: async (a: { slug: string; params?: Record<string, string>; secrets?: string[] }, session) => {
       let stored
       try {
         stored = planById(kiteHome(), a.slug)
@@ -244,12 +248,16 @@ export const TOOLS: ToolDef[] = [
       }
       const notes: string[] = []
       const values = a.params ?? {}
+      const stray = (a.secrets ?? []).filter((n) => !Object.hasOwn(values, n))
+      if (stray.length) throw new KiteError("BAD_REQUEST", `secrets names ${stray.join(", ")}, not given in params`)
+      const secretNames = new Set(a.secrets ?? [])
       const r = await runPlan(stored.plan, values, {
         call: (method, params) => call(method, params, { session, timeoutMs: mcpTimeout() }),
         out: (line) => void notes.push(line),
+        secretNames,
         // a replay starts a new task memory; a stop makes it the takeover of this plan (saving updates the plan)
         onStart: () => void discardPending(kiteHome(), session),
-        onStop: (at) => recordReplayStop(kiteHome(), session, stored.id, stored.plan, at, values),
+        onStop: (at) => recordReplayStop(kiteHome(), session, stored.id, stored.plan, at, values, secretNames),
       })
       const text = [...notes, formatReplay(stored.id.split("/")[1]!, r)].join("\n")
       if (r.missing) throw new KiteError("BAD_REQUEST", text)
