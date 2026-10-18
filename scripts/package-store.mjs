@@ -2,7 +2,7 @@
 // Builds the production extension and zips it for the Chrome Web Store.
 // Strips manifest.key (the Store assigns its own id), refuses source maps and anything outside the build.
 import { execFileSync } from "node:child_process"
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -13,10 +13,19 @@ function walk(dir, base = dir) {
   const out = []
   for (const name of readdirSync(dir)) {
     const p = join(dir, name)
+    if (lstatSync(p).isSymbolicLink()) throw new Error(`build contains a symlink: ${relative(base, p)}`)
     if (statSync(p).isDirectory()) out.push(...walk(p, base))
     else out.push(relative(base, p).split("\\").join("/"))
   }
   return out
+}
+
+/** Files and folders that must never ship in a Store zip. */
+export function forbidden(rel) {
+  const parts = rel.split("/")
+  const name = parts[parts.length - 1]
+  if (parts.slice(0, -1).includes("keys")) return true
+  return name.startsWith(".") || /\.(pem|key)$/.test(name) || name === "key.json"
 }
 
 /** Zips `buildDir` (already built) into `<outDir>/kitestring-<version>.zip`. Throws on any problem. */
@@ -31,13 +40,20 @@ export function packageStore({ buildDir, outDir }) {
     delete manifest.key
     writeFileSync(join(stage, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n")
     const files = walk(stage)
+    const bad = files.filter(forbidden)
+    if (bad.length) throw new Error(`build contains files that must not ship: ${bad.join(", ")}`)
     const maps = files.filter((f) => f.endsWith(".map"))
     if (maps.length) throw new Error(`build contains source maps (.map): ${maps.join(", ")}`)
     if (typeof manifest.version !== "string") throw new Error("manifest has no version")
     mkdirSync(outDir, { recursive: true })
     const zip = join(outDir, `kitestring-${manifest.version}.zip`)
     rmSync(zip, { force: true })
-    execFileSync("zip", ["-q", "-r", "-X", zip, ...files.sort()], { cwd: stage })
+    try {
+      execFileSync("zip", ["-q", "-r", "-X", zip, ...files.sort()], { cwd: stage })
+    } catch (e) {
+      if (e && e.code === "ENOENT") throw new Error("packaging needs the `zip` and `unzip` programs on PATH (macOS or Linux)")
+      throw e
+    }
 
     // Verify the archive itself: same files as the stage, no key, no maps.
     const listed = execFileSync("unzip", ["-Z1", zip], { encoding: "utf8" }).split("\n").filter(Boolean).sort()
@@ -59,6 +75,7 @@ export function packageStore({ buildDir, outDir }) {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const ext = join(ROOT, "packages", "extension")
+  rmSync(join(ext, "build", "chrome-mv3-prod"), { recursive: true, force: true }) // no stale files
   execFileSync("pnpm", ["exec", "plasmo", "build"], { cwd: ext, stdio: "inherit", env: { ...process.env, NODE_ENV: "production" } })
   const r = packageStore({ buildDir: join(ext, "build", "chrome-mv3-prod"), outDir: join(ROOT, "dist") })
   console.log(`${r.zip}\n${(r.bytes / 1024).toFixed(1)} KiB, ${r.files} files, version ${r.version}`)

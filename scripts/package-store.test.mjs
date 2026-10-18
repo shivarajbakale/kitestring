@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, writeFileSync, existsSync } from "node:fs"
+import { mkdirSync, mkdtempSync, writeFileSync, existsSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { packageStore } from "./package-store.mjs"
@@ -40,4 +40,26 @@ test("fails when the build is missing a manifest", () => {
   const root = mkdtempSync(join(tmpdir(), "kstore-"))
   mkdirSync(join(root, "b"))
   assert.throws(() => packageStore({ buildDir: join(root, "b"), outDir: join(root, "d") }), /manifest/)
+})
+
+for (const bad of [".env", ".env.local", ".DS_Store", "id.pem", "signing.key", "key.json"]) {
+  test(`fails when the build holds ${bad}`, () => {
+    const { build, out } = fakeBuild({ [bad]: "secret" })
+    assert.throws(() => packageStore({ buildDir: build, outDir: out }), /must not ship/)
+    assert.equal(existsSync(join(out, "kitestring-1.2.3.zip")), false)
+  })
+}
+
+test("fails when the build has a keys/ folder", () => {
+  const { build, out } = fakeBuild()
+  mkdirSync(join(build, "keys"))
+  writeFileSync(join(build, "keys", "a.txt"), "x")
+  assert.throws(() => packageStore({ buildDir: build, outDir: out }), /must not ship/)
+})
+
+test("fails when the build holds a symlink", () => {
+  const { root, build, out } = fakeBuild()
+  writeFileSync(join(root, "outside.txt"), "x")
+  symlinkSync(join(root, "outside.txt"), join(build, "link.txt"))
+  assert.throws(() => packageStore({ buildDir: build, outDir: out }), /symlink/)
 })

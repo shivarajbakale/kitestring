@@ -44,7 +44,7 @@ pnpm i && pnpm build
 
 ## What agents can do
 
-The MCP server exposes 17 tools:
+The MCP server exposes 20 tools:
 
 | Tool | What it does |
 | --- | --- |
@@ -56,6 +56,7 @@ The MCP server exposes 17 tools:
 | `browser_batch` | run a list of steps in one call (see Batching) |
 | `browser_console`, `browser_network` | recent console messages and network requests of the tab |
 | `browser_screenshot` | capture the tab |
+| `browser_plan_find`, `browser_plan_run`, `browser_plan_save` | find, replay and save remembered plans for repeat tasks (see Remembered tasks) |
 
 Every action runs a safe pipeline, **FIND → CHECK → ACT → WAIT → VERIFY → REPORT**: it finds the target by name, checks that nothing covers it and that it is not disabled, acts with real input events, waits until the DOM and network are quiet, then reports what changed.
 
@@ -95,17 +96,17 @@ Plans live in `$KITE_HOME/memory/<site>/<plan>.json` (directories 0700, files 06
 
 ### Record, then it is a skill
 
-`kite record start` begins recording what you do by hand in the current tab, and `kite record stop` writes it as a skill your agents pick up: `~/.agents/skills/kite-<name>/SKILL.md` (with a symlink in `~/.claude/skills`), plus the plan in memory. Typed values become parameters and are never stored; password and one-time-code fields are skipped entirely, and file inputs keep only the file's base name. It refuses to overwrite an existing skill unless you pass `--force` (the old one is backed up first).
+Planned in this release: `kite record start` begins recording what you do by hand in the current tab, and `kite record stop` writes it as a skill your agents pick up: `~/.agents/skills/kite-<name>/SKILL.md` (with a symlink in `~/.claude/skills`), plus the plan in memory. Typed values become parameters and are never stored; password and one-time-code fields are skipped entirely, and file inputs keep only the file's base name. It refuses to overwrite an existing skill unless you pass `--force` (the old one is backed up first).
 
 ### Benchmark
 
-Scripted runs (no agent, no credits) against the torture site compare a first run, a cached run and a replayed plan:
+Planned in this release: scripted runs (no agent, no credits) against the torture site compare a first run, a cached run and a replayed plan:
 
 <!-- bench table -->
 
 ### Windows
 
-Windows: untested. The code for it is there (a named pipe, `\\.\pipe\kitestring-<username>`, and Windows install paths for the native host) and is covered by unit tests with a mocked platform, but nobody has run it on a real Windows machine yet. Reports are welcome.
+Windows: untested. Planned in this release: the code for it (a named pipe, `\\.\pipe\kitestring-<username>`, and Windows install paths for the native host) and is covered by unit tests with a mocked platform, but nobody has run it on a real Windows machine yet. Reports are welcome.
 
 ## You stay in control
 
@@ -307,7 +308,7 @@ To serve the torture site by hand, run `pnpm --filter torture dev` (http://127.0
 pnpm package:store
 ```
 
-Builds the production extension and writes `dist/kitestring-<version>.zip` (and prints its path and size). The script removes `manifest.key` (the Web Store assigns its own id), and fails if the zip would contain a `.map` file or anything that is not part of the build. The listing text, the permission justifications and the privacy policy are in `store/` (`listing.md`, `privacy.md`); screenshots are regenerated with `KITE_UPDATE_DOCS=1` (`store-shots`) and `docs/demo.gif` with the `demo` spec. Nothing is uploaded for you: you submit the zip in the Developer Dashboard yourself.
+Needs `zip` and `unzip` on your PATH (macOS and Linux). Builds the production extension, after deleting the old build folder, and writes `dist/kitestring-<version>.zip` (and prints its path and size). The script removes `manifest.key` (the Web Store assigns its own id), and fails if the build holds a `.map` file, a dotfile, `.env*`, `*.pem`, `*.key`, `key.json`, a `keys/` folder or a symlink. The listing text, the permission justifications and the privacy policy are in `store/` (`listing.md`, `privacy.md`); screenshots are regenerated with `KITE_UPDATE_DOCS=1` (`store-shots`) and `docs/demo.gif` with the `demo` spec. Nothing is uploaded for you: you submit the zip in the Developer Dashboard yourself.
 
 Once the Store gives the extension its id, put it in `KITE_STORE_EXTENSION_ID` (`packages/protocol/src/constants.ts`). The native host then allows both that id and the developer id (`kite install-host`, `kite init`, and `kite doctor` agree on the list).
 

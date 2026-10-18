@@ -6,7 +6,7 @@ Kitestring
 
 ## Summary (max 132 characters)
 
-Let your AI agent use your real Chrome: safe actions, a cache and remembered tasks make repeat work fast. Nothing leaves your PC.
+Your AI agent drives your real Chrome, with caching and remembered tasks. The extension sends nothing anywhere; your agent decides.
 
 ## Description
 
@@ -41,10 +41,10 @@ Kitestring lets the user's own AI agent or command line operate the user's brows
 - `nativeMessaging`: The only channel to the local `kite` program on the same computer. The extension has no other way to receive requests or send results.
 - `tabs`: Lists, opens, selects and closes the tabs of the agent's session, and reads a tab's URL and title to report them and to enforce the domain guard.
 - `tabGroups`: Puts each agent session's tabs in its own group (`kite:<session>`) so the user can see which tabs an agent owns.
-- `scripting`: Injects the small page helper that finds elements by name and reports what changed after an action, into the tab being driven.
-- `storage`: Keeps local settings (such as the Pause state) and the action cache, which holds element locators for pages the user has driven, in `chrome.storage.local` on this computer.
+- `scripting`: A small page helper is declared as a content script on all pages (`<all_urls>`, `document_idle`). It is passive: it reads nothing and sends nothing on its own, and only answers when the local `kite` program or the user acts on that tab. `scripting` is the fallback that injects the same helper into tabs that were already open before the extension was installed or updated.
+- `storage`: `chrome.storage.session` holds the Pause state, the agent sessions and the activity log, and is cleared when the browser closes. `chrome.storage.local` holds only the action cache: element locators (role, name, position in the page) for pages the user has driven, with no page content and no typed values.
 - `sidePanel`: Shows the live view of what agents are doing in the browser side panel.
-- `<all_urls>` (host permissions): The user decides which sites an agent works on, so the extension cannot know them in advance. It acts only on a tab an agent session owns, and never on pages the browser restricts.
+- `<all_urls>` (host permissions): The user decides which sites an agent works on, so the extension cannot know them in advance. The content script is present on every page but passive; actions run only on a tab an agent session owns, and never on pages the browser restricts.
 
 ## Data usage
 
