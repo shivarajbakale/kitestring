@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>files</title></head><body>
+<main>
+  <input type="file" id="plain" aria-label="Plain">
+
+  <label for="byfor" id="forlabel">Pick archive</label>
+  <input type="file" id="byfor" hidden>
+
+  <label id="wraplabel">Wrapped <input type="file" id="wrapped" multiple></label>
+
+  <div id="zone"><button id="zonebtn">Choose screenshots</button><input type="file" id="hidden" multiple hidden></div>
+
+  <section id="ambig"><button id="ambigbtn">Attach</button>
+    <input type="file" id="i1" hidden><input type="file" id="i2" hidden><input type="file" id="i3" hidden><input type="file" id="i4" hidden>
+  </section>
+
+  <div id="far"><div><div><div><div><div><div><button id="farbtn">Too far</button></div></div></div></div></div></div>
+    <input type="file" id="farinput" hidden></div>
+
+  <div id="nearbox"><input type="file" id="outer" hidden><div><button id="nearbtn">Nearest</button><input type="file" id="near" hidden></div></div>
+
+  <section id="shared">
+    <p><label for="own">Own input</label> <input type="file" id="own"></p>
+    <p><button id="trigger">Trigger</button><input type="file" id="trigger-input" hidden></p>
+    <div id="dropzone" role="button" tabindex="0">Drop here</div>
+  </section>
+
+  <div id="none"><button id="nonebtn">No input here</button></div>
+</main>
+</body></html>

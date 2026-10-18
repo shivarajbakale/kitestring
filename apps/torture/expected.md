@@ -20,6 +20,7 @@ Serve with `pnpm --filter torture dev` (default http://127.0.0.1:4173). Each pag
 | `navigating-link` | `kite click "Next page"` (`done`, `navigation.url` ends `/navigating-link-done`) | `arrived` (set on `/navigating-link-done`) |
 | `whitespace` | `kite click "  save changes "` | `saved` |
 | `alert-box` | `kite click "Show alert"` (`done` within 3 s, `dialogs[0]` is the accepted alert), `kite click "Delete everything"` (confirm dismissed), `kite click Rename` (prompt dismissed) | `kept` / `rename-cancelled` (`WRONG:deleted` if the confirm was accepted) |
+| `file-upload` | `kite upload "Extension zip" kite.zip`, `kite upload "Choose screenshots" s1.png s2.png` (hidden `multiple` input behind a button), `kite upload "Drop icon here" icon.png` (drop zone: detached input, file-chooser fallback) | `{"a":["kite.zip"],"b":["s1.png","s2.png"],"c":["icon.png"]}` |
 | `new-tab-link` | `kite click "Open report"` (lists `⧉ new tab <id>`; `kite tab list` includes it), `kite tab use <id>`, `kite click "Confirm report"` | `report-confirmed` (also POSTed to `/__last-result`) |
 | `oauth-popup` | `kite click "Sign in with Kite"` (opens a popup window on `localhost`, another registrable domain), `kite tab use <popup id>`, `kite click Allow` (popup closes, opener is the active tab again) | `signed-in` (set on the opener by `postMessage`) |
 

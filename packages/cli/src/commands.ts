@@ -7,6 +7,7 @@ import { KiteError, call } from "./client/rpc-client.js"
 import { human } from "./client/human.js"
 import { installHost, legacyNotices } from "./install/host-manifest.js"
 import { kiteHome } from "./paths.js"
+import { resolveUploads } from "./upload-guard.js"
 import { AGENTS, parseAgents } from "./init/agents.js"
 
 interface Globals {
@@ -115,6 +116,17 @@ export async function main(argv: string[]): Promise<number> {
     .option("--role <role>")
     .action((t: string, text: string, o: { within?: string; role?: string }) =>
       run("act.fill", { target: parseTarget(t, o), text }),
+    )
+  program
+    .command("upload <target> <files...>")
+    .description("put files into a file input (or the file chooser a button opens)")
+    .option("--within <name>")
+    .option("--role <role>")
+    .action((t: string, files: string[], o: { within?: string; role?: string }) =>
+      run("act.upload", {
+        target: parseTarget(t, o),
+        files: resolveUploads(files, { cwd: process.cwd(), home: homedir(), kiteHome: kiteHome(), env: process.env }),
+      }),
     )
   program.command("press <key>").action((key: string) => run("act.press", { key }))
   program

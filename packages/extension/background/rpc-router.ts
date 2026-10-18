@@ -179,6 +179,18 @@ const handlers: Partial<Record<Method, Handler>> = {
   "act.select": async (params, s) =>
     runAction(s, { kind: "select", target: targetParam(params), value: stringParam(params, "value") }),
 
+  "act.upload": async (params, s) => {
+    const files = params.files
+    if (!Array.isArray(files) || files.length === 0 || !files.every((f) => typeof f === "string" && f !== "")) {
+      badRequest("params.files must be a non-empty array of paths")
+    }
+    // The CLI resolves and vets paths (kite upload / browser_upload); a relative path means a client that skipped that.
+    if (!(files as string[]).every((f) => f.startsWith("/") || /^[A-Za-z]:[\\/]/.test(f))) {
+      badRequest("params.files must be absolute paths")
+    }
+    return runAction(s, { kind: "upload", target: targetParam(params), files: files as string[] })
+  },
+
   "act.press": async (params, s) => runAction(s, { kind: "press", key: stringParam(params, "key") }),
 
   "act.scroll": async (params, s) => {
@@ -214,9 +226,16 @@ function isRecorded(m: Method): boolean {
 
 function describeTarget(method: Method, params: Record<string, unknown>): string | undefined {
   const t = params.target as { ref?: unknown; text?: unknown; within?: unknown } | undefined
+  // Base names only: a directory layout is not for the activity log.
+  const names =
+    method === "act.upload" && Array.isArray(params.files)
+      ? ` ← ${params.files.filter((f): f is string => typeof f === "string").map((f) => f.split(/[\\/]/).pop()).join(", ")}`
+      : ""
   if (t && typeof t === "object") {
-    if (typeof t.ref === "string") return t.ref
-    if (typeof t.text === "string") return `"${t.text}"${typeof t.within === "string" ? ` within "${t.within}"` : ""}`
+    if (typeof t.ref === "string") return t.ref + names
+    if (typeof t.text === "string") {
+      return `"${t.text}"${typeof t.within === "string" ? ` within "${t.within}"` : ""}${names}`
+    }
   }
   // Never the value of act.fill / act.select: it may be a secret.
   if (method === "act.press" && typeof params.key === "string") return params.key

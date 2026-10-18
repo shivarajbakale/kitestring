@@ -41,6 +41,8 @@ export interface ActionResult {
   dialogs?: DialogEvent[]
   /** Cookie walls / newsletter modals closed to reach the target, each `<kind> "<button name>"`. */
   closedPopups?: string[]
+  /** act.upload: base names of the files put into the input (never directories). */
+  uploaded?: string[]
   page: string
 }
 

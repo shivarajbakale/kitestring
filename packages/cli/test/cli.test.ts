@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -149,5 +149,30 @@ describe("kite cli", () => {
     const r = await kite(["scroll", "down", "250"])
     expect(r.code).toBe(0)
     expect(received[0].params).toEqual({ direction: "down", px: 250 })
+  })
+  it("upload sends absolute real paths and prints the uploaded names", async () => {
+    await startFake()
+    // Not under KITE_HOME (dir), which is itself a denied location.
+    const files = mkdtempSync(join(tmpdir(), "kitefiles-"))
+    const zip = join(files, "a.zip")
+    writeFileSync(zip, "x")
+    const want = realpathSync(files) + "/a.zip"
+    canned = { ...done, uploaded: ["a.zip"] }
+    const r = await kite(["upload", "Extension zip", zip])
+    rmSync(files, { recursive: true, force: true })
+    expect(r.code).toBe(0)
+    expect(received[0].method).toBe("act.upload")
+    expect(received[0].params).toEqual({ target: { text: "Extension zip" }, files: [want] })
+    expect(r.out).toContain("↑ uploaded a.zip")
+  })
+  it("upload from a sensitive location is refused before any RPC", async () => {
+    await startFake()
+    mkdirSync(join(dir, ".ssh"))
+    writeFileSync(join(dir, ".ssh", "x"), "k")
+    const r = await kite(["upload", "Extension zip", join(dir, ".ssh", "x")], { HOME: dir })
+    expect(r.code).toBe(1)
+    expect(r.err).toContain("refusing to upload")
+    expect(r.err).toContain("sensitive location")
+    expect(received).toHaveLength(0)
   })
 })

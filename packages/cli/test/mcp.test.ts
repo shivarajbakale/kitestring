@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -61,17 +61,17 @@ async function connect(env: Record<string, string> = {}): Promise<{ stderr: () =
 }
 
 describe("kite mcp", () => {
-  it("lists all 15 tools with the server name", async () => {
+  it("lists all 16 tools with the server name", async () => {
     await connect()
     const { tools } = await client!.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual(
       [
         "browser_status", "browser_tabs", "browser_tab_new", "browser_tab_use", "browser_tab_close",
         "browser_goto", "browser_snapshot", "browser_click", "browser_fill", "browser_select",
-        "browser_press", "browser_scroll", "browser_console", "browser_network", "browser_screenshot",
+        "browser_press", "browser_scroll", "browser_console", "browser_network", "browser_screenshot", "browser_upload",
       ].sort(),
     )
-    expect(tools).toHaveLength(15)
+    expect(tools).toHaveLength(16)
     expect(client!.getServerVersion()?.name).toBe("kitestring")
     for (const t of tools) expect(t.description).toBeTruthy()
   })
@@ -121,6 +121,29 @@ describe("kite mcp", () => {
       expect(received[0].method, name).toBe(method)
       expect(received[0].params, name).toEqual(params)
     }
+  })
+  it("browser_upload resolves paths against the working directory and forwards act.upload", async () => {
+    await startFake()
+    // Not under KITE_HOME (dir), which is itself a denied location.
+    const files = mkdtempSync(join(tmpdir(), "kitefiles-"))
+    writeFileSync(join(files, "kite.zip"), "x")
+    const want = realpathSync(files) + "/kite.zip"
+    await connect()
+    const r: any = await client!.callTool({ name: "browser_upload", arguments: { target: "Extension zip", files: [join(files, "kite.zip")] } })
+    rmSync(files, { recursive: true, force: true })
+    expect(r.isError).toBeFalsy()
+    expect(received[0].method).toBe("act.upload")
+    expect(received[0].params).toEqual({ target: { text: "Extension zip" }, files: [want] })
+  })
+  it("browser_upload refuses a sensitive path without calling the browser", async () => {
+    await startFake()
+    mkdirSync(join(dir, ".ssh"))
+    writeFileSync(join(dir, ".ssh", "id_rsa"), "k")
+    await connect({ HOME: dir })
+    const r: any = await client!.callTool({ name: "browser_upload", arguments: { target: "Extension zip", files: [join(dir, ".ssh", "id_rsa")] } })
+    expect(r.isError).toBe(true)
+    expect(r.content[0].text).toMatch(/^BAD_REQUEST: refusing to upload .*id_rsa: sensitive location$/)
+    expect(received).toHaveLength(0)
   })
   it("non-done status is information, not an error", async () => {
     canned = { ok: false, status: "not_found", detail: "no match", page: "P" }

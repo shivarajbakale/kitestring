@@ -28,6 +28,8 @@ function isEditingHost(el: Element): boolean {
 export function roleOf(el: Element): string | null {
   // ARIA has no role for password inputs; treat them as textboxes (value is masked in snapshots).
   if (el instanceof HTMLInputElement && el.type === "password") return "textbox"
+  // Browsers expose a file input as a button; the library gives it no role, which would hide it from find().
+  if (el instanceof HTMLInputElement && el.type === "file") return "button"
   const role = getRole(el)
   if ((!role || role === "generic") && isEditingHost(el)) return "textbox"
   return role

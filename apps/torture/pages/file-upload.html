@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>file-upload</title>
+<style>
+  #b { display: none }
+  #drop { border: 2px dashed #888; padding: 24px; width: 220px; cursor: pointer }
+</style></head><body>
+<main><h1>File upload</h1>
+<p><label for="a">Extension zip</label> <input type="file" id="a"></p>
+
+<p><button id="pick">Choose screenshots</button><input type="file" id="b" multiple></p>
+
+<div id="drop" role="button" tabindex="0">Drop icon here</div>
+<pre id="out"></pre></main>
+<script>
+// Three ways pages take files: a plain input, a hidden input behind a button, and a drop zone that
+// builds a detached input on click (nothing in the DOM is associated with it).
+window.__result = undefined
+const got = { a: [], b: [], c: [] }
+const names = (input) => Array.from(input.files, (f) => f.name)
+function update(key, input) {
+  got[key] = names(input)
+  out.textContent = JSON.stringify(got)
+  if (got.a.length && got.b.length && got.c.length) window.__result = JSON.stringify(got)
+}
+a.addEventListener("change", () => update("a", a))
+b.addEventListener("change", () => update("b", b))
+pick.addEventListener("click", () => b.click())
+drop.addEventListener("click", () => {
+  const input = document.createElement("input")
+  input.type = "file"
+  input.addEventListener("change", () => update("c", input))
+  input.click()
+})
+</script>
+</body></html>

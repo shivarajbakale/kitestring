@@ -7,12 +7,15 @@ import { watchDialogs, type DialogPolicy, type DialogWatch } from "./dialogs"
 import { RestrictedPageError, RpcError } from "./errors"
 import * as input from "./input"
 import { trackNetwork, type NetworkTracker } from "./network-idle"
+import { setFiles } from "./upload"
 import { withTabLock, type TabLock } from "./serial"
 import { activeTab, type Session } from "./sessions"
 
 export type Action =
   | { kind: "click" | "fill" | "select"; target: Target; value?: string }
   | { kind: "press"; key: string }
+  /** `files` are absolute paths (already vetted by the CLI). */
+  | { kind: "upload"; target: Target; files: string[] }
   /** `px` defaults to one viewport height. */
   | { kind: "scroll"; direction: "up" | "down"; px?: number }
 
@@ -187,7 +190,7 @@ async function settle(tabId: number, watch: Watch, net: NetworkTracker, p: Progr
 }
 
 /** Calls the page agent, riding out a navigation that starts during the call. */
-async function agentCall<T>(tabId: number, watch: Watch, net: NetworkTracker, p: Progress, method: "snapshot" | "brief" | "readValue", args: unknown[]): Promise<T> {
+async function agentCall<T>(tabId: number, watch: Watch, net: NetworkTracker, p: Progress, method: "snapshot" | "brief" | "readValue" | "fileNames", args: unknown[]): Promise<T> {
   for (let i = 0; ; i++) {
     const seq = watch.seq
     try {
@@ -303,7 +306,7 @@ async function early(r: Run, status: Status, extra: Partial<ActionResult>): Prom
 async function finish(
   r: Run,
   before: string,
-  verify: { click?: { handled: boolean }; fill?: { ref: string; text: string } },
+  verify: { click?: { handled: boolean }; fill?: { ref: string; text: string }; upload?: { ref: string; names: string[] } },
 ): Promise<ActionResult> {
   const { tabId, watch, net, p } = r
   const ready = await settle(tabId, watch, net, p)
@@ -332,6 +335,14 @@ async function finish(
     if (value !== verify.fill.text) {
       status = "error"
       detail = `value mismatch: expected ${JSON.stringify(verify.fill.text)}, got ${JSON.stringify(value)}`
+    }
+  }
+
+  if (status === "done" && verify.upload) {
+    const names = await agentCall<string[] | null>(tabId, watch, net, p, "fileNames", [verify.upload.ref])
+    if (JSON.stringify(names) !== JSON.stringify(verify.upload.names)) {
+      status = "error"
+      detail = `file input holds ${JSON.stringify(names)}, expected ${JSON.stringify(verify.upload.names)}`
     }
   }
 
@@ -365,7 +376,8 @@ async function act(r: Run, action: Action): Promise<ActionResult> {
   // FIND (not found → scroll one viewport and retry)
   let found: Extract<FindResult, { kind: "found" }> | undefined
   for (let attempt = 0; !found; attempt++) {
-    const f = await callAgent<FindResult>(tabId, "find", [action.target, action.kind])
+    // An upload target is something to click (styled button, drop zone) unless it resolves to an input.
+    const f = await callAgent<FindResult>(tabId, "find", [action.target, action.kind === "upload" ? "click" : action.kind])
     guard()
     if (f.kind === "found") found = f
     else if (f.kind === "ambiguous") {
@@ -379,6 +391,18 @@ async function act(r: Run, action: Action): Promise<ActionResult> {
       await scrollAndSettle(tabId, (await input.viewport(tabId)).height)
       await callAgent(tabId, "waitQuiet", [])
       guard()
+    }
+  }
+
+  // UPLOAD with a file input behind the target: set the files directly, no click or dialog needed.
+  if (action.kind === "upload") {
+    const fileInput = await callAgent<{ ref: string; multiple: boolean } | null>(tabId, "fileInputFor", [found.ref])
+    guard()
+    if (fileInput) {
+      const before = await callAgent<string>(tabId, "snapshot", [{ full: false }])
+      guard()
+      await setFiles(tabId, fileInput, action.files)
+      return withUploaded(await finish(r, before, { upload: { ref: fileInput.ref, names: action.files.map(baseName) } }), action.files)
     }
   }
 
@@ -421,6 +445,11 @@ async function act(r: Run, action: Action): Promise<ActionResult> {
   guard()
 
   // ACT
+  if (action.kind === "upload") {
+    // No input is associated with the target: click it and answer the file chooser the page opens.
+    await setFiles(tabId, null, action.files, { x: c.x, y: c.y })
+    return withPopups(withUploaded(await finish(r, before, {}), action.files), closedPopups)
+  }
   if (action.kind === "click") {
     const handled = await hasClickHandler(tabId, c.x, c.y)
     guard()
@@ -441,6 +470,13 @@ async function act(r: Run, action: Action): Promise<ActionResult> {
   const selected = await callAgent<boolean>(tabId, "setSelect", [found.ref, value])
   if (!selected) return early(r, "error", { detail: `no option ${JSON.stringify(value)} in ${found.line}` })
   return withPopups(await finish(r, before, {}), closedPopups)
+}
+
+const baseName = (path: string): string => path.split(/[\\/]/).pop() ?? path
+
+/** Names only: the result and the activity log never carry directories. */
+function withUploaded(res: ActionResult, files: string[]): ActionResult {
+  return res.status === "done" ? { ...res, uploaded: files.map(baseName) } : res
 }
 
 function withPopups(res: ActionResult, closedPopups: string[]): ActionResult {

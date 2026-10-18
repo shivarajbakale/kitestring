@@ -9,6 +9,7 @@ export function formatResult(r: ActionResult): string {
   for (const id of r.newTabs ?? []) lines.push(`⧉ new tab ${id}`)
   for (const e of r.errors ?? []) lines.push(`! ${e}`)
   for (const d of r.dialogs ?? []) lines.push(`! dialog ${d.type} "${d.message}" ${d.handled}`)
+  if (r.uploaded?.length) lines.push(`↑ uploaded ${r.uploaded.join(", ")}`)
   for (const c of r.closedPopups ?? []) lines.push(`⨯ closed popup ${c}`)
   if (r.candidates?.length) {
     lines.push("candidates:")

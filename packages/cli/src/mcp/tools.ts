@@ -1,7 +1,10 @@
 import { parseTarget, type Method, type ScreenshotResult } from "@kitestring/protocol"
+import { homedir } from "node:os"
 import { z } from "zod"
 import { KiteError, call } from "../client/rpc-client.js"
 import { human } from "../client/human.js"
+import { kiteHome } from "../paths.js"
+import { resolveUploads } from "../upload-guard.js"
 
 export type ToolContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: "image/png" }
 export interface ToolResult {
@@ -83,6 +86,17 @@ export const TOOLS: ToolDef[] = [
     method: "act.select",
     shape: { target, value: z.string(), within, role },
     params: (a) => ({ target: tgt(a), value: a.value }),
+  },
+  {
+    name: "browser_upload",
+    description:
+      "Upload local files through a file input, a button or a drop zone found by visible text or @ref. Paths are absolute or relative to the working directory; sensitive locations (~/.ssh, ~/.aws, ~/.config, .env files) are refused. Read the returned diff.",
+    method: "act.upload",
+    shape: { target, files: z.array(z.string()).min(1).describe("local file paths"), within, role },
+    params: (a) => ({
+      target: tgt(a),
+      files: resolveUploads(a.files, { cwd: process.cwd(), home: homedir(), kiteHome: kiteHome(), env: process.env }),
+    }),
   },
   { name: "browser_press", description: "Press a key (e.g. Enter, Escape, Tab). Read the returned diff.", method: "act.press", shape: { key: z.string() }, params: (a) => ({ key: a.key }) },
   {

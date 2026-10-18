@@ -50,7 +50,7 @@ The MCP server exposes 15 tools:
 | `browser_tabs`, `browser_tab_new`, `browser_tab_use`, `browser_tab_close` | list, open, select and close this session's tabs |
 | `browser_goto` | navigate the active tab |
 | `browser_snapshot` | read the page as a compact tree with refs |
-| `browser_click`, `browser_fill`, `browser_select`, `browser_press`, `browser_scroll` | act on the page; each returns a diff of what changed |
+| `browser_click`, `browser_fill`, `browser_select`, `browser_press`, `browser_scroll`, `browser_upload` | act on the page; each returns a diff of what changed |
 | `browser_console`, `browser_network` | recent console messages and network requests of the tab |
 | `browser_screenshot` | capture the tab |
 

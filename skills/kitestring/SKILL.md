@@ -21,6 +21,7 @@ Two equivalent surfaces. Use MCP tools if your harness has them, else the `kite`
 | Click | `browser_click` | `kite click "Save"` (`--within "Profile"`, `--role button`) |
 | Type into a field | `browser_fill` | `kite fill "Email" "ada@x.io"` |
 | Choose an option | `browser_select` | `kite select "Country" "India"` |
+| Upload files | `browser_upload` | `kite upload "Extension zip" ./kite.zip` (refuses ~/.ssh, ~/.aws, ~/.config, .env files, > 100 MB) |
 | Key | `browser_press` | `kite press Enter` |
 | Scroll | `browser_scroll` | `kite scroll down [px]` |
 | Console / network | `browser_console` / `browser_network` | `kite console --errors` / `kite network --failed` |
