@@ -128,7 +128,7 @@ describe("kite doctor and kite init on win32", () => {
     expect(by("host-wrapper").detail).toContain(nodeExe())
     expect(by("bridge").ok).toBe(false)
     expect(by("bridge").detail).not.toContain("kite.sock")
-    expect(by("cli").fix).toContain("setx PATH")
+    expect(by("cli").fix).toContain("to your user PATH")
     expect(by("cli").fix).not.toContain("export")
   })
 
@@ -139,7 +139,7 @@ describe("kite doctor and kite init on win32", () => {
     expect(cs.find((c) => c.id === "host-wrapper")!.ok).toBe(false)
   })
 
-  it("init prints the Windows manifest path, a setx hint and writes kite.cmd", async () => {
+  it("init prints the Windows manifest path, a PATH hint and writes kite.cmd", async () => {
     const home = join(dir, "home")
     mkdirSync(join(home, ".codex"), { recursive: true })
     const lines: string[] = []
@@ -150,7 +150,7 @@ describe("kite doctor and kite init on win32", () => {
     expect(code, text).toBe(0)
     expect(text).toContain(join(lad(), "Kitestring", "com.kitestring.bridge.json"))
     expect(text).toContain(join(lad(), "Kitestring", "bin", "kite.cmd"))
-    expect(text).toContain(`setx PATH "%PATH%;${join(lad(), "Kitestring", "bin")}"`)
+    expect(text).toContain(`add ${join(lad(), "Kitestring", "bin")} to your user PATH`)
     expect(text).not.toContain("export PATH")
     expect(text).not.toContain(".zshrc")
   })

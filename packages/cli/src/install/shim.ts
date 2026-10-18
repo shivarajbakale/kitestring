@@ -72,7 +72,7 @@ export function onPath(dir: string, path: string | undefined): boolean {
 /** The line to add to a shell profile, e.g. `export PATH="$HOME/.kitestring/bin:$PATH"`. */
 export function pathLine(home: string, kiteHome: string, plat: NodeJS.Platform = process.platform, localAppData?: string): string {
   const dir = shimDir(kiteHome, plat, localAppData)
-  if (plat === "win32") return `setx PATH "%PATH%;${dir}"`
+  if (plat === "win32") return `add ${dir} to your user PATH (Settings > System > About > Advanced system settings > Environment Variables)`
   const shown = dir.startsWith(home + "/") ? "$HOME" + dir.slice(home.length).replace(/["\\$`]/g, "\\$&") : dir.replace(/["\\$`]/g, "\\$&")
   return `export PATH="${shown}:$PATH"`
 }
