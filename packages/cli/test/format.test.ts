@@ -14,6 +14,11 @@ describe("formatResult", () => {
       formatResult({ ...base, ok: false, status: "disabled", detail: "x", errors: ["a", "b"], newTabs: [7] }),
     ).toBe("✗ disabled: x\n⧉ new tab 7\n! a\n! b\npage: P")
   })
+  it("prints one line per dialog", () => {
+    expect(
+      formatResult({ ...base, dialogs: [{ type: "alert", message: "Hello", handled: "accepted" }, { type: "confirm", message: "Sure?", handled: "dismissed" }] }),
+    ).toBe('✓ done\n! dialog alert "Hello" accepted\n! dialog confirm "Sure?" dismissed\npage: P')
+  })
   it("omits empty errors and newTabs", () => {
     expect(formatResult({ ...base, errors: [], newTabs: [] })).toBe("✓ done\npage: P")
   })

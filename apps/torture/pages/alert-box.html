@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>alert-box</title></head><body>
+<main><h1>Alert box</h1>
+<button id="a">Show alert</button>
+<button id="d">Delete everything</button>
+<button id="r">Rename</button>
+<div id="out"></div></main>
+<script>
+// Each button opens a native JS dialog. Without a guard the dialog blocks the page and the action hangs.
+window.__result = undefined
+a.addEventListener("click", () => {
+  alert("Hello")
+  out.innerHTML = "<h2>step1</h2>"
+  window.__step1 = true
+})
+d.addEventListener("click", () => {
+  if (confirm("Really delete?")) window.__result = "WRONG:deleted"
+  else window.__result = "kept"
+})
+r.addEventListener("click", () => {
+  const value = prompt("New name")
+  window.__result = value === null ? "rename-cancelled" : "renamed:" + value
+})
+</script>
+</body></html>

@@ -3,6 +3,7 @@ import { diffSnapshots, type CheckResult, type FindResult } from "@kitestring/pa
 import { callAgent, isRestrictedUrl } from "./agent-bridge"
 import { ensureAttached, isNotAttached, onEvent, send } from "./cdp"
 import { assertNotPaused } from "./control"
+import { watchDialogs, type DialogPolicy, type DialogWatch } from "./dialogs"
 import { RestrictedPageError, RpcError } from "./errors"
 import * as input from "./input"
 import { trackNetwork, type NetworkTracker } from "./network-idle"
@@ -286,11 +287,14 @@ interface Run {
   net: NetworkTracker
   p: Progress
   urlBefore: string
+  dialogs: DialogWatch
 }
 
 async function early(r: Run, status: Status, extra: Partial<ActionResult>): Promise<ActionResult> {
   const page = await safeBrief(r.tabId)
-  return { ok: false, status, diff: EMPTY, page, ...extra }
+  const res: ActionResult = { ok: false, status, diff: EMPTY, page, ...extra }
+  if (r.dialogs.events.length) res.dialogs = [...r.dialogs.events]
+  return res
 }
 
 /** WAIT → VERIFY → REPORT. */
@@ -336,6 +340,7 @@ async function finish(
   if (detail) res.detail = detail
   if (navigated) res.navigation = { url: urlAfter, title: tab.title ?? "" }
   if (newTabs.length) res.newTabs = newTabs
+  if (r.dialogs.events.length) res.dialogs = [...r.dialogs.events]
   return res
 }
 
@@ -475,7 +480,18 @@ export async function capped(tabId: number, body: (p: Progress) => Promise<Actio
   }
 }
 
-async function begin(s: Session, tabId: number, p: Progress, fn: (r: Run) => Promise<ActionResult>): Promise<ActionResult> {
+interface DialogOpts {
+  policy?: DialogPolicy
+  navigating?: () => boolean
+}
+
+async function begin(
+  s: Session,
+  tabId: number,
+  p: Progress,
+  fn: (r: Run) => Promise<ActionResult>,
+  dialogOpts: DialogOpts = {},
+): Promise<ActionResult> {
   let watch: Watch
   try {
     await ensureAttached(tabId)
@@ -485,12 +501,17 @@ async function begin(s: Session, tabId: number, p: Progress, fn: (r: Run) => Pro
     await ensureAttached(tabId) // the session went away since the last action: attach again
     watch = await Watch.start(tabId)
   }
-  const urlBefore = await tabUrl(tabId)
-  const net = trackNetwork(tabId)
+  const dialogs = watchDialogs(tabId, dialogOpts)
   try {
-    return await fn({ s, tabId, watch, net, p, urlBefore })
+    const urlBefore = await tabUrl(tabId)
+    const net = trackNetwork(tabId)
+    try {
+      return await fn({ s, tabId, watch, net, p, urlBefore, dialogs })
+    } finally {
+      net.stop()
+    }
   } finally {
-    net.stop()
+    dialogs.stop()
     watch.stop()
   }
 }
@@ -550,7 +571,8 @@ export function goto(s: Session, url: string): Promise<ActionResult> {
         page,
       }
       if (!ready) res.detail = `page not ready after ${READY.timeoutMs} ms`
+      if (r.dialogs.events.length) res.dialogs = [...r.dialogs.events]
       return res
-    })
+    }, { navigating: () => true })
   })
 }

@@ -8,6 +8,7 @@ export function formatResult(r: ActionResult): string {
   if (r.navigation) lines.push(`→ navigated ${r.navigation.url}`)
   for (const id of r.newTabs ?? []) lines.push(`⧉ new tab ${id}`)
   for (const e of r.errors ?? []) lines.push(`! ${e}`)
+  for (const d of r.dialogs ?? []) lines.push(`! dialog ${d.type} "${d.message}" ${d.handled}`)
   if (r.candidates?.length) {
     lines.push("candidates:")
     for (const c of r.candidates) lines.push(`  ${c.ref} ${c.line}`)

@@ -16,6 +16,7 @@ Serve with `pnpm --filter torture dev` (default http://127.0.0.1:4173). Each pag
 | `native-select` | `kite select Country India` | `country:IN` |
 | `navigating-link` | `kite click "Next page"` (`done`, `navigation.url` ends `/navigating-link-done`) | `arrived` (set on `/navigating-link-done`) |
 | `whitespace` | `kite click "  save changes "` | `saved` |
+| `alert-box` | `kite click "Show alert"` (`done` within 3 s, `dialogs[0]` is the accepted alert), `kite click "Delete everything"` (confirm dismissed), `kite click Rename` (prompt dismissed) | `kept` / `rename-cancelled` (`WRONG:deleted` if the confirm was accepted) |
 
 `/navigating-link-done` is the navigation target of `navigating-link`. `/analytics/*` returns 204.
 
