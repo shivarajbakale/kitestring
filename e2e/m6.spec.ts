@@ -1,3 +1,5 @@
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
@@ -132,5 +134,122 @@ test.describe("site memory", () => {
     } finally {
       await client.close()
     }
+  })
+})
+
+/** Every file under `dir` (recursively) whose text contains any of `needles`. */
+function filesContaining(dir: string, needles: string[]): string[] {
+  const hits: string[] = []
+  const walk = (d: string) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, e.name)
+      if (e.isDirectory()) walk(p)
+      else if (e.isFile() && needles.some((n) => readFileSync(p, "utf8").includes(n))) hits.push(p)
+    }
+  }
+  if (existsSync(dir)) walk(dir)
+  return hits
+}
+
+test.describe("record a task once, replay it as a skill", () => {
+  test("recording basic-form gives a skill with no values whose kite batch block and plan replay the form", async ({
+    kite,
+    kiteEnv,
+    kiteStdin,
+    kiteHome,
+    context,
+    torture,
+    result,
+  }) => {
+    const home = mkdtempSync(join(tmpdir(), "kitehome-"))
+    try {
+      const url = `${torture}/basic-form`
+      const page = () => context.pages().find((p) => p.url().startsWith(url))!
+      expect((await kite("tab", "new", url)).code).toBe(0)
+      const start = await kiteEnv({ HOME: home }, "record", "start", "--name", "ada-signup")
+      expect(start.code, start.stdout + start.stderr).toBe(0)
+
+      // agents do not act in a tab that is being recorded
+      const agent = await kite("click", "Submit")
+      expect(agent.code).not.toBe(0)
+      expect(agent.stderr).toMatch(/record/)
+
+      // the human does the task
+      await page().getByLabel("Name").fill("Ada")
+      await page().getByLabel("Email").fill("ada@x.io")
+      await page().getByRole("button", { name: "Submit" }).click()
+      expect(await result(page())).toBe("submitted:Ada:ada@x.io")
+
+      const stop = await kiteEnv({ HOME: home }, "record", "stop")
+      expect(stop.code, stop.stdout + stop.stderr).toBe(0)
+      const skill = join(home, ".agents", "skills", "kite-ada-signup", "SKILL.md")
+      const md = readFileSync(skill, "utf8")
+      expect(md).toContain("name: kite-ada-signup")
+      expect(md).not.toMatch(/Ada\b|ada@x\.io/)
+      expect(existsSync(join(home, ".claude", "skills", "kite-ada-signup"))).toBe(true)
+      expect(filesContaining(kiteHome, ["ada@x.io"])).toEqual([])
+
+      // the fallback: the skill's kite batch JSON with values substituted completes the form
+      const at = md.indexOf("```json")
+      const block = md.slice(at + 7, md.indexOf("```", at + 7))
+      const filled = block.replaceAll("{{name}}", "Grace").replaceAll("{{email}}", "grace@x.io")
+      expect((await kite("goto", url)).code).toBe(0)
+      const b = await kiteStdin(filled, "--json", "batch", "-")
+      expect(JSON.parse(b.stdout).ok, b.stdout + b.stderr).toBe(true)
+      expect(await result(page())).toBe("submitted:Grace:grace@x.io")
+
+      // the first choice: kite run on the stored plan
+      expect((await kite("goto", url)).code).toBe(0)
+      const run = await kite("run", "ada-signup", "--param", "name=Lin", "--param", "email=lin@x.io")
+      expect(run.code, run.stdout + run.stderr).toBe(0)
+      expect(await result(page())).toBe("submitted:Lin:lin@x.io")
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  test("recording a login form: the password and one-time code never reach disk (Review Focus 4)", async ({
+    kite,
+    kiteEnv,
+    kiteHome,
+    context,
+    torture,
+    result,
+  }) => {
+    const home = mkdtempSync(join(tmpdir(), "kitehome-"))
+    try {
+      const url = `${torture}/login`
+      const page = () => context.pages().find((p) => p.url().startsWith(url))!
+      expect((await kite("tab", "new", url)).code).toBe(0)
+      expect((await kiteEnv({ HOME: home }, "record", "start", "--name", "sign-in")).code).toBe(0)
+      await page().getByLabel("Username").fill("ada")
+      await page().getByLabel("Password").fill("hunter2-Secret")
+      await page().getByLabel("One-time code").fill("918273")
+      await page().getByRole("button", { name: "Sign in" }).click()
+      expect(await result(page())).toBe("signed-in:ada:ok")
+      const stop = await kiteEnv({ HOME: home }, "record", "stop")
+      expect(stop.code, stop.stdout + stop.stderr).toBe(0)
+      expect(stop.stdout + stop.stderr).not.toMatch(/hunter2|918273/)
+
+      const md = readFileSync(join(home, ".agents", "skills", "kite-sign-in", "SKILL.md"), "utf8")
+      expect(md).toContain("--secret password=…")
+      expect(md).toContain("--secret one_time_code=…")
+      expect(filesContaining(home, ["hunter2", "918273"])).toEqual([])
+      expect(filesContaining(kiteHome, ["hunter2", "918273"])).toEqual([])
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  test("filling a password or one-time-code field never adds its locator to the action cache (T1-5)", async ({ kite, torture }) => {
+    expect((await kite("tab", "new", `${torture}/login`)).code).toBe(0)
+    const entries = async () => JSON.parse((await kite("--json", "cache", "stats")).stdout).entries as number
+    const before = await entries()
+    expect((await kite("fill", "Password", "hunter2-Secret")).code).toBe(0)
+    expect((await kite("fill", "One-time code", "918273")).code).toBe(0)
+    expect(await entries()).toBe(before)
+    // a plain field is cached, so the count above is a real check
+    expect((await kite("fill", "Username", "ada")).code).toBe(0)
+    expect(await entries()).toBe(before + 1)
   })
 })

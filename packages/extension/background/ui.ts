@@ -3,6 +3,7 @@ import { isTrustedUiSender, parseUiRequest } from "../ui/messages"
 import * as activity from "./activity"
 import * as control from "./control"
 import { isHostConnected } from "./native-port"
+import * as recorder from "./recorder"
 import * as sessions from "./sessions"
 
 async function groupColor(s: sessions.Session): Promise<GroupColor> {
@@ -17,7 +18,7 @@ async function groupColor(s: sessions.Session): Promise<GroupColor> {
 }
 
 export async function uiState(): Promise<UiState> {
-  await Promise.all([sessions.loadSessions(), control.ready(), activity.ready()])
+  await Promise.all([sessions.loadSessions(), control.ready(), activity.ready(), recorder.ready()])
   const log = activity.list()
   const list: UiSession[] = []
   for (const name of sessions.sessionNames()) {
@@ -26,12 +27,14 @@ export async function uiState(): Promise<UiState> {
     list.push({ name, color: await groupColor(s), tabCount: s.tabs.size, ...(lastActivity ? { lastActivity } : {}) })
   }
   const { paused, reason, since } = control.getState()
+  const recording = recorder.recordingStatus()
   return {
     hostConnected: isHostConnected(),
     paused,
     ...(reason ? { reason } : {}),
     ...(since ? { since } : {}),
     sessions: list,
+    ...(recording ? { recording } : {}),
   }
 }
 
@@ -70,6 +73,9 @@ async function handle(req: UiRequest): Promise<UiState> {
       break
     case "focusTab":
       await focusSession(req.session, req.tabId)
+      break
+    case "recordStop":
+      await recorder.stopFromPanel()
       break
     case "openPanel": {
       const windowId = req.windowId ?? (await chrome.windows.getLastFocused()).id!

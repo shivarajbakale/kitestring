@@ -10,8 +10,10 @@ async function buildBundle(): Promise<string> {
       contents: [
         `import { createAgent } from "./src/index.ts"`,
         `import { fileInputFor } from "./src/files.ts"`,
+        `import { startRecorder } from "./src/recorder.ts"`,
         `window.__kiteAgent = createAgent(window)`,
-        `window.__fileInputFor = fileInputFor`
+        `window.__fileInputFor = fileInputFor`,
+        `window.__startRecorder = startRecorder`
       ].join("\n"),
       resolveDir: join(here, ".."),
       loader: "ts"
@@ -26,8 +28,13 @@ async function buildBundle(): Promise<string> {
 let cached: Promise<string> | undefined
 
 export async function loadFixture(page: Page, name: string): Promise<void> {
+  await loadPage(page, join(here, "fixtures", name))
+}
+
+/** Loads any HTML file (e.g. a torture page) and injects the agent bundle. */
+export async function loadPage(page: Page, file: string): Promise<void> {
   cached ??= buildBundle()
-  await page.goto(pathToFileURL(join(here, "fixtures", name)).href)
+  await page.goto(pathToFileURL(file).href)
   await page.addScriptTag({ content: await cached })
 }
 

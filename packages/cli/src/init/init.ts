@@ -145,7 +145,7 @@ const isSymlink = (p: string) => {
 }
 
 /** Backups of replaced skill folders live outside every skills dir, e.g. ~/.agents/kite-backups/skills/<name>.kite-backup-<stamp>. */
-function skillBackupPath(home: string, name: string, now: Date): string {
+export function skillBackupPath(home: string, name: string, now: Date): string {
   const base = join(home, ".agents", "kite-backups", "skills", `${name}.kite-backup-${stamp(now)}`)
   let p = base
   for (let n = 1; existsSync(p); n++) p = `${base}.${n}`

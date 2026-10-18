@@ -102,7 +102,8 @@ function scopeMatches(el: Element, within: string): boolean {
   return !!h && norm(h.textContent ?? "") === within
 }
 
-function isSecretField(el: Element): boolean {
+/** A password / card (autocomplete cc-*) / one-time-code field: its value is a secret. */
+export function isSecretField(el: Element): boolean {
   if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return false
   if (el instanceof HTMLInputElement && el.type === "password") return true
   return (el.getAttribute("autocomplete") ?? "").toLowerCase().split(/\s+/).some((t) => t === "one-time-code" || t.startsWith("cc-"))
@@ -181,7 +182,7 @@ function found(el: Element, ref: string, reg: RefRegistry, wasHinted = false, te
 }
 
 /** Name of the nearest enclosing scope `within` can match: its accessible name, else its own heading. */
-function scopeName(el: Element): string | undefined {
+export function scopeName(el: Element): string | undefined {
   for (let p = el.parentElement; p; p = p.parentElement) {
     if (!isScope(p)) continue
     const name = nameOf(p) || (ownHeading(p)?.textContent ?? "").replace(/\s+/g, " ").trim()

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>login</title></head><body>
+<main><h1>Sign in</h1>
+<form id="f"><label for="u">Username</label><input id="u" name="username" autocomplete="username">
+<label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password">
+<label for="o">One-time code</label><input id="o" name="otp" inputmode="numeric" autocomplete="one-time-code">
+<button type="submit">Sign in</button></form></main>
+<script>
+window.__result = undefined
+// Never echoes the password or code: only whether they were given.
+f.addEventListener("submit", e => { e.preventDefault()
+  window.__result = "signed-in:" + u.value + ":" + (p.value && o.value ? "ok" : "missing")
+  try { navigator.sendBeacon("/__last-result", window.__result) } catch {} })
+</script>
+</body></html>

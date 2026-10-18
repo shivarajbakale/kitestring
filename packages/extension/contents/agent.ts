@@ -1,5 +1,6 @@
 import type { PlasmoCSConfig } from "plasmo"
-import { createAgent, type PageAgent } from "@kitestring/page-agent"
+import { createAgent, startRecorder, type PageAgent, type Recorder } from "@kitestring/page-agent"
+import type { RecordedEvent, RecorderState } from "@kitestring/protocol"
 
 export const config: PlasmoCSConfig = { matches: ["<all_urls>"], run_at: "document_idle" }
 
@@ -28,5 +29,24 @@ if (!g.__kiteAgent) {
         (e: unknown) => sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) }),
       )
     return true // async response
+  })
+
+  // The recorder listens only between the background's start and stop (only while this tab is being recorded).
+  let recorder: Recorder | undefined
+  chrome.runtime.onMessage.addListener((msg: { kiteRecord?: string; state?: RecorderState } | undefined, _sender, sendResponse) => {
+    if (msg?.kiteRecord === "start" && msg.state) {
+      if (recorder) recorder.update(msg.state)
+      else {
+        recorder = startRecorder(window, msg.state, (event: RecordedEvent) => {
+          // steps arrive already parameterized: no typed value, option text, file name or secret is in them
+          chrome.runtime.sendMessage({ kiteRecord: "event", event }).catch(() => {})
+        })
+      }
+    } else if (msg?.kiteRecord === "stop") {
+      recorder?.stop()
+      recorder = undefined
+    } else return false
+    sendResponse({ ok: true })
+    return false
   })
 }

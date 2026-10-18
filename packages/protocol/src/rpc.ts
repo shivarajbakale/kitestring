@@ -24,6 +24,10 @@ export const METHODS = [
   "activity.list",
   "cache.stats",
   "cache.clear",
+  /** `{name}`: record the human's actions in the session's active tab -> `{name, tab, url}`. */
+  "record.start",
+  /** Ends the recording -> `Recording` (`{name, url, steps, secrets}`; no values). */
+  "record.stop",
 ] as const
 
 export type Method = (typeof METHODS)[number]

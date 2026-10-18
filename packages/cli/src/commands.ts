@@ -1,8 +1,8 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { Command, CommanderError } from "commander"
-import { EXTENSION_ID, parseTarget, type BatchResult, type Method, type ScreenshotResult, type Step } from "@kitestring/protocol"
+import { EXTENSION_ID, RECORD_NAME_RE, parseTarget, type BatchResult, type Method, type Recording, type ScreenshotResult, type Step } from "@kitestring/protocol"
 import { KiteError, call } from "./client/rpc-client.js"
 import { human } from "./client/human.js"
 import { installHost, legacyNotices } from "./install/host-manifest.js"
@@ -258,6 +258,55 @@ export async function main(argv: string[]): Promise<number> {
       }
       return run("cache.clear", o.site ? { site: o.site } : {})
     })
+  const recordCmd = program.command("record").description("record a task you do in Chrome once; replay it as a skill")
+  recordCmd
+    .command("start")
+    .description("record your clicks and typing in this session's tab (values become parameters; secrets are never kept)")
+    .requiredOption("--name <slug>", "the skill's name, e.g. ada-signup (skill kite-<slug>, plan <slug>)")
+    .action(async (o: { name: string }) => {
+      const { checkSkillTarget } = await import("./record/write-skill.js")
+      if (!RECORD_NAME_RE.test(o.name)) throw new UsageError(`--name must be a lowercase slug like ada-signup: ${o.name}`)
+      const r = (await call("record.start", { name: o.name }, { session: sessionName() })) as { name: string; tab: number; url: string }
+      mkdirSync(kiteHome(), { recursive: true, mode: 0o700 })
+      writeFileSync(recordingFile(), JSON.stringify({ name: o.name }) + "\n", { mode: 0o600 })
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(r) + "\n")
+      process.stdout.write(`recording ${r.name} in tab ${r.tab} (${r.url}): do the task in Chrome, then run kite record stop\n`)
+      try {
+        checkSkillTarget(homedir(), o.name, false)
+      } catch {
+        process.stderr.write(`kite: skill kite-${o.name} already exists: kite record stop --force will replace it (backed up)\n`)
+      }
+    })
+  recordCmd
+    .command("stop")
+    .description("stop recording and write the skill (~/.agents/skills/kite-<name>) and its plan")
+    .option("--force", "replace an existing kite-<name> skill (the old folder is backed up)")
+    .action(async (o: { force?: boolean }) => {
+      const { checkSkillTarget, writeSkill } = await import("./record/write-skill.js")
+      const force = !!o.force
+      // Refuse before stopping, so a refusal loses nothing: the recording goes on until stopped with --force.
+      let started: string | undefined
+      try {
+        started = (JSON.parse(readFileSync(recordingFile(), "utf8")) as { name?: string }).name
+      } catch {
+        /* started elsewhere: writeSkill checks below */
+      }
+      if (started) {
+        try {
+          checkSkillTarget(homedir(), started, force)
+        } catch (e) {
+          throw new UsageError(`${(e as Error).message} (still recording)`)
+        }
+      }
+      const rec = (await call("record.stop", {}, { session: sessionName() })) as Recording
+      rmSync(recordingFile(), { force: true })
+      const r = writeSkill(homedir(), rec, { force })
+      const names = paramsLine(rec)
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify({ ...r, steps: rec.steps.length }) + "\n")
+      process.stdout.write(
+        `saved skill kite-${rec.name}: ${r.skillPath}\nplan ${r.planSlug} (${rec.steps.length} step${rec.steps.length === 1 ? "" : "s"}${names ? `; params: ${names}` : ""})\n`,
+      )
+    })
   const memoryCmd = program.command("memory").description("plans the agent saved for repeat tasks (no values are ever stored)")
   memoryCmd.command("list").action(async () => {
     const { listPlans } = await import("./memory/store.js")
@@ -406,6 +455,15 @@ export async function main(argv: string[]): Promise<number> {
     return 1
   }
   return exitCode
+}
+
+/** `$KITE_HOME/recording.json`: the name of the recording `kite record start` began (no steps, no values). */
+const recordingFile = (): string => join(kiteHome(), "recording.json")
+
+/** Param names of a recording, secrets starred. */
+function paramsLine(rec: Recording): string {
+  const names = [...new Set([...JSON.stringify(rec.steps).matchAll(/\{\{([a-z0-9_]+)\}\}/g)].map((m) => m[1]!))]
+  return names.map((n) => (rec.secrets.includes(n) ? `${n}*` : n)).join(", ")
 }
 
 async function askYesNo(question: string): Promise<boolean> {
