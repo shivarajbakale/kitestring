@@ -1,10 +1,11 @@
-import { homedir } from "node:os"
+import { homedir, userInfo } from "node:os"
 import { join } from "node:path"
 
 export function kiteHome(): string {
   return process.env.KITE_HOME || join(homedir(), ".kitestring")
 }
-export function socketPath(): string {
+export function socketPath(plat: NodeJS.Platform = process.platform, user?: string): string {
+  if (plat === "win32") return `\\\\.\\pipe\\kitestring-${user ?? userInfo().username}`
   return join(kiteHome(), "kite.sock")
 }
 export function logPath(): string {

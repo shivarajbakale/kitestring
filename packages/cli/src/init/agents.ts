@@ -1,3 +1,5 @@
+import { win32 } from "node:path"
+
 export const AGENTS = ["claude-code", "codex", "cursor", "gemini", "opencode"] as const
 export type AgentId = (typeof AGENTS)[number]
 
@@ -72,4 +74,15 @@ export function codexBlock({ node, bin }: Launch): string {
     `[${CODEX_TABLE}.env]`,
     `KITE_SESSION = "codex"`,
   ].join("\n")
+}
+
+/** Config files of the file-based agents on Windows, under `%USERPROFILE%` (Claude uses `claude mcp add`). */
+export function windowsAgentConfigFiles(userProfile: string): Record<"codex" | "cursor" | "gemini" | "opencode", string> {
+  const j = (...p: string[]) => win32.join(userProfile, ...p)
+  return {
+    codex: j(".codex", "config.toml"),
+    cursor: j(".cursor", "mcp.json"),
+    gemini: j(".gemini", "settings.json"),
+    opencode: j(".config", "opencode", "opencode.json"),
+  }
 }

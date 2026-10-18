@@ -40,7 +40,7 @@ import {
 import { detect, type DetectedAgent } from "./detect.js"
 import { jsonGet, jsonRemove, jsonSet } from "./json-edit.js"
 import { nodeCandidates, resolveNode } from "./node-path.js"
-import { isExecutableFile, isOurShim, onPath, pathLine, shimDir, shimPath, shimScript } from "../install/shim.js"
+import { isExecutableFile, isOurShim, onPath, pathLine, shimCmdScript, shimDir, shimPath, shimScript } from "../install/shim.js"
 import { SKILL_NAMES, agentsSkillsDir, claudeSkillsDir, linkState, pointsInto, repoSkillsDir, sameTree } from "./skills.js"
 import { tomlRemoveTable, tomlSetTable } from "./toml-edit.js"
 
@@ -326,7 +326,9 @@ function planShim(ctx: Ctx, install: boolean): void {
   const { o, plan } = ctx
   const path = shimPath(kiteHomeOf(o))
   if (install) {
-    const text = shimScript(kiteHomeOf(o), o.shimNodes ?? nodeCandidates(), ctx.launch.bin)
+    const nodes = o.shimNodes ?? nodeCandidates()
+    const text =
+      process.platform === "win32" ? shimCmdScript(kiteHomeOf(o), nodes[0]!, ctx.launch.bin) : shimScript(kiteHomeOf(o), nodes, ctx.launch.bin)
     if (readOrNull(path) === text && isExecutableFile(path)) plan.notes.push(`cli: ${tilde(o.home, path)} up to date`)
     else plan.steps.push({ kind: "write", agent: "cli", path, text, what: `write ${path} (runs kite)` })
   } else if (existsSync(path)) {

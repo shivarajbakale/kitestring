@@ -7,8 +7,23 @@ export const SHIM_MARKER = "# kitestring cli shim (written by kite init)"
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
 /** `$KITE_HOME/bin`: the directory to put on PATH. */
-export const shimDir = (kiteHome: string): string => join(kiteHome, "bin")
-export const shimPath = (kiteHome: string): string => join(shimDir(kiteHome), "kite")
+export const SHIM_CMD_MARKER = "REM kitestring cli shim (written by kite init)"
+
+export const shimDir = (kiteHome: string, plat: NodeJS.Platform = process.platform, localAppData: string = process.env.LOCALAPPDATA ?? ""): string =>
+  plat === "win32" ? join(localAppData, "Kitestring", "bin") : join(kiteHome, "bin")
+export const shimPath = (kiteHome: string, plat: NodeJS.Platform = process.platform, localAppData?: string): string =>
+  join(shimDir(kiteHome, plat, localAppData), plat === "win32" ? "kite.cmd" : "kite")
+
+/** Windows `kite.cmd`: same job as shimScript, for cmd.exe. */
+export function shimCmdScript(kiteHome: string, node: string, binJs: string): string {
+  return [
+    "@echo off",
+    SHIM_CMD_MARKER,
+    `if "%KITE_HOME%"=="" set "KITE_HOME=${kiteHome}"`,
+    `"${node}" "${binJs}" %*`,
+    "",
+  ].join("\r\n")
+}
 
 /**
  * `kite` for agents and shells without an alias: tries the same node candidates as the host wrapper,
@@ -31,7 +46,8 @@ export function shimScript(kiteHome: string, candidates: string[], binJs: string
 
 export const isOurShim = (p: string): boolean => {
   try {
-    return readFileSync(p, "utf8").split("\n")[1] === SHIM_MARKER
+    const line = readFileSync(p, "utf8").split("\n")[1]?.replace(/\r$/, "")
+    return line === SHIM_MARKER || line === SHIM_CMD_MARKER
   } catch {
     return false
   }

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { chmodSync, mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs"
 import { homedir, platform } from "node:os"
 import { dirname, join } from "node:path"
@@ -12,6 +13,20 @@ export interface InstallOpts {
   kiteHome: string
   /** Home dir to install under (defaults to the OS home); injectable so tests never touch the real one. */
   home?: string
+  /** Defaults to the running platform; injectable so the win32 path is testable anywhere. */
+  platform?: NodeJS.Platform
+  /** win32: `%LOCALAPPDATA%` (defaults to the env var). */
+  localAppData?: string
+  /** win32: runs `reg`; injectable so tests never touch a registry. */
+  execFile?: (file: string, args: string[]) => void
+}
+
+/** win32 registry key that points a browser at the host manifest. */
+export const regKey = (browser: InstallOpts["browser"]): string =>
+  `HKCU\\Software\\${browser === "chrome" ? "Google\\Chrome" : "Chromium"}\\NativeMessagingHosts\\${HOST_NAME}`
+
+function hostCmd(kiteHome: string, node: string, mainJs: string): string {
+  return ["@echo off", `set "KITE_HOME=${kiteHome}"`, `"${node}" "${mainJs}" %*`, ""].join("\r\n")
 }
 
 export function hostsDir(o: Pick<InstallOpts, "browser" | "userDataDir" | "home">): string {
@@ -53,11 +68,16 @@ export function installHost(o: InstallOpts): { manifestPath: string; wrapperPath
   const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..")
   const mainJs = join(pkgRoot, "dist", "host", "main.js")
   mkdirSync(o.kiteHome, { recursive: true, mode: 0o700 })
-  const wrapperPath = join(o.kiteHome, "host.sh")
-  writeFileSync(wrapperPath, wrapperScript(o.kiteHome, nodeCandidates(), mainJs))
-  chmodSync(wrapperPath, 0o755)
+  const win = (o.platform ?? process.platform) === "win32"
+  const wrapperPath = join(o.kiteHome, win ? "host.cmd" : "host.sh")
+  if (win) {
+    writeFileSync(wrapperPath, hostCmd(o.kiteHome, nodeCandidates()[0]!, mainJs))
+  } else {
+    writeFileSync(wrapperPath, wrapperScript(o.kiteHome, nodeCandidates(), mainJs))
+    chmodSync(wrapperPath, 0o755)
+  }
 
-  const dir = hostsDir(o)
+  const dir = win ? join(o.localAppData ?? process.env.LOCALAPPDATA ?? "", "Kitestring") : hostsDir(o)
   mkdirSync(dir, { recursive: true })
   const manifestPath = join(dir, `${HOST_NAME}.json`)
   const manifest = {
@@ -68,6 +88,7 @@ export function installHost(o: InstallOpts): { manifestPath: string; wrapperPath
     allowed_origins: [`chrome-extension://${o.extensionId}/`],
   }
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n")
+  if (win) (o.execFile ?? ((f, a) => void execFileSync(f, a, { stdio: "ignore" })))("reg", ["add", regKey(o.browser), "/ve", "/t", "REG_SZ", "/d", manifestPath, "/f"])
   const removedLegacy: string[] = []
   for (const legacy of LEGACY_HOST_NAMES) {
     const p = join(dir, `${legacy}.json`)
