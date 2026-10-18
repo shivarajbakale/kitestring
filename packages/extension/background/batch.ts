@@ -346,6 +346,7 @@ export async function runBatch(
         ...(res?.cached ? { cached: true } : {}),
         ...(res?.resolved ? { resolved: res.resolved } : {}),
         ...(res?.secret ? { secret: true as const } : {}),
+        ...(res?.chosen !== undefined ? { chosen: res.chosen } : {}),
       }
       steps.push(result)
       if (ran.status !== "skipped") {

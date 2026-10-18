@@ -117,6 +117,33 @@ describe("pending journal", () => {
     expect(p.params.map((x) => x.name).sort()).toEqual(["city", "link", "textbox"])
   })
 
+  it("a picked option or a select's chosen text, named by a later batch, is stored as {{param}} (salted hashes only)", () => {
+    const pick: Step[] = [
+      { action: "click", target: "Productivity" },
+      { action: "select", target: "Country", value: "IN" },
+    ]
+    appendPending(home, "default", URL0, pick, res([
+      { action: "click", resolved: { role: "option", name: "Productivity", within: "Category" } },
+      { action: "select", resolved: { role: "combobox", name: "Country" }, chosen: "India" },
+    ]))
+    const later: Step[] = [
+      { action: "click", target: "Productivity" },
+      { action: "click", target: "India", expect: { text: "Productivity" } },
+    ]
+    appendPending(home, "default", URL0, later, res([
+      { action: "click", resolved: { role: "button", name: "Productivity" } },
+      { action: "click", resolved: { role: "button", name: "India" } },
+    ]))
+    const raw = readFileSync(pendingFile(), "utf8")
+    expect(raw).not.toMatch(/productivity|india/i)
+    const p = takePending(home, "default")!
+    const [b1, b2] = p.batches as any[]
+    expect(b1[0].target.text).toMatch(/^\{\{\w+\}\}$/)
+    expect(b2[0].target.text).toMatch(/^\{\{\w+\}\}$/)
+    expect(b2[1].target.text).toMatch(/^\{\{\w+\}\}$/)
+    expect(b2[1].expect).toBeUndefined()
+  })
+
   it("only ok steps are kept; a batch with none adds nothing", () => {
     appendPending(home, "default", URL0, SHIP, res([{ resolved: { role: "textbox", name: "Full name" } }, { action: "click", status: "not_found" }]))
     appendPending(home, "default", URL0, [{ action: "click", target: "Gone" }], res([{ action: "click", status: "not_found" }]))

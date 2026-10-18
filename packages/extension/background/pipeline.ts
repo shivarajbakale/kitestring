@@ -334,6 +334,8 @@ interface Hooks {
   cached?: boolean
   /** Set when FIND resolved a password / card / one-time-code field. */
   secret?: boolean
+  /** A select's chosen option text. */
+  chosen?: string
 }
 
 async function early(r: Run, status: Status, extra: Partial<ActionResult>): Promise<ActionResult> {
@@ -589,9 +591,10 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     return finish(r, before, { fill: { ref: found.ref, text } })
   }
   const value = action.value ?? ""
-  const selected = await callAgent<boolean>(tabId, "setSelect", [found.ref, value])
-  if (!selected) return early(r, "error", { detail: `no option ${JSON.stringify(value)} in ${found.line}` })
+  const chosen = await callAgent<string | null>(tabId, "setSelect", [found.ref, value])
+  if (chosen === null) return early(r, "error", { detail: `no option ${JSON.stringify(value)} in ${found.line}` })
   hooks.acted = true
+  hooks.chosen = chosen
   return finish(r, before, {})
 }
 
@@ -835,6 +838,8 @@ export interface StepOutcome extends ActionResult {
   resolved?: { role: string; name: string; within?: string }
   /** The resolved field was secret (password / cc-* / one-time-code). */
   secret?: true
+  /** A select's chosen option text (stored plans treat it as a value). */
+  chosen?: string
   /** `risky` (beforeAct refused) or `time` (the step's cap expired). */
   halt?: HaltReason
   /** The step's own input went out (or the navigation started): resending it would repeat it. */
@@ -884,6 +889,7 @@ export async function runStep(
   if (hooks.resolved) out.resolved = hooks.resolved
   if (hooks.cached) out.cached = true
   if (hooks.secret) out.secret = true
+  if (hooks.chosen !== undefined) out.chosen = hooks.chosen
   if (expired) out.halt = "time"
   else if (hooks.refused) out.halt = hooks.refused
   return out

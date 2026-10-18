@@ -216,6 +216,15 @@ describe("runStep", () => {
     expect(r.acted).toBe(true)
   })
 
+  it("a select reports the chosen option's visible text (for stored plans' echo checks)", async () => {
+    const { runStep } = await import("../background/pipeline")
+    agent.extra.find = () => ({ ...FOUND, role: "combobox", name: "Country" })
+    agent.extra.setSelect = () => "India"
+    const r = await runStep(s, 1, { kind: "select", target: { text: "Country" }, value: "IN" }, { capMs: 15_000 })
+    expect(r.status).toBe("done")
+    expect(r.chosen).toBe("India")
+  })
+
   it("beforeAct passing: the click goes through", async () => {
     const { runStep } = await import("../background/pipeline")
     const input = await import("../background/input")

@@ -81,6 +81,8 @@ export interface StepResult {
   resolved?: { role: string; name: string; within?: string }
   /** Internal: the resolved field was a password / cc-* / one-time-code input (its value becomes a secret plan param). */
   secret?: true
+  /** Internal: a select's chosen option text, which stored plans treat as a value (never stored). */
+  chosen?: string
 }
 
 export interface BatchResult {

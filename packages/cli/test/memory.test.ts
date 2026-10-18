@@ -224,6 +224,32 @@ describe("buildPlan never echoes a value", () => {
     expect(p.batches[0]![1]).toMatchObject({ target: { text: "Monthly" } })
     expect(p.params.map((x) => x.name)).toEqual(["colour"])
   })
+  it("a picked option's text is a value: a later button label or expect naming it stores {{param}}, never the text", () => {
+    const p = build(
+      [
+        { action: "click", target: "@e1" },
+        { action: "click", target: "@e2", expect: { text: "Category: Productivity" } },
+        { action: "click", target: "@e3" },
+      ],
+      [ok(0, "click", R("option", "Productivity", "Category")), ok(1, "click", R("button", "Productivity")), ok(2, "click", R("button", "Remove Productivity"))],
+    )
+    expect(JSON.stringify(p)).not.toMatch(/productivity/i)
+    expect(p.batches[0]![0]).toMatchObject({ target: { text: "{{category}}", role: "option" } })
+    expect(p.batches[0]![1]).toMatchObject({ target: { text: "{{category}}", role: "button" } })
+    expect(p.batches[0]![2]).toMatchObject({ target: { text: "{{category}}", role: "button" } })
+    expect(p.params.map((x) => x.name)).toEqual(["category"])
+  })
+  it("a select's chosen visible text is a value too, not only the value the agent sent", () => {
+    const p = build(
+      [
+        { action: "select", target: "@e1", value: "IN" },
+        { action: "click", target: "@e2" },
+      ],
+      [{ ...ok(0, "select", R("combobox", "Country")), chosen: "India" } as StepResult, ok(1, "click", R("button", "Ship to India"))],
+    )
+    expect(JSON.stringify(p)).not.toMatch(/india/i)
+    expect(p.batches[0]![1]).toMatchObject({ target: { text: "{{country}}" } })
+  })
   it("goto: echoing path segment becomes a param, query dropped and marked", () => {
     const p = build(
       [{ action: "fill", target: "@e1", value: "hunter2" }, { action: "goto", url: "https://x.example.com/search/hunter2/view?tab=a#f" }],

@@ -215,6 +215,12 @@ describe("runBatch", () => {
     expect(JSON.stringify(r)).not.toContain("nocache")
   })
 
+  it("a step's chosen option text goes into its result", async () => {
+    state.script = [() => ok({ resolved: { role: "combobox", name: "Country" }, chosen: "India" } as any)]
+    const r = await (await run({ steps: [{ action: "select", target: { text: "Country" }, value: "IN" } as Step] })).p
+    expect(r.steps[0]!.chosen).toBe("India")
+  })
+
   it("fill steps get no risk check", async () => {
     await (await run({ steps: [{ action: "fill", target: { text: "Send to" }, value: "x" } as Step] })).p
     expect(state.calls[0]!.opts.beforeAct).toBeUndefined()

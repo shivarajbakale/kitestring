@@ -38,7 +38,8 @@ interface Echo {
  *   run (ok or not), compared case-insensitively with whitespace collapsed. A target `text`/`within` that equals or
  *   contains an entry of 3+ characters, a goto path segment that does, and any `expect` that does, are replaced by that
  *   value's `{{param}}` (expect is dropped). Clicks on option / menuitemradio / treeitem / gridcell targets pick a value, so
- *   their text becomes `{{<within or role>}}`. Radio and checkbox labels stay literal: they are page structure.
+ *   their text becomes `{{<within or role>}}`, and the picked text joins the echo set (as does a select's chosen visible
+ *   text, `StepResult.chosen`). Radio and checkbox labels stay literal: they are page structure.
  * - `goto` loses its query and fragment; the stored step gets `droppedQuery: true`.
  * - Targets are written from `StepResult.resolved` as `{text, role, within?}`. Without it, a text target is stored with the
  *   step's own `within`/`role` folded in; an `@ref` target without `resolved` throws.
@@ -66,8 +67,12 @@ export function buildPlan(intent: string, url: string, sent: Step[][], results: 
     steps.forEach((s, i) => {
       const owner = `${b}.${i}`
       const add = (v: string) => norm(v).length >= MIN_ECHO && echoes.push({ norm: norm(v), owner })
+      const r = results[b]?.steps[i]
       if (s.action === "fill" || s.action === "select") add(s.value)
       else if (s.action === "upload") s.files.forEach((f) => add(base(f)))
+      // what was picked is a value too: a select's chosen text, and an option-like click's name (as the recorder does)
+      if (s.action === "select" && r?.chosen) add(r.chosen)
+      if (s.action === "click" && r?.resolved && CHOICE_ROLES.has(r.resolved.role) && ran(b, i)) add(r.resolved.name)
     }),
   )
   const hit = (text: string, owner: string): Echo | undefined => {
@@ -137,7 +142,14 @@ export function buildPlan(intent: string, url: string, sent: Step[][], results: 
           const choice = step.action === "click" && target.role !== undefined && CHOICE_ROLES.has(target.role)
           const e = hit(target.text, id)
           const scope = target.within && !echoed(target.within) ? target.within : target.role
-          const text = e ? `{{${echoParam(e, label)}}}` : choice ? `{{${newParam(scope!, false)}}}` : target.text
+          let text = target.text
+          if (e) text = `{{${echoParam(e, label)}}}`
+          else if (choice) {
+            // the pick's own echo (its name) shares its param, so a later step naming it replays the same value
+            const p = echoes.find((x) => x.owner === id && x.param)?.param ?? newParam(scope!, false)
+            for (const x of echoes) if (x.owner === id) x.param ??= p
+            text = `{{${p}}}`
+          }
           target = { ...target, text, ...(target.within ? { within: clean(target.within, id, label) } : {}) }
         }
         out.target = target

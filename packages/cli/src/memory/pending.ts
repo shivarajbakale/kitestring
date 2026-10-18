@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto"
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { basename, dirname, join } from "node:path"
-import type { BatchResult, Plan, PlanParam, PlanStep, Step, StepResult } from "@kitestring/protocol"
+import { CHOICE_ROLES, type BatchResult, type Plan, type PlanParam, type PlanStep, type Step, type StepResult } from "@kitestring/protocol"
 import { buildPlan } from "./build.js"
 import { MATCH_THRESHOLD, intentScore, planById, savePlan } from "./store.js"
 
@@ -10,6 +10,7 @@ export const PENDING_MAX_STEPS = 200
 
 const PLACEHOLDER = /\{\{([a-z0-9_]+)\}\}/g
 const MIN_ECHO = 3
+const RAN_OK = new Set(["done", "no_effect"])
 /** A batch this long after the journal's last one starts a new task memory. */
 export const NEW_TASK_AFTER_MS = 30 * 60_000
 
@@ -112,8 +113,12 @@ function typedValues(steps: Step[], result: BatchResult): string[] {
   const out: string[] = []
   for (const [i, s] of steps.entries()) {
     if (result.steps[i]?.secret) continue
+    const r = result.steps[i]
     if (s.action === "fill" || s.action === "select") out.push(s.value)
     else if (s.action === "upload") for (const f of s.files) out.push(base(f))
+    // picked values: a select's chosen text, an option-like click's name (buildPlan treats them as values too)
+    if (s.action === "select" && r?.chosen) out.push(r.chosen)
+    if (s.action === "click" && r?.resolved && CHOICE_ROLES.has(r.resolved.role) && RAN_OK.has(r.status)) out.push(r.resolved.name)
   }
   return out
 }

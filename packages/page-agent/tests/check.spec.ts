@@ -9,7 +9,7 @@ interface Agent {
   check(ref: string): CR
   find(t: { text: string }, intent: "click" | "fill" | "select"): { kind: string; ref: string }
   readValue(ref: string): string | null
-  setSelect(ref: string, value: string): boolean
+  setSelect(ref: string, value: string): string | null
   brief(): string
 }
 
@@ -114,8 +114,8 @@ test("readValue and setSelect", async ({ fixture }) => {
     }
   })
   expect(out).toEqual({
-    name: "Ann", note: "hello", missing: null, byLabel: true, value: "g", byValue: true, value2: "r",
-    none: false, notSelect: false, events: ["input", "change", "input", "change"]
+    name: "Ann", note: "hello", missing: null, byLabel: "Green Apple", value: "g", byValue: "Red", value2: "r",
+    none: null, notSelect: null, events: ["input", "change", "input", "change"]
   })
 })
 
@@ -155,5 +155,5 @@ test("readValue is null for non-editable; setSelect skips disabled options", asy
     const sel = a.find({ text: "Pick" }, "select").ref
     return { btn: a.readValue(btn), dis: a.setSelect(sel, "b"), ok: a.setSelect(sel, "a") }
   })
-  expect(out).toEqual({ btn: null, dis: false, ok: true })
+  expect(out).toEqual({ btn: null, dis: null, ok: "A" })
 })

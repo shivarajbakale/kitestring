@@ -26,7 +26,8 @@ export interface PageAgent {
   /** Case-folded substring test against the page's visible text (batch `expect: {text}`). */
   hasText(text: string): boolean
   readValue(ref: string): string | null
-  setSelect(ref: string, value: string): boolean
+  /** Picks the option whose value or visible text is `value`; its visible text, or null if there is none. */
+  setSelect(ref: string, value: string): string | null
   /** The file input a click on this element feeds (see files.ts), else null. */
   fileInputFor(ref: string): { ref: string; multiple: boolean } | null
   /** Names of the files selected in this file input (as recorded at dispatch if watched); null if not a file input. */
@@ -78,15 +79,15 @@ export function createAgent(win: Window): PageAgent {
     },
     setSelect: (ref, value) => {
       const el = reg.resolve(ref)
-      if (!(el instanceof HTMLSelectElement)) return false
+      if (!(el instanceof HTMLSelectElement)) return null
       const want = norm(value)
       const opt = Array.from(el.options).find((o) => !o.disabled && o.value === value) ??
         Array.from(el.options).find((o) => !o.disabled && (norm(o.label) === want || norm(o.value) === want))
-      if (!opt) return false
+      if (!opt) return null
       opt.selected = true
       el.dispatchEvent(new Event("input", { bubbles: true }))
       el.dispatchEvent(new Event("change", { bubbles: true }))
-      return true
+      return opt.label || opt.text
     },
     fileInputFor: (ref) => {
       const el = reg.resolve(ref)
