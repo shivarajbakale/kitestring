@@ -29,7 +29,7 @@ Two equivalent surfaces. Use MCP tools if your harness has them, else the `kite`
 | Picture | `browser_screenshot` | `kite screenshot` (`--full`, `--ref @ref`) |
 | Find / run / save / drop a remembered task | `browser_plan_find` / `browser_plan_run` / `browser_plan_save` / `browser_plan_discard` | `kite memory find "<intent>"` (`kite memory list` lists all) / `kite run <id> --param k=v` / `kite memory save "<intent>"` / `kite memory discard` |
 
-CLI: exit code 1 when status is not done; call errors print `kite: <message>` (exit 2 = not connected); `--json` gives raw results and error codes. If `kite` is not found, use the `browser_*` MCP tools and ask the human to run `kite doctor`. Keep one session name for the whole task: pass `--session <name>` on every call, or set `KITE_SESSION=<name>`. You only see and touch your session's tabs.
+CLI: exit code 1 when status is not done; call errors print `kite: <message>` (exit 2 = not connected, missing or unknown plan params, or a usage error such as a bad option: read the message); `--json` gives raw results and error codes. If `kite` is not found, use the `browser_*` MCP tools and ask the human to run `kite doctor`. Keep one session name for the whole task: pass `--session <name>` on every call, or set `KITE_SESSION=<name>`. You only see and touch your session's tabs.
 
 ## The loop
 

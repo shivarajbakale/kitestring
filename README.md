@@ -64,14 +64,14 @@ Three skills ship with it and are installed by `kite init`: `kitestring` (how to
 
 ## Faster the second time
 
-Three things make a repeated task cheaper than the first run. None of them calls a model, and all of it stays on your computer.
+Remembered tasks and recorded skills make a repeated task cheaper than the first run: a replay is one tool call instead of an agent turn per page. None of it calls a model, and all of it stays on your computer. The action cache only records where elements were found; it does not make runs faster today.
 
 ### Action cache
 
-The extension remembers where it found each element (by site, page shape and the text you asked for) and tries that spot first. A hint is used only if the element still has the same role and a close enough name; otherwise it searches normally and updates the entry. Results that used it say `cached: true`. Fields that hold secrets are never cached.
+The extension remembers where it found each element (by site, page shape and the text you asked for). The next find for the same text still runs the full search; when the element it picks is the one remembered, the step says `cached: true`, and otherwise the entry is updated. The hint never chooses an element on its own, so the cache does not save time today. It never keeps password, card or one-time-code fields, picked options (list, menu, tree and grid choices), or targets filled from a plan's parameters.
 
 ```sh
-kite cache stats                       # entries, hits, misses
+kite cache stats                       # entries, sites, hits
 kite cache clear                       # everything
 kite cache clear --site https://example.com
 ```
@@ -96,7 +96,7 @@ Plans live in `$KITE_HOME/memory/<site>/<plan>.json` (directories 0700, files 06
 
 ### Record, then it is a skill
 
-`kite record start` begins recording what you do by hand in the current tab, and `kite record stop` writes it as a skill your agents pick up: `~/.agents/skills/kite-<name>/SKILL.md` (with a symlink in `~/.claude/skills`), plus the plan in memory. Typed values become parameters and are never stored; password and one-time-code fields are skipped entirely, and file inputs keep only the file's base name. It refuses to overwrite an existing skill unless you pass `--force` (the old one is backed up first).
+`kite record start --name <slug>` begins recording what you do by hand in the kite session's active tab, so open the page with `kite tab new <url>` first (with no session tab it fails with `NO_TAB`). `kite record stop` writes it as a skill your agents pick up: `~/.agents/skills/kite-<name>/SKILL.md` (with a symlink in `~/.claude/skills`), plus the plan in memory. Typed values become parameters and are never stored. Password and one-time-code fields are recorded as steps with a secret parameter; only their values are never kept, not even as a hash. A file input becomes a step whose file is a parameter; the file's name is never stored. While you record, agents can neither act in that tab nor read it (snapshots, console, network, screenshots). It refuses to overwrite an existing skill unless you pass `--force` (the old one is backed up first). If writing the skill fails, the recording stays in the browser, so you can fix the cause and run `kite record stop` again.
 
 ### Benchmark
 
@@ -121,7 +121,7 @@ Scripted runs (no agent, no credits) against the torture site compare one tool c
 | file-upload | 3 plan replay, cold cache | 1099 | 1011 | 1 | 0 |
 | file-upload | 4 plan replay, warm cache | 1110 | 1021 | 1 | 3 |
 
-The real saving is the tool-calls column: each call is an agent turn (model time and tokens) that the bench does not simulate. The cache does not save wall time, since most of each step is waiting for the page to settle. Details and how to reproduce: [docs/bench.md](docs/bench.md).
+The real saving is the tool-calls column: each call is an agent turn (model time and tokens) that the bench does not simulate. The action cache does not save time: the full search runs either way, and the cache only records which element matched. Details and how to reproduce: [docs/bench.md](docs/bench.md).
 
 ### Windows
 

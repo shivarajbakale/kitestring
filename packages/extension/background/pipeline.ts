@@ -330,7 +330,7 @@ interface Hooks {
   acted?: boolean
   /** What FIND resolved (text targets for stored plans; refs are never stored). */
   resolved?: { role: string; name: string; within?: string }
-  /** Set when the action cache's hint was the element (FIND did not search). */
+  /** Set when the element FIND matched is where the action cache last found it (the full search still ran). */
   cached?: boolean
   /** Set when FIND resolved a password / card / one-time-code field. */
   secret?: boolean

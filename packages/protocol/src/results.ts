@@ -55,7 +55,7 @@ export interface ActionResult {
   closedPopups?: string[]
   /** act.upload: base names of the files put into the input (never directories). */
   uploaded?: string[]
-  /** The action cache's locator hint found the element (FIND did not search). */
+  /** The element FIND matched is where the action cache last found it (the full search still ran). */
   cached?: boolean
   page: string
 }

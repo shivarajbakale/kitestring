@@ -252,7 +252,7 @@ export async function main(argv: string[]): Promise<number> {
       if (!/^[1-9]\d*$/.test(o.limit)) throw new UsageError(`--limit must be a positive integer: ${o.limit}`)
       return run("activity.list", { limit: Number(o.limit) })
     })
-  const cacheCmd = program.command("cache").description("the action cache that lets repeat runs skip searching for elements")
+  const cacheCmd = program.command("cache").description("the action cache: where each element was last found (steps that match it say cached: true)")
   cacheCmd.command("stats").action(() => run("cache.stats", {}))
   cacheCmd
     .command("clear")
