@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: build, test, typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # Installs the pnpm version pinned in package.json ("packageManager").
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      # `pnpm test` includes the page-agent tests, which run in Playwright's headless Chromium (no extension).
+      - name: Install Playwright Chromium
+        run: pnpm --filter @kitestring/page-agent exec playwright install --with-deps chromium
+
+      # Unit tests, page-agent browser tests and the store packaging tests (they use zip/unzip, present on the runner).
+      - run: pnpm test
+
+      - run: pnpm -r typecheck
+
+      # The end-to-end suite (pnpm test:e2e) is skipped here: it launches Chromium with the built extension loaded,
+      # installs a native host into a temporary profile and drives it through the real kite CLI, and it has only been
+      # run on developer machines so far. Run it locally before merging (see CONTRIBUTING.md).
