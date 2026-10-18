@@ -12,7 +12,30 @@ export interface UploadGuardOpts {
 }
 
 /** Directories (relative to home) whose files are never uploaded, unless `KITE_UPLOAD_ALLOW` names them. */
-const DENIED_UNDER_HOME = [".ssh", ".aws", ".gnupg", ".kitestring", ".config", join("Library", "Keychains")]
+const DENIED_UNDER_HOME = [
+  ".ssh",
+  ".aws",
+  ".gnupg",
+  ".kitestring",
+  ".config", // includes ~/.config/gcloud
+  ".docker",
+  ".kube",
+  ".azure",
+  join("Library", "Keychains"),
+  join("Library", "Application Support", "Google", "Chrome"),
+  join("Library", "Application Support", "Chromium"),
+]
+
+/** Credential and shell-history files (relative to home), denied like the directories above. */
+const DENIED_FILES_IN_HOME = [
+  ".netrc",
+  ".git-credentials",
+  ".npmrc",
+  ".pypirc",
+  ".bash_history",
+  ".zsh_history",
+  join(".local", "share", "fish", "fish_history"),
+]
 
 const refuse = (path: string, reason: string): never => {
   throw new KiteError("BAD_REQUEST", `refusing to upload ${path}: ${reason}`)
@@ -46,7 +69,8 @@ function isUnder(file: string, dir: string): boolean {
  */
 export function resolveUploads(paths: string[], opts: UploadGuardOpts): string[] {
   const home = real(opts.home)
-  const denied = [...DENIED_UNDER_HOME.map((d) => join(home, d)), real(opts.kiteHome)].map(real)
+  const denied = [...DENIED_UNDER_HOME, ...DENIED_FILES_IN_HOME].map((d) => real(join(home, d)))
+  denied.push(real(opts.kiteHome))
   const allowed = (opts.env.KITE_UPLOAD_ALLOW ?? "")
     .split(":")
     .filter(Boolean)

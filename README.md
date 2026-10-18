@@ -115,7 +115,8 @@ A batch (and a single action) is guarded against the things that derail agents:
 
 `kite upload <target> <file...>` (or `browser_upload`, or an `upload` step) puts local files into a file input, a button that opens one, or a drop zone. Paths are resolved to their real location first (relative paths against your working directory), and the CLI refuses, before the browser is touched:
 
-- anything under `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kitestring` (`$KITE_HOME`), `~/.config` or `~/Library/Keychains`;
+- anything under `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kitestring` (`$KITE_HOME`), `~/.config` (so also `~/.config/gcloud`), `~/.docker`, `~/.kube`, `~/.azure`, `~/Library/Keychains`, or the Chrome / Chromium profile folders in `~/Library/Application Support`;
+- the credential and history files `~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.bash_history`, `~/.zsh_history` and `~/.local/share/fish/fish_history`;
 - a file named `.env*`;
 - a file over 100 MB, or anything that is not a regular file.
 

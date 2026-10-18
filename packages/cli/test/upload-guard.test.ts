@@ -62,6 +62,30 @@ describe("resolveUploads", () => {
     }
   })
 
+  it("credential and tool-config directories are refused (R12)", () => {
+    for (const d of [".docker", ".kube", ".azure", ".config/gcloud", "Library/Application Support/Google/Chrome/Default", "Library/Application Support/Chromium/Default"]) {
+      mkdirSync(join(home, d), { recursive: true })
+      const f = join(home, d, "f.txt")
+      writeFileSync(f, "k")
+      expect(refusal([f]), d).toContain("sensitive location")
+    }
+  })
+
+  it("credential and shell-history files in ~ are refused, also through a symlink (R12)", () => {
+    for (const f of [".netrc", ".git-credentials", ".npmrc", ".pypirc", ".bash_history", ".zsh_history", ".local/share/fish/fish_history"]) {
+      mkdirSync(join(home, f, ".."), { recursive: true })
+      writeFileSync(join(home, f), "secret")
+      expect(refusal([join(home, f)]), f).toContain("sensitive location")
+    }
+    symlinkSync(join(home, ".netrc"), join(cwd, "notes.txt"))
+    expect(refusal(["notes.txt"])).toContain("sensitive location")
+  })
+
+  it("a project's own .npmrc (not the one in ~) may be uploaded", () => {
+    writeFileSync(join(cwd, ".npmrc"), "registry=https://example.test/")
+    expect(resolveUploads([".npmrc"], opts())).toHaveLength(1)
+  })
+
   it("$KITE_HOME outside ~ is refused too", () => {
     const elsewhere = join(root, "kh")
     mkdirSync(elsewhere)
