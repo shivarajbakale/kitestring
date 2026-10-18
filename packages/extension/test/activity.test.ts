@@ -103,4 +103,18 @@ describe("summaries", () => {
     expect(JSON.stringify(store.activity)).not.toContain("ada@x.io")
     expect(JSON.stringify(store.activity)).not.toContain("4242")
   })
+
+  it("keeps typed values out of stored summaries (verify mismatch, select miss)", async () => {
+    const activity = await import("../background/activity")
+    await activity.ready()
+    const a = activity.record({ ...entry(1), summary: '✗ value mismatch: expected "4111 1111", got "4111-1111"' })
+    expect(a.summary).toContain("value mismatch")
+    expect(a.summary).not.toContain("4111")
+    const b = activity.record({ ...entry(2), summary: '✗ no option "Secret" in combobox "X"' })
+    expect(b.summary).toContain("no option")
+    expect(b.summary).not.toContain("Secret")
+    await activity.flush()
+    expect(JSON.stringify(store.activity)).not.toContain("4111")
+    expect(JSON.stringify(store.activity)).not.toContain("Secret")
+  })
 })

@@ -32,6 +32,14 @@ const VALUE_RE = / value=(?:"(?:[^"\\]|\\.)*"|[^\s"]\S*)/g
 /** What was typed into fields never reaches the stored log (the agent's own result keeps it). */
 export const redactValues = (line: string): string => line.replace(VALUE_RE, " value=(redacted)")
 
+const QUOTED = String.raw`"(?:[^"\\]|\\.)*"`
+const MISMATCH_RE = new RegExp(String.raw`value mismatch: expected ${QUOTED}, got ${QUOTED}`, "g")
+const NO_OPTION_RE = new RegExp(String.raw`no option ${QUOTED}`, "g")
+
+/** Verify/select details quote what was typed; the stored summary keeps only the kind of failure. */
+export const redactSummary = (s: string): string =>
+  redactValues(s.replace(MISMATCH_RE, "value mismatch").replace(NO_OPTION_RE, "no option"))
+
 const capDiff = (d: Diff): Diff => ({
   added: d.added.slice(0, DIFF_LINES).map(redactValues),
   removed: d.removed.slice(0, DIFF_LINES).map(redactValues),
@@ -39,6 +47,7 @@ const capDiff = (d: Diff): Diff => ({
 
 export function record(entry: Omit<ActivityEntry, "id" | "ts">): ActivityEntry {
   const e: ActivityEntry = { ...entry, id: nextId++, ts: Date.now() }
+  e.summary = redactSummary(e.summary)
   if (e.diff) e.diff = capDiff(e.diff)
   if (e.page !== undefined) e.page = redactValues(e.page).slice(0, PAGE_CHARS)
   entries.push(e)
