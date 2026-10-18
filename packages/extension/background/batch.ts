@@ -21,7 +21,7 @@ import { callAgent } from "./agent-bridge"
 import { assertNotPaused } from "./control"
 import { RestrictedPageError, RpcError } from "./errors"
 import { allowedSites, capDiff, dialogHalt, fitResult, haltFor, siteOf, stepTarget, urlMatches } from "./batch-result"
-import { runStep, type StepAction, type StepOutcome } from "./pipeline"
+import { runStep, type Found, type StepAction, type StepOutcome } from "./pipeline"
 import { RECORDED_TAB_DETAIL, TabRecordedError } from "./recorder"
 import { withTabLock, type TabLock } from "./serial"
 import { TAB_CLOSED_ITSELF } from "./tab-closed"
@@ -35,6 +35,8 @@ const FIND_POLL_MS = 200
 /** switch_tab "new" without `wait`: adoption follows chrome.tabs.onCreated asynchronously. */
 const SWITCH_NEW_WAIT_MS = 3_000
 const EMPTY = { added: [], removed: [] }
+/** Enter, with or without modifiers ("Shift+Enter"): it may submit the focused field's form. */
+const isEnter = (key: string) => /(^|\+)Enter$/.test(key)
 
 /** A late-appearing target still gets this long to act after its `wait`. */
 const ACT_AFTER_WAIT_MS = 2_000
@@ -240,7 +242,10 @@ export async function runBatch(
         const res = await runStep(s, tabId, action, {
           capMs: Math.min(STEP_CAP_MS, remaining() - STEP_MARGIN_MS),
           ...(step.dialog ? { dialog: step.dialog } : {}),
-          ...(step.action === "click" ? { beforeAct: (f) => (isRisky(f.name) ? "risky" : null) } : {}),
+          // A click, or an Enter that would submit a form (checked against that form's submit button).
+          ...(step.action === "click" || (step.action === "press" && isEnter(step.key))
+            ? { beforeAct: (f: Found) => (isRisky(f.name) ? "risky" : null) }
+            : {}),
           linger: (t) => (linger = t),
         })
         const halt = res.halt ?? haltFor(res.status) ?? undefined

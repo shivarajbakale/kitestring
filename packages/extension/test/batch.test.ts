@@ -188,6 +188,27 @@ describe("runBatch", () => {
     expect(state.calls).toHaveLength(1)
   })
 
+  it("a press of Enter gets the same risk check (against its form's submit button) and halts risky", async () => {
+    state.script = [
+      () => ok({ resolved: { role: "textbox", name: "Order note" } } as any),
+      ({ opts }) => {
+        expect(opts.beforeAct({ ref: "@e2", line: "", role: "button", name: "Place order" })).toBe("risky")
+        expect(opts.beforeAct({ ref: "@e2", line: "", role: "button", name: "Search" })).toBeNull()
+        return ok({ ok: false, status: "error", detail: "refused", halt: "risky", acted: false } as any)
+      },
+    ]
+    const steps = [{ action: "fill", target: { text: "Order note" }, value: "x" }, { action: "press", key: "Enter" }, click("B")] as Step[]
+    const r = await (await run({ steps })).p
+    expect(r.halted).toMatchObject({ index: 1, reason: "risky" })
+    expect(r.next).toBe(1)
+    expect(state.calls).toHaveLength(2)
+  })
+
+  it("other keys get no risk check", async () => {
+    await (await run({ steps: [{ action: "press", key: "Tab" } as Step] })).p
+    expect(state.calls[0]!.opts.beforeAct).toBeUndefined()
+  })
+
   it("fill steps get no risk check", async () => {
     await (await run({ steps: [{ action: "fill", target: { text: "Send to" }, value: "x" } as Step] })).p
     expect(state.calls[0]!.opts.beforeAct).toBeUndefined()

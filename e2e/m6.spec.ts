@@ -254,3 +254,45 @@ test.describe("record a task once, replay it as a skill", () => {
     expect(await entries()).toBeGreaterThan(before)
   })
 })
+
+test.describe("an Enter that would submit a risky form halts like a click on its button (R16)", () => {
+  test("a batched Enter in the review page's Order note halts risky before submitting", async ({ kite, kiteStdin, context, torture }) => {
+    const url = `${torture}/multi-page-checkout-review`
+    expect((await kite("tab", "new", url)).code).toBe(0)
+    const r = await kiteStdin(
+      JSON.stringify([
+        { action: "fill", target: "Order note", value: "leave at the door" },
+        { action: "press", key: "Enter" },
+      ]),
+      "--json", "batch", "-",
+    )
+    const res = JSON.parse(r.stdout)
+    expect(res.halted, r.stdout).toMatchObject({ index: 1, reason: "risky" })
+    expect(res.halted.detail).toContain("Place order")
+    expect(res.next).toBe(1)
+    expect(context.pages().some((p) => p.url().endsWith("/multi-page-checkout-done"))).toBe(false)
+  })
+
+  test("a recorded Enter that submitted the form halts risky on replay", async ({ kite, kiteEnv, context, torture }) => {
+    const home = mkdtempSync(join(tmpdir(), "kitehome-"))
+    try {
+      const url = `${torture}/multi-page-checkout-review`
+      const page = () => context.pages().find((p) => p.url().includes("/multi-page-checkout-"))!
+      expect((await kite("tab", "new", url)).code).toBe(0)
+      expect((await kiteEnv({ HOME: home }, "record", "start", "--name", "order-note")).code).toBe(0)
+      await page().getByLabel("Order note").fill("leave at the door")
+      await page().getByLabel("Order note").press("Enter")
+      await expect.poll(() => page().url()).toContain("/multi-page-checkout-done")
+      const stop = await kiteEnv({ HOME: home }, "record", "stop")
+      expect(stop.code, stop.stdout + stop.stderr).toBe(0)
+
+      expect((await kite("goto", url)).code).toBe(0)
+      const run = await kite("--json", "run", "order-note", "--param", "order_note=ring twice")
+      expect(run.code, run.stdout + run.stderr).not.toBe(0)
+      expect(JSON.parse(run.stdout).result.halted, run.stdout).toMatchObject({ reason: "risky" })
+      expect(page().url()).toContain("/multi-page-checkout-review")
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+})

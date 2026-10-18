@@ -320,7 +320,7 @@ export interface Found {
 
 /** Batch hooks into one action (single actions pass none). */
 interface Hooks {
-  /** After CHECK passed, before any input: a non-null reason refuses the action. */
+  /** After CHECK passed (for a press: on what it would submit), before any input: a non-null reason refuses the action. */
   beforeAct?: (found: Found) => HaltReason | null
   /** Set when beforeAct refused. */
   refused?: HaltReason
@@ -433,6 +433,18 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   }
 
   if (action.kind === "press" || action.kind === "scroll") {
+    if (action.kind === "press" && hooks.beforeAct) {
+      // The batch checks a press of Enter against what it would submit: the focused field's form's default button.
+      const submit = await callAgent<Found | null>(tabId, "enterSubmit", [])
+      guard()
+      const refused = submit && hooks.beforeAct(submit)
+      if (refused) {
+        hooks.refused = refused
+        return early(r, "error", {
+          detail: `refused: ${action.key} would submit ${JSON.stringify(submit.name)}, which looks ${refused === "risky" ? "risky (it may pay, send or delete something)" : refused}; click it on its own if intended`,
+        })
+      }
+    }
     const before = await callAgent<string>(tabId, "snapshot", [{ full: false }])
     guard()
     hooks.acted = true

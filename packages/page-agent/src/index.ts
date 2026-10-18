@@ -8,6 +8,9 @@ import { brief } from "./brief.js"
 import { norm } from "./normalize.js"
 import { closerFor, type Closer } from "./popups.js"
 import { fileInputFor, fileNames, watchFileInput } from "./files.js"
+import { enterSubmit } from "./submit.js"
+import { elementLine } from "./snapshot.js"
+import { roleOf } from "./roles.js"
 
 export interface PageAgent {
   snapshot(opts?: SnapshotOpts): string
@@ -33,6 +36,11 @@ export interface PageAgent {
   /** Tags the element with `data-kite-upload=<token>` so the main world can find it (CDP upload). */
   markFileInput(ref: string, token: string): boolean
   unmarkFileInput(token: string): void
+  /**
+   * What an Enter on the focused element would submit (its form's default button, else the form),
+   * for the batch risk check (`ref` is "" for a form without a submit button); null when focus is not inside a form.
+   */
+  enterSubmit(): { ref: string; line: string; role: string; name: string } | null
 }
 
 const fold = (s: string): string => s.replace(/\s+/g, " ").toLowerCase()
@@ -97,6 +105,13 @@ export function createAgent(win: Window): PageAgent {
       for (const el of Array.from(doc.querySelectorAll("[data-kite-upload]"))) {
         if (el.getAttribute("data-kite-upload") === token) el.removeAttribute("data-kite-upload")
       }
+    },
+    enterSubmit: () => {
+      const s = enterSubmit(doc)
+      if (!s) return null
+      if (!s.button) return { ref: "", line: `form ${JSON.stringify(s.name)}`, role: "form", name: s.name }
+      const role = roleOf(s.button) ?? "button"
+      return { ref: reg.refFor(s.button), line: elementLine(s.button, role, reg), role, name: s.name }
     },
   }
 }

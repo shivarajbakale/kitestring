@@ -47,7 +47,7 @@ vi.mock("../background/cdp", () => ({
     method === "Page.getFrameTree" ? { frameTree: { frame: { id: "F" } } } : { result: {} },
   ),
 }))
-vi.mock("../background/input", () => ({ click: vi.fn(async () => {}), keyDef: vi.fn() }))
+vi.mock("../background/input", () => ({ click: vi.fn(async () => {}), press: vi.fn(async () => {}), keyDef: vi.fn() }))
 vi.mock("../background/network-idle", () => ({ trackNetwork: () => ({ stop() {}, waitIdle: async () => true }) }))
 vi.mock("../background/sessions", () => ({ activeTab: vi.fn(), agentActing: vi.fn(() => () => {}) }))
 vi.mock("../background/control", () => ({ assertNotPaused: vi.fn() }))
@@ -157,6 +157,35 @@ describe("runStep", () => {
     expect(r.acted).toBe(false)
     expect(r.ok).toBe(false)
     expect(r.resolved).toEqual({ role: "button", name: "Delete everything", within: "Danger zone" })
+  })
+
+  it("a press with beforeAct checks what Enter would submit; a risky refusal sends no key", async () => {
+    const { runStep } = await import("../background/pipeline")
+    const input = await import("../background/input")
+    const submit = { ref: "@e00002", line: 'button "Place order" [@e00002]', role: "button", name: "Place order" }
+    agent.extra.enterSubmit = () => submit
+    const seen: unknown[] = []
+    const r = await runStep(s, 1, { kind: "press", key: "Enter" }, {
+      capMs: 15_000,
+      beforeAct: (f) => {
+        seen.push(f)
+        return "risky"
+      },
+    })
+    expect(seen).toEqual([submit])
+    expect(input.press).not.toHaveBeenCalled()
+    expect(r).toMatchObject({ ok: false, halt: "risky", acted: false })
+    expect(r.detail).toContain('Enter would submit "Place order"')
+  })
+
+  it("a press outside any form (or with no beforeAct) goes through", async () => {
+    const { runStep } = await import("../background/pipeline")
+    const input = await import("../background/input")
+    agent.extra.enterSubmit = () => null
+    const r = await runStep(s, 1, { kind: "press", key: "Enter" }, { capMs: 15_000, beforeAct: () => "risky" })
+    expect(input.press).toHaveBeenCalledWith(1, "Enter")
+    expect(r.halt).toBeUndefined()
+    expect(r.acted).toBe(true)
   })
 
   it("beforeAct passing: the click goes through", async () => {

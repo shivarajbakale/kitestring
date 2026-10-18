@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>enter-submit</title></head><body>
+<form id="order" onsubmit="return false">
+  <label>Order note <input id="note"></label>
+  <button type="button">Edit cart</button>
+  <button>Place order</button>
+  <input type="submit" value="Second">
+</form>
+<form id="named" aria-label="Send money" onsubmit="return false">
+  <label>Amount <input id="amount"></label>
+</form>
+<form id="bare" action="/transfer" onsubmit="return false">
+  <label>To <input id="to"></label>
+</form>
+<form id="outside" onsubmit="return false"></form>
+<label>Owned <input id="owned" form="outside"></label>
+<button form="outside" type="submit">Delete all</button>
+<label>Loose <input id="loose"></label>
+</body></html>

@@ -50,7 +50,7 @@ When you already know the next steps (a form, a multi-page flow), send them toge
 5. Read the result: `✓` done, `·` skipped, `✗` the problem. After a halt, read `halted at step N (reason): detail` and `resume with steps from N`. Fix that step (or the page), then resend `steps.slice(next)` only. Step numbers are 1-based in the text, 0-based in `--json` (`next`, `halted.index`).
 6. A batch also stops by design at: a different site than it started on (`domain`; add `allow_domains` if intended), a confirm/prompt dialog with no `dialog` policy (`dialog`), the human pausing (`paused`), and the time budget (`time`: resend from `next`).
 
-Risky clicks (pay, buy, place order, send, delete, publish, submit for review, transfer) halt with `risky` by design. Never override that inside a batch: do the step as a single `kite click` only after the fresh yes the safety rules below require. The batch's risk check covers clicks only, so never submit a risky form with a `press Enter` step either. Keep batches to one page flow (about 5 to 15 steps), not a whole session.
+Risky clicks (pay, buy, place order, send, delete, publish, submit for review, transfer) halt with `risky` by design. Never override that inside a batch: do the step as a single `kite click` only after the fresh yes the safety rules below require. A `press Enter` in a form field is checked the same way, against the button it would submit, so do not try to get around a risky halt with Enter. Keep batches to one page flow (about 5 to 15 steps), not a whole session.
 
 ## Remembered tasks
 
