@@ -2,8 +2,12 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { EXTENSION_ID } from "@kitestring/protocol"
-import { applyPalette, GIFEncoder, quantize } from "gifenc"
-import { PNG } from "pngjs"
+import gifenc from "gifenc"
+import pngjs, { type PNG as PNGType } from "pngjs"
+
+// both are CommonJS: Node ESM gives only a default export
+const { applyPalette, GIFEncoder, quantize } = gifenc
+const { PNG } = pngjs
 import type { Page } from "@playwright/test"
 import { expect, test } from "./fixtures"
 
@@ -14,17 +18,17 @@ const MAX_BYTES = 3 * 1024 * 1024
 const SITE = { width: 760, height: 520 }
 const PANEL = { width: 360, height: 520 }
 
-async function frame(site: Page, panel: Page): Promise<PNG[]> {
+async function frame(site: Page, panel: Page): Promise<PNGType[]> {
   const [a, b] = await Promise.all([site.screenshot(), panel.screenshot()])
   return [PNG.sync.read(a), PNG.sync.read(b)]
 }
 
 /** Side-by-side RGBA of the two screenshots. */
-function join2(left: PNG, right: PNG): { data: Uint8Array; width: number; height: number } {
+function join2(left: PNGType, right: PNGType): { data: Uint8Array; width: number; height: number } {
   const width = left.width + right.width
   const height = Math.max(left.height, right.height)
   const data = new Uint8Array(width * height * 4).fill(255)
-  const blit = (img: PNG, x0: number) => {
+  const blit = (img: PNGType, x0: number) => {
     for (let y = 0; y < img.height; y++) {
       data.set(img.data.subarray(y * img.width * 4, (y + 1) * img.width * 4), (y * width + x0) * 4)
     }

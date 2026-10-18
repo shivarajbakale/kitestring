@@ -36,9 +36,10 @@ every tool call, so the `tool calls` column is the lever that matters most in pr
 
 What the numbers show:
 
-- The action cache saves element search, not wall time. The fixed settle wait after each step (about 300 ms) dominates, so a warm
-  cache (mode 4) is within noise of a cold one (mode 3) here. Mode 4 is not guaranteed to be faster.
+- The action cache does not save wall time: a hint is still checked by a full in-page scan, so it only skips scroll-retries. Most
+  of each step's time is waiting for the page to settle, so a warm cache (mode 4) is within noise of a cold one (mode 3) here.
 - The real gain is the tool-call column. Each tool call is an agent turn (model time, tokens, latency) that this bench does not
   simulate: 16 calls become 1 on store-listing, 6 become 1 on multi-page-checkout.
+- Mode 1 also pays one `kite` process start per call, which is part of why mode 2 beats it.
 
 Reproduce: `pnpm build && pnpm bench --write`.

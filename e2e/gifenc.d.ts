@@ -1,4 +1,6 @@
 declare module "gifenc" {
+  const gifenc: { GIFEncoder: typeof GIFEncoder; quantize: typeof quantize; applyPalette: typeof applyPalette }
+  export default gifenc
   export type Palette = number[][]
   export function GIFEncoder(): {
     writeFrame(index: Uint8Array, width: number, height: number, opts?: { palette?: Palette; delay?: number; repeat?: number }): void
