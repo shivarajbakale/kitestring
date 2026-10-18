@@ -57,3 +57,47 @@ test("nothing covering: null", async ({ fixture }) => {
   })
   expect(c).toBeNull()
 })
+
+test("a page-wide wrapper with a cookie class around the target is not a cookie banner", async ({ fixture }) => {
+  const page = await fixture("popups-wrapper.html")
+  const c = await page.evaluate(() => {
+    const a = (window as unknown as { __kiteAgent: Agent }).__kiteAgent
+    return a.closerFor(a.find({ text: "Continue" }, "click").ref)
+  })
+  expect(c).toBeNull()
+})
+
+test("generic (non-CMP) cookie banner by class: Reject", async ({ fixture }) => {
+  const page = await fixture("popups.html")
+  const c = await closerWith(page, "generic-cookie")
+  expect(c?.kind).toBe("cookie")
+  expect(c?.line).toContain('"Reject"')
+})
+
+test("a consent overlay that never mentions cookies: no Agree fallback", async ({ fixture }) => {
+  const page = await fixture("popups.html")
+  expect(await closerWith(page, "terms-consent")).toBeNull()
+})
+
+test('newsletter shell: "Close account" / "Dismiss review" are never picked', async ({ fixture }) => {
+  const page = await fixture("popups.html")
+  expect(await closerWith(page, "close-account")).toBeNull()
+})
+
+test("newsletter names match in preference order: Close before No thanks", async ({ fixture }) => {
+  const page = await fixture("popups.html")
+  const c = await closerWith(page, "news-order")
+  expect(c?.kind).toBe("newsletter")
+  expect(c?.line).toContain('"Close"')
+})
+
+test("a native modal <dialog> newsletter: No, thanks", async ({ fixture }) => {
+  const page = await fixture("popups.html")
+  const c = await page.evaluate(() => {
+    ;(document.getElementById("news-dialog") as HTMLDialogElement).showModal()
+    const a = (window as unknown as { __kiteAgent: Agent }).__kiteAgent
+    return a.closerFor(a.find({ text: "Continue" }, "click").ref)
+  })
+  expect(c?.kind).toBe("newsletter")
+  expect(c?.line).toContain('"No, thanks"')
+})

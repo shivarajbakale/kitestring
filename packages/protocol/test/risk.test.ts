@@ -12,4 +12,12 @@ describe("isRisky", () => {
       expect(isRisky(n), n).toBe(false)
     }
   })
+  it("folds non-breaking spaces and catches the remaining keywords", () => {
+    for (const n of ["Place\u00a0order", "Pay\u00a0now", "Remove account", "Transfer funds", "Publish", "Publish app"]) {
+      expect(isRisky(n), n).toBe(true)
+    }
+    for (const n of ["Remove", "Account settings", "Transferred items", "Published apps"]) {
+      expect(isRisky(n), n).toBe(false)
+    }
+  })
 })
