@@ -88,7 +88,7 @@ kite run <slug> --param email=ada@x.io --secret password=...   # replay, no mode
 kite run <slug> --dry-run                                       # print the filled batches, send nothing
 ```
 
-`kite run` checks that every parameter is given (exit 2, before the browser is touched), runs the plan with `act.batch` and stops at the first step that no longer works, saying which and why, and leaves the page where it stopped so the agent can take over. A risky click is never auto-continued (exit 3). Over MCP the same flow is `browser_plan_find` (is there a plan for this task?), `browser_plan_run` (replay it) and `browser_plan_save` (remember what just worked).
+`kite run` checks that every parameter is given (exit 2, before the browser is touched), runs the plan with `act.batch` and stops at the first step that no longer works, saying which and why, and leaves the page where it stopped so the agent can take over. A risky click is never auto-continued (exit 3). Over MCP the same flow is `browser_plan_find` (is there a plan for this task?), `browser_plan_run` (replay it) and `browser_plan_save` (remember what just worked), and `browser_plan_discard` drops the unsaved journal.
 
 ### Memory
 
@@ -96,17 +96,36 @@ Plans live in `$KITE_HOME/memory/<site>/<plan>.json` (directories 0700, files 06
 
 ### Record, then it is a skill
 
-Planned in this release: `kite record start` begins recording what you do by hand in the current tab, and `kite record stop` writes it as a skill your agents pick up: `~/.agents/skills/kite-<name>/SKILL.md` (with a symlink in `~/.claude/skills`), plus the plan in memory. Typed values become parameters and are never stored; password and one-time-code fields are skipped entirely, and file inputs keep only the file's base name. It refuses to overwrite an existing skill unless you pass `--force` (the old one is backed up first).
+`kite record start` begins recording what you do by hand in the current tab, and `kite record stop` writes it as a skill your agents pick up: `~/.agents/skills/kite-<name>/SKILL.md` (with a symlink in `~/.claude/skills`), plus the plan in memory. Typed values become parameters and are never stored; password and one-time-code fields are skipped entirely, and file inputs keep only the file's base name. It refuses to overwrite an existing skill unless you pass `--force` (the old one is backed up first).
 
 ### Benchmark
 
-Planned in this release: scripted runs (no agent, no credits) against the torture site compare a first run, a cached run and a replayed plan:
+Scripted runs (no agent, no credits) against the torture site compare one tool call per step, one batch per page, and a replayed plan with a cold and a warm action cache (median of 3, on an Apple M3 Pro):
 
-<!-- bench table -->
+| Task | Mode | Wall ms | Browser ms | Tool calls | Cached |
+| --- | --- | ---: | ---: | ---: | ---: |
+| multi-page-checkout | 1 single actions | 3266 | 2658 | 6 | - |
+| multi-page-checkout | 2 one batch per page | 2923 | 2706 | 2 | - |
+| multi-page-checkout | 3 plan replay, cold cache | 2830 | 2750 | 1 | 0 |
+| multi-page-checkout | 4 plan replay, warm cache | 3071 | 2981 | 1 | 6 |
+| store-listing | 1 single actions | 6848 | 5052 | 16 | - |
+| store-listing | 2 one batch per page | 5475 | 5356 | 1 | - |
+| store-listing | 3 plan replay, cold cache | 5476 | 5388 | 1 | 0 |
+| store-listing | 4 plan replay, warm cache | 5490 | 5400 | 1 | 16 |
+| cookie-wall | 1 single actions | 1168 | 951 | 2 | - |
+| cookie-wall | 2 one batch per page | 1078 | 962 | 1 | - |
+| cookie-wall | 3 plan replay, cold cache | 1076 | 990 | 1 | 0 |
+| cookie-wall | 4 plan replay, warm cache | 1080 | 990 | 1 | 2 |
+| file-upload | 1 single actions | 1286 | 955 | 3 | - |
+| file-upload | 2 one batch per page | 1108 | 988 | 1 | - |
+| file-upload | 3 plan replay, cold cache | 1099 | 1011 | 1 | 0 |
+| file-upload | 4 plan replay, warm cache | 1110 | 1021 | 1 | 3 |
+
+The real saving is the tool-calls column: each call is an agent turn (model time and tokens) that the bench does not simulate. The cache does not save wall time, since most of each step is waiting for the page to settle. Details and how to reproduce: [docs/bench.md](docs/bench.md).
 
 ### Windows
 
-Windows: untested. Planned in this release: the code for it (a named pipe, `\\.\pipe\kitestring-<username>`, and Windows install paths for the native host) and is covered by unit tests with a mocked platform, but nobody has run it on a real Windows machine yet. Reports are welcome.
+Windows: untested. The code for it (a named pipe, `\\.\pipe\kitestring-<username>`, and Windows install paths for the native host) is in place and covered by unit tests with a mocked platform, but nobody has run it on a real Windows machine yet. Reports are welcome.
 
 ## You stay in control
 
