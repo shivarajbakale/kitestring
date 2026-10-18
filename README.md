@@ -42,7 +42,7 @@ pnpm i && pnpm build
 
 ## What agents can do
 
-The MCP server exposes 16 tools:
+The MCP server exposes 17 tools:
 
 | Tool | What it does |
 | --- | --- |

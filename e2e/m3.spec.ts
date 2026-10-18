@@ -312,6 +312,7 @@ test.describe("M3 exit", () => {
           { action: "click", target: "Sign in with Kite" },
           { action: "switch_tab", to: "new" },
           { action: "click", target: "Allow" }, // the popup closes itself; the batch carries on in the opener
+          { action: "scroll", direction: "down", expect: { text: "OAuth popup" } }, // runs on the opener
         ],
       }),
     )

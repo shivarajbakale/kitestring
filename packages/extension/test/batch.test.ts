@@ -365,6 +365,25 @@ describe("runBatch", () => {
     expect(s.activeTabId).toBe(2)
   })
 
+  it("a step that closes its own tab hands the batch to its opener, even before forget() ran", async () => {
+    const { openerOf } = await import("../background/sessions")
+    vi.mocked(openerOf).mockReturnValueOnce(2) // captured before the step; s.tabs still holds tab 1 afterwards
+    state.script.push(() => ok({ detail: "the tab closed itself" } as any))
+    const { p, s } = await run({ steps: [click("Allow"), click("Next")] })
+    const r = await p
+    expect(r.ok).toBe(true)
+    expect(state.calls.map((c) => c.tabId)).toEqual([1, 2])
+    expect(s.activeTabId).toBe(2)
+  })
+
+  it("a step that closes its tab with no known opener halts error before the next step", async () => {
+    state.script.push(() => ok({ detail: "the tab closed itself" } as any))
+    const r = await (await run({ steps: [click("Allow"), click("Next")] })).p
+    expect(r.halted).toMatchObject({ index: 0, reason: "error", detail: "tab 1 closed" })
+    expect(r.next).toBe(1)
+    expect(state.calls).toHaveLength(1)
+  })
+
   it("switch_tab opener whose opener closed halts error", async () => {
     const sessions = await import("../background/sessions")
     ;(sessions.openerOf as any).mockReturnValue(99)

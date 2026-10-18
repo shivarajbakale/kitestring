@@ -23,6 +23,7 @@ import { RestrictedPageError, RpcError } from "./errors"
 import { allowedSites, capDiff, dialogHalt, fitResult, haltFor, siteOf, stepTarget, urlMatches } from "./batch-result"
 import { runStep, type StepAction, type StepOutcome } from "./pipeline"
 import { withTabLock, type TabLock } from "./serial"
+import { TAB_CLOSED_ITSELF } from "./tab-closed"
 import { activeTab, newestAdopted, openerOf, useTab, type Session } from "./sessions"
 
 /** Same as the pipeline's ACTION_CAP_MS: no step runs longer than a single action may. */
@@ -273,20 +274,30 @@ export async function runBatch(
       }
       const t = Date.now()
       const stepTab = tabId
+      const openerBefore = openerOf(s, tabId)
       const ran = await execute(step)
       const res = ran.res
-      if (!s.tabs.has(tabId) && s.activeTabId !== null && s.tabs.has(s.activeTabId)) {
-        // The step closed its own tab (an OAuth popup's "Allow"): carry on in the tab the session fell back to.
-        await linger
-        lock?.release()
-        lock = undefined
-        try {
-          lock = await holdLock(s.activeTabId, deadline - STEP_MARGIN_MS)
-          tabId = s.activeTabId
-          navigated = true
-        } catch (e) {
-          if (isPaused(e)) ran.halt = "paused"
-          else ran.halt = "time"
+      let handoff: { reason: HaltReason; detail: string } | undefined
+      if (res?.detail === TAB_CLOSED_ITSELF && ran.acted && !ran.halt) {
+        // The step closed its own tab (an OAuth popup's "Allow"): carry on in its opener, never in whatever is active.
+        const closed = tabId
+        const to = openerBefore !== undefined && s.tabs.has(openerBefore) ? openerBefore : undefined
+        if (to !== undefined) {
+          await linger
+          lock?.release()
+          lock = undefined
+          try {
+            lock = await holdLock(to, deadline - STEP_MARGIN_MS)
+            tabId = to
+            navigated = true
+            await useTab(s, to)
+          } catch (e) {
+            handoff = isPaused(e)
+              ? { reason: "paused", detail: (e as Error).message }
+              : { reason: "time", detail: `waited for another action on tab ${to}` }
+          }
+        } else if (i + 1 < params.steps.length) {
+          handoff = { reason: "error", detail: `tab ${closed} closed` }
         }
       }
       if (res) {
@@ -302,6 +313,7 @@ export async function runBatch(
         const g = await guards(step, i, ran)
         if (g) halt(i, g.reason, g.detail, nextAfter(i, g.reason, ran.acted))
       }
+      if (!halted && handoff) halt(i, handoff.reason, handoff.detail, i + 1)
       const target = stepTarget(step)
       const result: StepResult = {
         i,

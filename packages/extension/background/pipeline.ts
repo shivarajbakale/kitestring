@@ -19,6 +19,7 @@ import { trackNetwork, type NetworkTracker } from "./network-idle"
 import { setFiles } from "./upload"
 import { withTabLock, type TabLock } from "./serial"
 import { activeTab, type Session } from "./sessions"
+import { TAB_CLOSED_ITSELF } from "./tab-closed"
 
 export type Action =
   | { kind: "click" | "fill" | "select"; target: Target; value?: string }
@@ -343,12 +344,21 @@ async function finish(
   try {
     return await finishOpen(r, before, verify)
   } catch (e) {
-    if (e instanceof Expired || (await chrome.tabs.get(r.tabId).then(() => true, () => false))) throw e
-    const res: ActionResult = { ok: true, status: "done", diff: EMPTY, page: "", detail: "the tab closed itself" }
+    // Closing is not instant: a "target closed" or detach error may come before the tab is gone.
+    if (!(await tabGone(r.tabId, e instanceof Expired ? 1 : 6))) throw e
+    const res: ActionResult = { ok: true, status: "done", diff: EMPTY, page: "", detail: TAB_CLOSED_ITSELF }
     if (r.watch.newTabs.length) res.newTabs = [...r.watch.newTabs]
     if (r.dialogs.events.length) res.dialogs = [...r.dialogs.events]
     return res
   }
+}
+
+async function tabGone(tabId: number, tries: number): Promise<boolean> {
+  for (let i = 0; i < tries; i++) {
+    if (await chrome.tabs.get(tabId).then(() => false, () => true)) return true
+    if (i + 1 < tries) await new Promise((res) => setTimeout(res, 50))
+  }
+  return false
 }
 
 async function finishOpen(
