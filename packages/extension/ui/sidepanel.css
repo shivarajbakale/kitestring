@@ -22,7 +22,8 @@
 }
 
 html,
-body {
+body,
+#__plasmo {
   height: 100%;
 }
 
@@ -148,6 +149,7 @@ body {
 @media (max-height: 480px) {
   html,
   body,
+  #__plasmo,
   .panel {
     height: auto;
   }

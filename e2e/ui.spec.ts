@@ -238,7 +238,12 @@ test.describe("live side panel", () => {
         await panel.evaluate(() => document.fonts.ready)
         // No horizontal scroll at any supported width.
         expect(await panel.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
-        await panel.setViewportSize({ width: width * 2, height: 2400 })
+        // As tall as the content: the log scrolls inside a fixed-height panel, so size the page to show all of it.
+        const tall = await panel.evaluate(() => {
+          const log = document.querySelector<HTMLElement>(".panel__log")!
+          return Math.ceil(log.getBoundingClientRect().top + log.scrollHeight + 1)
+        })
+        await panel.setViewportSize({ width: width * 2, height: tall * 2 })
         await panel.evaluate(() => (document.documentElement.style.zoom = "2"))
         await panel.mouse.move(1, 1) // no stray hover in the docs
         const name = width === 320 ? `sidepanel-${scheme}` : `sidepanel-${width}-${scheme}`
