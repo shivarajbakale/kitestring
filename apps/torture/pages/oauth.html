@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>oauth</title></head><body>
+<main><h1>Authorize Kite</h1>
+<button id="a">Allow</button></main>
+<script>
+window.__result = undefined
+a.addEventListener("click", () => {
+  const returnOrigin = new URLSearchParams(location.search).get("return")
+  opener.postMessage("granted", returnOrigin)
+  window.close()
+})
+</script>
+</body></html>

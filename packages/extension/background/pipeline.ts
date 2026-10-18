@@ -8,7 +8,7 @@ import { RestrictedPageError, RpcError } from "./errors"
 import * as input from "./input"
 import { trackNetwork, type NetworkTracker } from "./network-idle"
 import { withTabLock, type TabLock } from "./serial"
-import { activeTab, adoptTab, type Session } from "./sessions"
+import { activeTab, type Session } from "./sessions"
 
 export type Action =
   | { kind: "click" | "fill" | "select"; target: Target; value?: string }
@@ -317,7 +317,6 @@ async function finish(
   const urlAfter = tab.url || tab.pendingUrl || ""
   const navigated = watch.navigated || urlAfter !== r.urlBefore
   const newTabs = [...watch.newTabs]
-  for (const id of newTabs) await adoptTab(r.s, id).catch(() => {})
 
   let status: Status = ready ? "done" : "timeout"
   let detail: string | undefined = ready ? undefined : `page not ready after ${READY.timeoutMs} ms`

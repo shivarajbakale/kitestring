@@ -8,12 +8,17 @@ export interface Session {
   groupId: number | null
   activeTabId: number | null
   tabs: Set<number>
+  /** tabId -> the tab that opened it (popups, target=_blank). */
+  opener: Map<number, number>
+  /** tabId -> epoch ms when the watcher adopted it. */
+  adoptedAt: Map<number, number>
 }
 
 export interface TabInfo {
   id: number
   url: string
   title: string
+  active?: boolean
 }
 
 interface StoredSession {
@@ -21,6 +26,8 @@ interface StoredSession {
   groupId: number | null
   activeTabId: number | null
   tabs: number[]
+  opener?: [number, number][]
+  adoptedAt?: [number, number][]
 }
 
 const STORAGE_KEY = "kite.sessions"
@@ -44,6 +51,8 @@ export function loadSessions(): Promise<void> {
         groupId: tabs.size ? s.groupId : null,
         activeTabId: s.activeTabId !== null && tabs.has(s.activeTabId) ? s.activeTabId : null,
         tabs,
+        opener: new Map((s.opener ?? []).filter(([id]) => tabs.has(id))),
+        adoptedAt: new Map((s.adoptedAt ?? []).filter(([id]) => tabs.has(id))),
       })
     }
   })().catch((e: unknown) => {
@@ -59,6 +68,8 @@ function persist(): Promise<void> {
     groupId: s.groupId,
     activeTabId: s.activeTabId,
     tabs: [...s.tabs],
+    opener: [...s.opener],
+    adoptedAt: [...s.adoptedAt],
   }))
   return chrome.storage.session.set({ [STORAGE_KEY]: data })
 }
@@ -73,7 +84,7 @@ export function findSession(name: string): Session | undefined {
 
 /** A throwaway, unregistered session (owns nothing). */
 export function emptySession(name: string): Session {
-  return { name, groupId: null, activeTabId: null, tabs: new Set() }
+  return { name, groupId: null, activeTabId: null, tabs: new Set(), opener: new Map(), adoptedAt: new Map() }
 }
 
 export function getOrCreateSession(name: string): Session {
@@ -195,12 +206,32 @@ function waitLoadEvent(tabId: number, timeoutMs: number): Promise<void> {
 }
 
 /** Adds a tab the session's page opened (popup, target=_blank) to the session and its group. */
-export async function adoptTab(s: Session, tabId: number): Promise<void> {
+export async function adoptTab(s: Session, tabId: number, opts: { opener?: number; group?: boolean } = {}): Promise<void> {
   if (s.tabs.has(tabId)) return
   s.tabs.add(tabId)
+  s.adoptedAt.set(tabId, Date.now())
+  if (opts.opener !== undefined) s.opener.set(tabId, opts.opener)
   await persist()
+  if (opts.group === false) return
   await addToGroup(s, tabId)
   await persist()
+}
+
+/** The most recently adopted tab, optionally only those adopted after epoch ms `since`. */
+export function newestAdopted(s: Session, since = -1): number | undefined {
+  let best: number | undefined
+  let bestAt = since
+  for (const [id, at] of s.adoptedAt) {
+    if (s.tabs.has(id) && at > bestAt) {
+      best = id
+      bestAt = at
+    }
+  }
+  return best
+}
+
+export function openerOf(s: Session, tabId: number): number | undefined {
+  return s.opener.get(tabId)
 }
 
 export async function useTab(s: Session, tabId: number): Promise<TabInfo> {
@@ -225,7 +256,7 @@ export async function listTabs(s: Session): Promise<TabInfo[]> {
   const out: TabInfo[] = []
   for (const id of s.tabs) {
     try {
-      out.push(info(await chrome.tabs.get(id)))
+      out.push({ ...info(await chrome.tabs.get(id)), ...(id === s.activeTabId ? { active: true } : {}) })
     } catch {
       // closed in the meantime; onRemoved will clean up
     }
@@ -239,7 +270,10 @@ function forget(tabId: number): boolean {
   for (const s of sessions.values()) {
     if (!s.tabs.delete(tabId)) continue
     changed = true
-    if (s.activeTabId === tabId) s.activeTabId = null
+    const opener = s.opener.get(tabId)
+    if (s.activeTabId === tabId) s.activeTabId = opener !== undefined && s.tabs.has(opener) ? opener : null
+    s.opener.delete(tabId)
+    s.adoptedAt.delete(tabId)
     if (s.tabs.size === 0) s.groupId = null
   }
   return changed
@@ -247,6 +281,19 @@ function forget(tabId: number): boolean {
 
 /** Call once at service-worker start: keeps sessions in sync with tabs the user closes. */
 export function watchTabs(): void {
+  // Tabs opened by a session's tab join that session (at any time, not only during an action).
+  chrome.tabs.onCreated.addListener((tab) => {
+    const openerId = tab.openerTabId
+    if (openerId === undefined || tab.id === undefined) return
+    const id = tab.id
+    void loadSessions().then(async () => {
+      const s = [...sessions.values()].find((x) => x.tabs.has(openerId))
+      if (!s || s.tabs.has(id)) return
+      // Tab groups are per window: a popup window's tab is owned but never grouped.
+      const opener = await chrome.tabs.get(openerId).catch(() => undefined)
+      await adoptTab(s, id, { opener: openerId, group: !!opener && opener.windowId === tab.windowId })
+    })
+  })
   chrome.tabs.onRemoved.addListener((tabId) => {
     void loadSessions().then(() => {
       if (forget(tabId)) return persist()

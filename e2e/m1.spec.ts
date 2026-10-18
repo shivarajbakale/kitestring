@@ -19,7 +19,7 @@ test.describe("sessions", () => {
 
     const list = await kite("tab", "list")
     expect(list.code).toBe(0)
-    expect(list.stdout.trim().split("\n")).toEqual([`tab ${id} ${url}`])
+    expect(list.stdout.trim().split("\n")).toEqual([`tab ${id} ${url}  (active)`])
 
     const groups = await sw.evaluate(() => chrome.tabGroups.query({ title: "kite:default" }))
     expect(groups).toHaveLength(1)
@@ -48,7 +48,7 @@ test.describe("sessions", () => {
     expect((await kite("snapshot")).stdout).toContain("Basic form")
 
     expect((await kite("tab", "close", String(b))).code).toBe(0)
-    expect((await kite("tab", "list")).stdout.trim()).toBe(`tab ${a} ${torture}/basic-form`)
+    expect((await kite("tab", "list")).stdout.trim()).toBe(`tab ${a} ${torture}/basic-form  (active)`)
 
     // The user closes the remaining tab by hand.
     await context.pages().find((p) => p.url() === `${torture}/basic-form`)!.close()

@@ -30,3 +30,33 @@ test.describe("alert guard", () => {
     expect(res.dialogs[0]).toMatchObject({ type: "prompt", message: "New name", handled: "dismissed" })
   })
 })
+
+test.describe("tab watcher", () => {
+  test("a target=_blank tab joins the session and is usable", async ({ kite, torture }) => {
+    await kite("tab", "new", `${torture}/new-tab-link`)
+    const r = await kite("click", "Open report")
+    const id = /⧉ new tab (\d+)/.exec(out(r))?.[1]
+    expect(id, out(r)).toBeTruthy()
+    const list = await kite("tab", "list")
+    expect(out(list)).toContain(`tab ${id} `)
+    expect((await kite("tab", "use", id!)).code).toBe(0)
+    expect(out(await kite("click", "Confirm report"))).toMatch(/^✓ done$/m)
+    const res = await fetch(`${torture}/__last-result`)
+    expect(await res.text()).toBe("report-confirmed")
+  })
+
+  test("an OAuth popup on another domain is adopted; closing it returns to the opener", async ({ kite, context, torture, result }) => {
+    const opener = `${torture}/oauth-popup`
+    await kite("tab", "new", opener)
+    const r = await kite("click", "Sign in with Kite")
+    const id = /⧉ new tab (\d+)/.exec(out(r))?.[1]
+    expect(id, out(r)).toBeTruthy()
+    expect((await kite("tab", "use", id!)).code).toBe(0)
+    expect(out(await kite("tab", "list"))).toMatch(new RegExp(`tab ${id} .*\\(active\\)`))
+    await kite("click", "Allow")
+    await expect.poll(async () => out(await kite("tab", "list")), { timeout: 5_000 }).not.toContain(`tab ${id} `)
+    const list = out(await kite("tab", "list"))
+    expect(list).toMatch(new RegExp(`${opener.replace(/[.]/g, "\\.")}.*\\(active\\)`))
+    expect(await result(context.pages().find((p) => p.url() === opener)!)).toBe("signed-in")
+  })
+})

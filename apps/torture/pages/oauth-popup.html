@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>oauth-popup</title></head><body>
+<main><h1>OAuth popup</h1>
+<button id="s">Sign in with Kite</button></main>
+<script>
+// Opens the consent page on another host (localhost vs 127.0.0.1 = another registrable domain) in a real popup window.
+window.__result = undefined
+s.addEventListener("click", () => {
+  const url = "http://localhost:" + location.port + "/oauth?return=" + encodeURIComponent(location.origin)
+  window.open(url, "_blank", "popup,width=480,height=600")
+})
+addEventListener("message", (e) => {
+  if (e.data === "granted") window.__result = "signed-in"
+})
+</script>
+</body></html>

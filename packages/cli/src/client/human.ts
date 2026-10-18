@@ -17,7 +17,7 @@ export function human(method: Method, result: unknown): string {
       return r && r.id !== undefined ? `tab ${r.id} ${r.url ?? ""}`.trimEnd() : "ok"
     case "tab.list": {
       const tabs: any[] = Array.isArray(r) ? r : (r?.tabs ?? [])
-      return tabs.map((t) => `tab ${t.id} ${t.url ?? ""}`.trimEnd()).join("\n")
+      return tabs.map((t) => `tab ${t.id} ${t.url ?? ""}${t.active ? "  (active)" : ""}`.trimEnd()).join("\n")
     }
     case "status":
       return typeof r === "string" ? r : JSON.stringify(r, null, 2)

@@ -17,7 +17,9 @@ Serve with `pnpm --filter torture dev` (default http://127.0.0.1:4173). Each pag
 | `navigating-link` | `kite click "Next page"` (`done`, `navigation.url` ends `/navigating-link-done`) | `arrived` (set on `/navigating-link-done`) |
 | `whitespace` | `kite click "  save changes "` | `saved` |
 | `alert-box` | `kite click "Show alert"` (`done` within 3 s, `dialogs[0]` is the accepted alert), `kite click "Delete everything"` (confirm dismissed), `kite click Rename` (prompt dismissed) | `kept` / `rename-cancelled` (`WRONG:deleted` if the confirm was accepted) |
+| `new-tab-link` | `kite click "Open report"` (lists `⧉ new tab <id>`; `kite tab list` includes it), `kite tab use <id>`, `kite click "Confirm report"` | `report-confirmed` (also POSTed to `/__last-result`) |
+| `oauth-popup` | `kite click "Sign in with Kite"` (opens a popup window on `localhost`, another registrable domain), `kite tab use <popup id>`, `kite click Allow` (popup closes, opener is the active tab again) | `signed-in` (set on the opener by `postMessage`) |
 
-`/navigating-link-done` is the navigation target of `navigating-link`. `/analytics/*` returns 204.
+`/navigating-link-done` is the navigation target of `navigating-link`. `/new-tab-target` is opened by `new-tab-link`; `/oauth` is opened (via `http://localhost:<port>`) by `oauth-popup`. `/analytics/*` returns 204.
 
 `serial` (M2): records click order in `window.__events`. `kite click "Slow task"` (2 s progress bar) and a concurrent `kite click "Fast task"` on the same tab must give `["slow:start", "slow:end", "fast"]` — actions on one tab never interleave.

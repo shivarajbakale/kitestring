@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>new-tab-target</title></head><body>
+<main><h1>Report</h1>
+<button id="c">Confirm report</button></main>
+<script>
+window.__result = undefined
+c.addEventListener("click", () => {
+  window.__result = "report-confirmed"
+  fetch("/__last-result", { method: "POST", body: "report-confirmed" })
+})
+</script>
+</body></html>
