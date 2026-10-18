@@ -1,3 +1,4 @@
+import { KiteError } from "../client/rpc-client.js"
 import {
   paramName,
   parseTarget,
@@ -40,6 +41,8 @@ interface Echo {
  * - `goto` loses its query and fragment; the stored step gets `droppedQuery: true`.
  * - Targets are written from `StepResult.resolved` as `{text, role, within?}`. Without it, a text target is stored with the
  *   step's own `within`/`role` folded in; an `@ref` target without `resolved` throws.
+ * - A fill/select/upload target whose name or scope echoes any value (its own included) stores no such text: the target is
+ *   `{role, within?}` (no `text`), so replay may halt `ambiguous` and the agent takes over. Its param is named from the role.
  * - Steps are copied field by field per action (an allowlist), so unknown keys never reach the plan.
  * - `secrets` holds `"<batch>.<step>"` (zero-based positions in `sent`) of fields that were password / cc-* / one-time-code.
  */
@@ -88,7 +91,7 @@ export function buildPlan(intent: string, url: string, sent: Step[][], results: 
       let label: string | undefined
       if (s.action === "fill" || s.action === "select" || s.action === "upload") {
         const t = r.resolved?.name ?? (typeof s.target === "string" ? s.target : "text" in s.target ? s.target.text : "")
-        label = hit(t, `${b}.${i}`) ? (r.resolved?.role ?? "value") : t
+        label = echoed(t) ? (r.resolved?.role ?? "value") : t
       } else if (s.action === "press" && s.key.length === 1 && !s.key.includes("+")) label = "key"
       if (label === undefined) return
       const name = newParam(label, secrets.has(`${b}.${i}`))
@@ -118,11 +121,20 @@ export function buildPlan(intent: string, url: string, sent: Step[][], results: 
           if ("ref" in t) throw new Error(`batch ${b} step ${i}: cannot store an @ref target without a resolved name`)
           target = { text: t.text, ...((t.role ?? step.role) ? { role: t.role ?? step.role } : {}), ...((t.within ?? step.within) ? { within: t.within ?? step.within } : {}) }
         }
-        if ("text" in target) {
+        if (step.action === "fill" || step.action === "select" || step.action === "upload") {
+          // a field named after a value (its own or another) must not store that name: role (+ clean scope) only
+          const { text, within, ...rest } = target as { text: string; within?: string; role?: string }
+          target = {
+            ...(text && echoed(text) ? {} : { text }),
+            ...rest,
+            ...(within && !echoed(within) ? { within } : {}),
+          } as Target
+        } else if ("text" in target) {
           const label = target.role ?? "value"
           const choice = step.action === "click" && target.role !== undefined && CHOICE_ROLES.has(target.role)
           const e = hit(target.text, id)
-          const text = e ? `{{${echoParam(e, label)}}}` : choice ? `{{${newParam(target.within ?? target.role!, false)}}}` : target.text
+          const scope = target.within && !echoed(target.within) ? target.within : target.role
+          const text = e ? `{{${echoParam(e, label)}}}` : choice ? `{{${newParam(scope!, false)}}}` : target.text
           target = { ...target, text, ...(target.within ? { within: clean(target.within, id, label) } : {}) }
         }
         out.target = target
@@ -183,6 +195,11 @@ export function buildPlan(intent: string, url: string, sent: Step[][], results: 
   }
 }
 
+function safeSegment(v: string): string {
+  const e = encodeURIComponent(v)
+  return e === "." || e === ".." ? e.replace(/\./g, "%2E") : e
+}
+
 function decodeSeg(seg: string): string {
   try {
     return decodeURIComponent(seg)
@@ -224,7 +241,19 @@ export function fillPlan(plan: Plan, values: Record<string, string>): Step[][] {
     steps.map((s) => {
       const { droppedQuery: _d, ...rest } = s
       const c = rest as Record<string, unknown>
-      for (const k of ["value", "url", "key"]) if (typeof c[k] === "string") c[k] = sub(c[k] as string)
+      for (const k of ["value", "key"]) if (typeof c[k] === "string") c[k] = sub(c[k] as string)
+      if (typeof c.url === "string") {
+        // a value in a URL is one path segment: never a way to change host, path depth or query
+        const url: string = c.url.replace(PLACEHOLDER, (m, name: string) => (Object.hasOwn(values, name) ? safeSegment(values[name]!) : m))
+        c.url = url
+        let same = false
+        try {
+          same = new URL(url).origin === plan.origin
+        } catch {
+          /* not absolute */
+        }
+        if (!same) throw new KiteError("BAD_REQUEST", `refusing goto ${url}: not on ${plan.origin}`)
+      }
       if (Array.isArray(c.files)) c.files = (c.files as string[]).map(sub)
       if (c.target && typeof c.target === "object" && "text" in c.target) {
         const t = c.target as { text: string; within?: string }

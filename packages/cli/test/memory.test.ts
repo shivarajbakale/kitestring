@@ -281,3 +281,43 @@ describe("savePlan merge", () => {
   })
 })
 
+describe("own-value names and safe goto params", () => {
+  const R = (role: string, name: string, within?: string) => ({ role, name, ...(within ? { within } : {}) })
+  it("a combobox named after its own value stores no name and no param named after it", () => {
+    const p = buildPlan(
+      "x", URL_,
+      [[{ action: "fill", target: "@e1", value: "Productivity" }]],
+      [batch([ok(0, "fill", R("combobox", "Productivity", "Productivity group"))])],
+      new Set(),
+    )
+    expect(JSON.stringify(p)).not.toMatch(/productivity/i)
+    expect(p.batches[0]![0]).toMatchObject({ target: { role: "combobox" }, value: "{{combobox}}" })
+    expect((p.batches[0]![0] as any).target.text).toBeUndefined()
+    expect(p.params).toEqual([{ name: "combobox", secret: false }])
+  })
+  it("a choice click does not name its param from an echoing within", () => {
+    const p = buildPlan(
+      "x", URL_,
+      [[{ action: "fill", target: "@e1", value: "Gold" }, { action: "click", target: "@e2" }]],
+      [batch([ok(0, "fill", R("textbox", "Tier")), ok(1, "click", R("option", "Silver", "Gold plans"))])],
+      new Set(),
+    )
+    expect(JSON.stringify(p)).not.toMatch(/gold/i)
+    expect(p.params.map((x) => x.name)).toEqual(["tier", "option"])
+  })
+  const gotoPlan = (url: string): Plan => ({
+    version: 1, intent: "g", origin: "https://x.example.com", pathPattern: "/", params: [{ name: "q", secret: false }],
+    batches: [[{ action: "goto", url }]], createdAt: "", runs: 0, lastOk: null,
+  })
+  it("goto values are encoded as one path segment", () => {
+    const g = (v: string) => (fillPlan(gotoPlan("https://x.example.com/s/{{q}}/v"), { q: v })[0]![0] as any).url
+    expect(g("../etc")).toBe("https://x.example.com/s/..%2Fetc/v")
+    expect(g("a?x=1#f")).toBe("https://x.example.com/s/a%3Fx%3D1%23f/v")
+    expect(g("https://evil.com/")).toBe("https://x.example.com/s/https%3A%2F%2Fevil.com%2F/v")
+    expect(g("..")).toBe("https://x.example.com/s/%2E%2E/v")
+  })
+  it("throws BAD_REQUEST when the url leaves the plan origin", () => {
+    expect(() => fillPlan(gotoPlan("{{q}}"), { q: "https://evil.com/" })).toThrow(/not on https:\/\/x.example.com/)
+    expect(() => fillPlan(gotoPlan("{{q}}"), { q: "https://evil.com/" })).toThrow(expect.objectContaining({ code: "BAD_REQUEST" }))
+  })
+})
