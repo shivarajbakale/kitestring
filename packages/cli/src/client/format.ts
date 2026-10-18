@@ -27,7 +27,8 @@ export function formatBatch(r: BatchResult): string {
   const lines: string[] = []
   for (const s of r.steps) {
     const what = `${s.action}${s.target ? ` ${s.target}` : ""}`
-    if (s.status === "done" || s.status === "no_effect") lines.push(`✓ ${s.i + 1} ${what}`)
+    if (s.status === "done") lines.push(`✓ ${s.i + 1} ${what}`)
+    else if (s.status === "no_effect") lines.push(`✓ ${s.i + 1} ${what} (no effect)`)
     else if (s.status === "skipped") lines.push(`· ${s.i + 1} skipped${s.target ? ` ${s.target}` : ` ${s.action}`}`)
     else lines.push(`✗ ${s.i + 1} ${what}: ${s.detail ?? s.status}`)
   }

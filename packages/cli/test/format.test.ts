@@ -106,7 +106,7 @@ describe("formatBatch", () => {
       page: "Page",
     }
     expect(formatBatch(r)).toBe(
-      ['✓ 1 fill "Name"', '· 2 skipped "Accept cookies"', "✓ 3 press", '⨯ closed popup cookie "Reject all"', "+ button Saved", "- button Save", "page: Page"].join("\n"),
+      ['✓ 1 fill "Name"', '· 2 skipped "Accept cookies"', "✓ 3 press (no effect)", '⨯ closed popup cookie "Reject all"', "+ button Saved", "- button Save", "page: Page"].join("\n"),
     )
   })
   it("halted risky: reason, resume hint, candidates", () => {
@@ -149,6 +149,20 @@ describe("formatBatch", () => {
   it("halted without next has no resume line", () => {
     const r: BatchResult = { ok: false, steps: [], halted: { index: 0, reason: "paused", detail: "x" }, diff: empty, page: "P" }
     expect(formatBatch(r)).toBe("halted at step 1 (paused): x\npage: P")
+  })
+  it("a no_effect step is not an error but says so", () => {
+    const r: BatchResult = {
+      ok: true,
+      steps: [{ i: 2, action: "click", target: '"Save"', status: "no_effect", detail: "nothing changed on the page", ms: 5 }],
+      diff: { added: [], removed: [] },
+      page: "P",
+    }
+    expect(formatBatch(r)).toBe('✓ 3 click "Save" (no effect)\npage: P')
+  })
+  it("formatResult shows no_effect as its status, never a check mark", () => {
+    expect(formatResult({ ...base, ok: false, status: "no_effect", detail: "nothing changed on the page" }).split("\n")[0]).toBe(
+      "✗ no_effect: nothing changed on the page",
+    )
   })
   it("does not print the internal resolved target", () => {
     const r: BatchResult = {

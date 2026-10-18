@@ -74,3 +74,18 @@ Revisions: (a) a rule to use obviously fake test data (`test@example.com`) and n
 Revisions: a rule to always end with the Report block, including on a "not ready" verdict. The fake-test-data rule, localhost submits being fine, and health checks after the last action of the flow were also added.
 
 Next: re-run S2 (new items) and S3 (report section) against the revised text.
+
+### Run 2 (batching, 2026-10-18)
+
+Method: scripted walk-through of the store-listing flow (`apps/torture/pages/store-listing.html`: fill the listing across tabs, upload the zip and screenshots, Save draft, then "Submit for review") by a fresh opus agent given only the `kitestring` skill, with simulated results (controller-run). A first run with a sonnet agent was cut off by an API safeguard error before it finished and is not counted.
+
+**S4 — `kitestring` batching: PASS.** One snapshot, then one batch that filled the listing, uploaded the files and ended at "Save draft"; it held "Submit for review" back and asked the human for a fresh yes instead of putting it in the batch.
+Misses it reported, and the revisions made:
+(a) It had to guess the upload step's shape. The skill now gives `{"action":"upload","target":"Extension zip","files":["/abs/path/kite.zip"]}`: `files` is an array, several files only if the input takes multiple.
+(b) It did not know what relative upload paths resolve against. Now: the working directory of the CLI or the MCP server (for MCP, the agent harness's), so prefer absolute paths.
+(c) It read "ordinary submits/sends" as possibly covering "Submit for review" when the task asked for it and said "don't ask". The confirm rule now says "submit for review" counts as publish and "send" as send: both need a fresh explicit yes even then; only ordinary submits outside that list are confirmed by the instruction.
+(d) It was unsure how to fill fields on a tab it had not seen. Now: click the tab, then give the next step `wait` or the click an `expect`.
+(e) It was unsure how `select` matches. Now: the option value exactly, then label or value ignoring case.
+Also added from review: Recovery rows for the batch halt reasons `risky`, `domain`, `dialog`, `expect` and `time`, and a rule never to submit a risky form with `press Enter` in a batch (the batch risk check covers clicks only).
+
+Next: re-run S4 against the revised text.
