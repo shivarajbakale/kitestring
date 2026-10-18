@@ -153,3 +153,21 @@ test("a number input (spinbutton) is a fill target", async ({ fixture }) => {
   })
   expect(r).toEqual({ kind: "found", role: "spinbutton", id: "q" })
 })
+
+test("within falls back to an outer scope when the innermost one does not hold the target", async ({ fixture }) => {
+  const page = await fixture("find-outer-scope.html")
+  const r = await page.evaluate(() => {
+    const a = (window as unknown as { __kiteAgent: Agent }).__kiteAgent
+    const f = a.find({ text: "Privacy", within: "Store listing" }, "click")
+    const inner = a.find({ text: "Title", within: "Store listing" }, "fill")
+    return { id: f.kind === "found" ? a.resolve(f.ref)?.id : f.kind, inner: inner.kind === "found" ? a.resolve(inner.ref)?.id : inner.kind }
+  })
+  expect(r).toEqual({ id: "t2", inner: "ft" })
+})
+
+test("an ambiguous match in the innermost scope never falls through to an outer scope", async ({ fixture }) => {
+  const page = await fixture("find-outer-scope.html")
+  const r = await page.evaluate(() => (window as unknown as { __kiteAgent: Agent }).__kiteAgent.find({ text: "Help", within: "Store listing" }, "click"))
+  expect(r.kind).toBe("ambiguous")
+  expect((r as { candidates: unknown[] }).candidates).toHaveLength(2)
+})

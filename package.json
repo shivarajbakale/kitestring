@@ -10,7 +10,8 @@
     "test": "pnpm -r test && node --test scripts/*.test.mjs",
     "test:e2e": "pnpm -r test:e2e",
     "typecheck": "pnpm -r typecheck",
-    "package:store": "node scripts/package-store.mjs"
+    "package:store": "node scripts/package-store.mjs",
+    "bench": "pnpm --filter @kitestring/bench bench"
   },
   "devDependencies": {
     "typescript": "^5.6.0"

@@ -121,27 +121,39 @@ export function find(doc: Document, reg: RefRegistry, target: Target, intent: Fi
   if (!text) return { kind: "not_found" }
   reg.rescan()
 
-  let scopes: Element[] | null = null
+  // `within` can name several nested scopes (a page heading and a panel with the same name): try the innermost
+  // ones first and fall back to the next tier out only when the target is not in them at all.
+  let tiers: (Element[] | null)[] = [null]
   if (t.within !== undefined) {
     const w = norm(t.within)
-    const matching = Array.from(doc.querySelectorAll("*")).filter((e) => isScope(e) && scopeMatches(e, w))
-    scopes = matching.filter((e) => !matching.some((o) => o !== e && e.contains(o)))
-    if (!scopes.length) return { kind: "not_found" }
+    let left = Array.from(doc.querySelectorAll("*")).filter((e) => isScope(e) && scopeMatches(e, w))
+    if (!left.length) return { kind: "not_found" }
+    tiers = []
+    while (left.length) {
+      const rest = left
+      const tier = rest.filter((e) => !rest.some((o) => o !== e && e.contains(o)))
+      tiers.push(tier)
+      left = rest.filter((e) => !tier.includes(e))
+    }
   }
 
-  const scored: { el: Element; score: number }[] = []
-  for (const el of Array.from(doc.querySelectorAll("*"))) {
-    const role = roleOf(el)
-    if (!role || !INTERACTIVE_ROLES.has(role)) continue
-    if (t.role && role !== t.role) continue
-    if (!intentOk(el, role, intent)) continue
-    if (scopes && !scopes.some((s) => s !== el && s.contains(el))) continue
-    let score = scoreElement(el, text)
-    if (score <= 0) continue
-    const v = visibleAndInView(el)
-    if (v.visible) score += 5
-    if (v.inView) score += 3
-    scored.push({ el, score })
+  let scored: { el: Element; score: number }[] = []
+  for (const scopes of tiers) {
+    scored = []
+    for (const el of Array.from(doc.querySelectorAll("*"))) {
+      const role = roleOf(el)
+      if (!role || !INTERACTIVE_ROLES.has(role)) continue
+      if (t.role && role !== t.role) continue
+      if (!intentOk(el, role, intent)) continue
+      if (scopes && !scopes.some((s) => s !== el && s.contains(el))) continue
+      let score = scoreElement(el, text)
+      if (score <= 0) continue
+      const v = visibleAndInView(el)
+      if (v.visible) score += 5
+      if (v.inView) score += 3
+      scored.push({ el, score })
+    }
+    if (scored.length) break
   }
   if (!scored.length) return { kind: "not_found" }
   scored.sort((a, b) => b.score - a.score)
