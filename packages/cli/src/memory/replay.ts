@@ -183,11 +183,11 @@ export async function runPlan(plan: Plan, values: Record<string, string>, deps: 
     })()
   } catch (e) {
     // the page is somewhere inside batch `current`: the takeover redoes it from its start
-    deps.onStop?.({ batch: current, step: 0 })
+    safeStop(deps, { batch: current, step: 0 })
     throw e
   }
   if (stopped) {
-    deps.onStop?.({ batch: stopped.stoppedAt!.batch, step: stopped.stoppedAt!.step })
+    safeStop(deps, { batch: stopped.stoppedAt!.batch, step: stopped.stoppedAt!.step })
     return stopped
   }
 
@@ -197,4 +197,13 @@ export async function runPlan(plan: Plan, values: Record<string, string>, deps: 
     out(`note: run not recorded in memory: ${e instanceof Error ? e.message : String(e)}`)
   }
   return { ok: true, batches: sent, ms: Date.now() - t0, cached, ...(last ? { result: last } : {}) }
+}
+
+/** Records a stop without letting a failed journal write hide the replay's own error or result. */
+function safeStop(deps: { onStop?: (at: { batch: number; step: number }) => void }, at: { batch: number; step: number }): void {
+  try {
+    deps.onStop?.(at)
+  } catch {
+    /* memory is best effort: the replay's outcome matters more */
+  }
 }
