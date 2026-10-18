@@ -18,7 +18,7 @@ import * as input from "./input"
 import { trackNetwork, type NetworkTracker } from "./network-idle"
 import { setFiles } from "./upload"
 import { withTabLock, type TabLock } from "./serial"
-import { activeTab, type Session } from "./sessions"
+import { activeTab, agentActing, type Session } from "./sessions"
 import { TAB_CLOSED_ITSELF } from "./tab-closed"
 
 export type Action =
@@ -669,6 +669,21 @@ async function begin(
   p: Progress,
   fn: (r: Run) => Promise<ActionResult>,
   dialogOpts: DialogOpts = {},
+): Promise<ActionResult> {
+  const ended = agentActing(tabId)
+  try {
+    return await beginActing(s, tabId, p, fn, dialogOpts)
+  } finally {
+    ended()
+  }
+}
+
+async function beginActing(
+  s: Session,
+  tabId: number,
+  p: Progress,
+  fn: (r: Run) => Promise<ActionResult>,
+  dialogOpts: DialogOpts,
 ): Promise<ActionResult> {
   let watch: Watch
   try {

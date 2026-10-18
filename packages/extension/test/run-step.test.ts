@@ -49,7 +49,7 @@ vi.mock("../background/cdp", () => ({
 }))
 vi.mock("../background/input", () => ({ click: vi.fn(async () => {}), keyDef: vi.fn() }))
 vi.mock("../background/network-idle", () => ({ trackNetwork: () => ({ stop() {}, waitIdle: async () => true }) }))
-vi.mock("../background/sessions", () => ({ activeTab: vi.fn() }))
+vi.mock("../background/sessions", () => ({ activeTab: vi.fn(), agentActing: vi.fn(() => () => {}) }))
 vi.mock("../background/control", () => ({ assertNotPaused: vi.fn() }))
 
 const s = { name: "a", groupId: null, activeTabId: 1, tabs: new Set([1]), opener: new Map(), adoptedAt: new Map() }

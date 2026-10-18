@@ -43,10 +43,13 @@ describe("tab watcher", () => {
     const sessions = await import("../background/sessions")
     sessions.watchTabs()
     await sessions.loadSessions()
-    const open = async (t: Tab) => {
+    /** Opens `t` while its opener has an action in flight (unless `idle`). */
+    const open = async (t: Tab, opts: { idle?: boolean } = {}) => {
       tabs.set(t.id, t)
+      const done = !opts.idle && t.openerTabId !== undefined ? sessions.agentActing(t.openerTabId) : () => {}
       for (const f of created) f(t)
       await new Promise((r) => setTimeout(r, 20))
+      done()
     }
     const close = async (id: number) => {
       tabs.delete(id)
@@ -121,5 +124,41 @@ describe("tab watcher", () => {
     const { sessions } = await setup(withOpener, [...base, { id: 30, windowId: 2 }])
     await sessions.loadSessions()
     expect(sessions.openerOf(sessions.findSession("a")!, 30)).toBe(1)
+  })
+
+  it("a tab the human opens from an idle agent tab (middle-click) is not adopted", async () => {
+    const { sessions, open } = await setup(stored, base)
+    await open({ id: 40, windowId: 1, openerTabId: 1 }, { idle: true })
+    expect(sessions.findSession("a")!.tabs.has(40)).toBe(false)
+  })
+
+  it("adopts during an action and up to 5 s after it ended, not later", async () => {
+    const { sessions, open } = await setup(stored, base)
+    const a = sessions.findSession("a")!
+    const done = sessions.agentActing(1)
+    await open({ id: 41, windowId: 1, openerTabId: 1 }, { idle: true })
+    expect(a.tabs.has(41)).toBe(true)
+    done()
+    const ended = Date.now()
+    const now = vi.spyOn(Date, "now")
+    now.mockReturnValue(ended + 4_900)
+    await open({ id: 42, windowId: 1, openerTabId: 1 }, { idle: true })
+    expect(a.tabs.has(42)).toBe(true)
+    now.mockReturnValue(ended + 5_100)
+    await open({ id: 43, windowId: 1, openerTabId: 1 }, { idle: true })
+    expect(a.tabs.has(43)).toBe(false)
+    now.mockRestore()
+  })
+
+  it("a failing adoption does not leave an unhandled rejection", async () => {
+    const { sessions, open } = await setup(stored, base)
+    ;(chrome.storage.session.set as any).mockRejectedValueOnce(new Error("storage quota"))
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+    await open({ id: 44, windowId: 1, openerTabId: 1 })
+    await new Promise((r) => setTimeout(r, 20))
+    process.off("unhandledRejection", unhandled)
+    expect(unhandled).not.toHaveBeenCalled()
+    expect(sessions.findSession("a")).toBeDefined()
   })
 })

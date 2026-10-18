@@ -41,6 +41,7 @@ vi.mock("../background/control", async () => {
 })
 vi.mock("../background/sessions", () => ({
   activeTab: (s: any) => s.activeTabId,
+  agentActing: vi.fn(() => () => {}),
   newestAdopted: vi.fn(() => undefined),
   openerOf: vi.fn(() => undefined),
   useTab: vi.fn(async (s: any, id: number) => {
@@ -484,5 +485,20 @@ describe("runBatch", () => {
     await p
     expect(record.mock.calls[0]![0].dialogs).toBeUndefined()
     expect(record.mock.calls[1]![0].dialogs).toEqual([confirm])
+  })
+
+  it("marks every tab it works on as agent-active until the batch ends (tab adoption)", async () => {
+    const sessions = await import("../background/sessions")
+    ;(sessions.newestAdopted as any).mockReturnValue(2)
+    const ended: number[] = []
+    ;(sessions.agentActing as any).mockClear()
+    ;(sessions.agentActing as any).mockImplementation((id: number) => () => ended.push(id))
+    const { p } = await run({ steps: [click("Open"), { action: "switch_tab", to: "new" } as Step, click("Confirm")] })
+    await vi.advanceTimersByTimeAsync(0)
+    await p
+    expect((sessions.agentActing as any).mock.calls.map((c: number[]) => c[0])).toEqual([1, 2])
+    expect(ended.sort()).toEqual([1, 2])
+    ;(sessions.newestAdopted as any).mockReturnValue(undefined)
+    ;(sessions.agentActing as any).mockImplementation(() => () => {})
   })
 })

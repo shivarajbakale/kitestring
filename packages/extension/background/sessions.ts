@@ -269,6 +269,37 @@ export async function listTabs(s: Session): Promise<TabInfo[]> {
   return out
 }
 
+/** Tabs a tab opens are the agent's while it acts on that tab, and for this long after. */
+export const OPENER_GRACE_MS = 5_000
+/** tabId -> actions/batches in flight on it. */
+const acting = new Map<number, number>()
+/** tabId -> epoch ms when the last action/batch on it ended. */
+const actedUntil = new Map<number, number>()
+
+/**
+ * Marks an action or batch in flight on `tabId`; call the returned function when it ends. Tabs
+ * opened from a tab are adopted only while it is marked or within OPENER_GRACE_MS after: a tab the
+ * human middle-clicks open from an idle agent tab stays the human's.
+ */
+export function agentActing(tabId: number): () => void {
+  acting.set(tabId, (acting.get(tabId) ?? 0) + 1)
+  let ended = false
+  return () => {
+    if (ended) return
+    ended = true
+    const n = (acting.get(tabId) ?? 1) - 1
+    if (n <= 0) acting.delete(tabId)
+    else acting.set(tabId, n)
+    actedUntil.set(tabId, Date.now())
+  }
+}
+
+function agentActiveOn(tabId: number): boolean {
+  if (acting.has(tabId)) return true
+  const until = actedUntil.get(tabId)
+  return until !== undefined && Date.now() - until <= OPENER_GRACE_MS
+}
+
 /** Removes a tab from whichever session owns it. Returns true if state changed. */
 function forget(tabId: number): boolean {
   let changed = false
@@ -286,18 +317,22 @@ function forget(tabId: number): boolean {
 
 /** Call once at service-worker start: keeps sessions in sync with tabs the user closes. */
 export function watchTabs(): void {
-  // Tabs opened by a session's tab join that session (at any time, not only during an action).
+  // Tabs opened by a session's tab join that session while the agent acts on the opener (or just
+  // after: popups may open late), never a tab the human opens from it while it is idle.
   chrome.tabs.onCreated.addListener((tab) => {
     const openerId = tab.openerTabId
     if (openerId === undefined || tab.id === undefined) return
+    if (!agentActiveOn(openerId)) return
     const id = tab.id
-    void loadSessions().then(async () => {
-      const s = [...sessions.values()].find((x) => x.tabs.has(openerId))
-      if (!s || s.tabs.has(id)) return
-      // Tab groups are per window: a popup window's tab is owned but never grouped.
-      const opener = await chrome.tabs.get(openerId).catch(() => undefined)
-      await adoptTab(s, id, { opener: openerId, group: !!opener && opener.windowId === tab.windowId })
-    })
+    void loadSessions()
+      .then(async () => {
+        const s = [...sessions.values()].find((x) => x.tabs.has(openerId))
+        if (!s || s.tabs.has(id)) return
+        // Tab groups are per window: a popup window's tab is owned but never grouped.
+        const opener = await chrome.tabs.get(openerId).catch(() => undefined)
+        await adoptTab(s, id, { opener: openerId, group: !!opener && opener.windowId === tab.windowId })
+      })
+      .catch(() => {})
   })
   chrome.tabs.onRemoved.addListener((tabId) => {
     void loadSessions().then(() => {

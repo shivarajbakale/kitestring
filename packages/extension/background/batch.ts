@@ -24,7 +24,7 @@ import { allowedSites, capDiff, dialogHalt, fitResult, haltFor, siteOf, stepTarg
 import { runStep, type StepAction, type StepOutcome } from "./pipeline"
 import { withTabLock, type TabLock } from "./serial"
 import { TAB_CLOSED_ITSELF } from "./tab-closed"
-import { activeTab, newestAdopted, openerOf, useTab, type Session } from "./sessions"
+import { activeTab, agentActing, newestAdopted, openerOf, useTab, type Session } from "./sessions"
 
 /** Same as the pipeline's ACTION_CAP_MS: no step runs longer than a single action may. */
 const STEP_CAP_MS = 15_000
@@ -134,6 +134,11 @@ export async function runBatch(
   let lock: TabLock | undefined
   /** Until the last step has truly ended (an expired step may still unwind): keep the lock. */
   let linger: Promise<void> = Promise.resolve()
+  /** Every tab the batch worked on counts as agent-active until the batch ends (popups opened between steps are adopted). */
+  const acting = new Map<number, () => void>()
+  const actOn = (id: number) => {
+    if (!acting.has(id)) acting.set(id, agentActing(id))
+  }
 
   const halt = (index: number, reason: HaltReason, detail?: string, nextIndex = index) => {
     halted = { index, reason, ...(detail ? { detail } : {}) }
@@ -151,6 +156,7 @@ export async function runBatch(
     return fitResult({ ok: false, steps, halted, next, diff: EMPTY, page: await agentQuick("brief", [], "") })
   }
 
+  actOn(tabId)
   try {
     const before = await agentQuick("snapshot", [{ full: false }], "")
     const start = siteOf((await tabInfo(tabId)).url)
@@ -196,6 +202,7 @@ export async function runBatch(
           return { status: "timeout", detail: `waited for another action on tab ${to}`, halt: "time", acted: false }
         }
         tabId = to
+        actOn(to)
         navigated = true
       }
       await useTab(s, to)
@@ -289,6 +296,7 @@ export async function runBatch(
           try {
             lock = await holdLock(to, deadline - STEP_MARGIN_MS)
             tabId = to
+            actOn(to)
             navigated = true
             await useTab(s, to)
           } catch (e) {
@@ -369,5 +377,6 @@ export async function runBatch(
   } finally {
     const held = lock
     void linger.then(() => held?.release())
+    for (const ended of acting.values()) ended()
   }
 }
