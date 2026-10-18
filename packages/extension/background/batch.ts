@@ -34,11 +34,20 @@ const FIND_POLL_MS = 200
 const SWITCH_NEW_WAIT_MS = 3_000
 const EMPTY = { added: [], removed: [] }
 
+/** A late-appearing target still gets this long to act after its `wait`. */
+const ACT_AFTER_WAIT_MS = 2_000
+/** Floor for one bounded agent call near the end of the budget. */
+const AGENT_FLOOR_MS = 300
+
 /**
- * Halts where the step sent no input (or may have only partly acted, `time`): `next` points at the
- * step itself so the agent resends it. After the others the step did act, so `next` is the one after.
+ * Where an agent resends from (`steps.slice(next)`): the halting step itself when it sent no input,
+ * when it expired mid-way (`time`: it may have partly acted, the agent re-checks), or when a dialog
+ * it opened was dismissed (its effect was cancelled; resend it with a dialog policy). Otherwise the
+ * step did its part and `next` is the one after.
  */
-const NOT_ACTED: ReadonlySet<HaltReason> = new Set(["not_found", "ambiguous", "blocked", "disabled", "risky", "restricted", "paused", "time"])
+function nextAfter(i: number, reason: HaltReason, acted: boolean): number {
+  return !acted || reason === "time" || reason === "dialog" ? i : i + 1
+}
 
 export type ActivityRecord = Omit<ActivityEntry, "id" | "ts">
 
@@ -90,6 +99,8 @@ interface Ran {
   detail?: string
   res?: StepOutcome
   halt?: HaltReason
+  /** The step's own input went out (or it switched tabs / waited). */
+  acted: boolean
 }
 
 /**
@@ -127,8 +138,9 @@ export async function runBatch(
     halted = { index, reason, ...(detail ? { detail } : {}) }
     next = nextIndex
   }
-  const agentQuick = <T>(method: "snapshot" | "brief" | "hasText" | "find", args: unknown[], fallback: T): Promise<T> =>
-    bounded(callAgent<T>(tabId, method, args), Math.min(2_000, Math.max(500, remaining())), fallback)
+  /** An agent call that cannot run past the budget (by more than AGENT_FLOOR_MS) or `capMs`. */
+  const agentQuick = <T>(method: "snapshot" | "brief" | "hasText" | "find", args: unknown[], fallback: T, capMs = 2_000): Promise<T> =>
+    bounded(callAgent<T>(tabId, method, args), Math.max(AGENT_FLOOR_MS, Math.min(capMs, remaining())), fallback)
 
   try {
     lock = await holdLock(tabId, deadline - BATCH_STEP_MIN_START_MS)
@@ -146,7 +158,7 @@ export async function runBatch(
     const findTarget = async (target: Target, intent: string, waitMs: number): Promise<boolean> => {
       const end = Date.now() + waitMs
       for (;;) {
-        const f = await agentQuick<FindResult>("find", [target, intent], { kind: "not_found" })
+        const f = await agentQuick<FindResult>("find", [target, intent], { kind: "not_found" }, end - Date.now())
         if (f.kind !== "not_found") return true
         if (Date.now() + FIND_POLL_MS > end) return false
         await sleep(FIND_POLL_MS)
@@ -159,17 +171,17 @@ export async function runBatch(
         const end = Date.now() + Math.min(step.wait ?? SWITCH_NEW_WAIT_MS, remaining() - STEP_MARGIN_MS)
         while ((to = newestAdopted(s, t0)) === undefined && Date.now() + 100 <= end) await sleep(100)
         if (to === undefined) {
-          if (step.if_present) return { status: "skipped" }
-          return { status: "not_found", detail: "no new tab was opened during this batch", halt: "not_found" }
+          if (step.if_present) return { status: "skipped", acted: false }
+          return { status: "not_found", detail: "no new tab was opened during this batch", halt: "not_found", acted: false }
         }
       } else if (step.to === "opener") {
         to = openerOf(s, tabId)
-        if (to === undefined) return { status: "error", detail: `tab ${tabId} has no opener`, halt: "error" }
-        if (!s.tabs.has(to)) return { status: "error", detail: `opener tab ${to} of tab ${tabId} is closed`, halt: "error" }
+        if (to === undefined) return { status: "error", detail: `tab ${tabId} has no opener`, halt: "error", acted: false }
+        if (!s.tabs.has(to)) return { status: "error", detail: `opener tab ${to} of tab ${tabId} is closed`, halt: "error", acted: false }
       } else {
         to = step.to
         if (!s.tabs.has(to)) {
-          return { status: "error", detail: `NOT_OWNER: tab ${to} does not belong to session "${s.name}"`, halt: "error" }
+          return { status: "error", detail: `NOT_OWNER: tab ${to} does not belong to session "${s.name}"`, halt: "error", acted: false }
         }
       }
       if (to !== tabId) {
@@ -179,21 +191,21 @@ export async function runBatch(
         try {
           lock = await holdLock(to, deadline - STEP_MARGIN_MS)
         } catch (e) {
-          if (isPaused(e)) return { status: "error", detail: (e as Error).message, halt: "paused" }
-          return { status: "timeout", detail: `waited for another action on tab ${to}`, halt: "time" }
+          if (isPaused(e)) return { status: "error", detail: (e as Error).message, halt: "paused", acted: false }
+          return { status: "timeout", detail: `waited for another action on tab ${to}`, halt: "time", acted: false }
         }
         tabId = to
         navigated = true
       }
       await useTab(s, to)
-      return { status: "done" }
+      return { status: "done", acted: true }
     }
 
     const execute = async (step: Step): Promise<Ran> => {
       if (step.action === "switch_tab") return switchTab(step)
       if (step.action === "wait") {
         await sleep(Math.min(step.ms ?? 0, remaining() - STEP_MARGIN_MS))
-        return { status: "done" }
+        return { status: "done", acted: true }
       }
       let action: StepAction
       if (step.action === "goto") action = { kind: "goto", url: step.url }
@@ -202,9 +214,9 @@ export async function runBatch(
       else {
         const target = typeof step.target === "string" ? parseTarget(step.target, step) : step.target
         if (step.wait || step.if_present) {
-          const waitMs = Math.min(step.wait ?? 0, remaining() - STEP_MARGIN_MS)
+          const waitMs = Math.min(step.wait ?? 0, remaining() - STEP_MARGIN_MS - ACT_AFTER_WAIT_MS)
           const present = await findTarget(target, step.action === "upload" ? "click" : step.action, waitMs)
-          if (!present && step.if_present) return { status: "skipped" }
+          if (!present && step.if_present) return { status: "skipped", acted: false }
         }
         action =
           step.action === "upload"
@@ -218,17 +230,19 @@ export async function runBatch(
           ...(step.action === "click" ? { beforeAct: (f) => (isRisky(f.name) ? "risky" : null) } : {}),
           linger: (t) => (linger = t),
         })
-        return { status: res.status, ...(res.detail ? { detail: res.detail } : {}), res, halt: res.halt ?? haltFor(res.status) ?? undefined }
+        const halt = res.halt ?? haltFor(res.status) ?? undefined
+        return { status: res.status, ...(res.detail ? { detail: res.detail } : {}), res, ...(halt ? { halt } : {}), acted: res.acted }
       } catch (e) {
         const detail = e instanceof Error ? e.message : String(e)
-        if (e instanceof RestrictedPageError) return { status: "restricted", detail, halt: "restricted" }
-        return { status: "error", detail, halt: isPaused(e) ? "paused" : "error" }
+        // Thrown before any input (BAD_REQUEST key, restricted URL, PAUSED, no tab...).
+        if (e instanceof RestrictedPageError) return { status: "restricted", detail, halt: "restricted", acted: false }
+        return { status: "error", detail, halt: isPaused(e) ? "paused" : "error", acted: false }
       }
     }
 
     /** Domain guard, dialogs and expect, on a step that ran without halting. */
-    const guards = async (step: Step, ran: Ran): Promise<{ reason: HaltReason; detail: string } | null> => {
-      const d = dialogHalt(ran.res?.dialogs, step)
+    const guards = async (step: Step, i: number, ran: Ran): Promise<{ reason: HaltReason; detail: string } | null> => {
+      const d = dialogHalt(ran.res?.dialogs, step, i)
       if (d) return { reason: "dialog", detail: d }
       const { url } = await tabInfo(tabId)
       const site = siteOf(url)
@@ -268,11 +282,11 @@ export async function runBatch(
         if (res.navigation) navigated = true
       }
       if (!halted && ran.halt) {
-        halt(i, ran.halt, ran.detail, NOT_ACTED.has(ran.halt) ? i : i + 1)
+        halt(i, ran.halt, ran.detail, nextAfter(i, ran.halt, ran.acted))
         haltRes = res
       } else if (!halted && ran.status !== "skipped") {
-        const g = await guards(step, ran)
-        if (g) halt(i, g.reason, g.detail, i + 1)
+        const g = await guards(step, i, ran)
+        if (g) halt(i, g.reason, g.detail, nextAfter(i, g.reason, ran.acted))
       }
       const target = stepTarget(step)
       const result: StepResult = {
@@ -303,13 +317,16 @@ export async function runBatch(
     }
 
     // An unanswered snapshot (page still blocked) is no evidence that everything was removed.
-    const after = await agentQuick<string | null>("snapshot", [{ full: false }], null)
-    const info = await tabInfo(tabId)
+    const [after, info, page] = await Promise.all([
+      agentQuick<string | null>("snapshot", [{ full: false }], null),
+      tabInfo(tabId),
+      agentQuick("brief", [], ""),
+    ])
     const out: BatchResult = {
       ok: !halted,
       steps,
       diff: after === null ? EMPTY : capDiff(diffSnapshots(before, after)),
-      page: await agentQuick("brief", [], ""),
+      page,
     }
     if (halted) {
       out.halted = halted

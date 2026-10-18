@@ -71,6 +71,7 @@ describe("runStep", () => {
     expect(seen).toEqual([{ ref: "@e00001", line: 'button "Delete everything" [@e00001]', role: "button", name: "Delete everything" }])
     expect(input.click).not.toHaveBeenCalled()
     expect(r.halt).toBe("risky")
+    expect(r.acted).toBe(false)
     expect(r.ok).toBe(false)
     expect(r.resolved).toEqual({ role: "button", name: "Delete everything", within: "Danger zone" })
   })
@@ -81,7 +82,18 @@ describe("runStep", () => {
     const r = await runStep(s, 1, { kind: "click", target: { text: "Delete everything" } }, { capMs: 15_000, beforeAct: () => null })
     expect(input.click).toHaveBeenCalledWith(1, 10, 20)
     expect(r.status).toBe("done")
+    expect(r.acted).toBe(true)
     expect(r.halt).toBeUndefined()
+  })
+
+  it("a goto whose navigation fails did not act", async () => {
+    const { runStep } = await import("../background/pipeline")
+    const cdp = await import("../background/cdp")
+    ;(cdp.send as any).mockImplementation(async (_t: number, method: string) =>
+      method === "Page.getFrameTree" ? { frameTree: { frame: { id: "F" } } } : method === "Page.navigate" ? { errorText: "net::ERR_NAME_NOT_RESOLVED" } : { result: {} },
+    )
+    const r = await runStep(s, 1, { kind: "goto", url: "https://nope.invalid/" }, { capMs: 15_000 })
+    expect(r).toMatchObject({ status: "error", detail: "navigation failed: net::ERR_NAME_NOT_RESOLVED", acted: false })
   })
 
   it("does not take the tab lock (the batch holds it)", async () => {

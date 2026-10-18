@@ -318,6 +318,8 @@ interface Hooks {
   beforeAct?: (found: Found) => HaltReason | null
   /** Set when beforeAct refused. */
   refused?: HaltReason
+  /** Set once the action's own input went out (a popup closer's click does not count). */
+  acted?: boolean
   /** What FIND resolved (text targets for stored plans; refs are never stored). */
   resolved?: { role: string; name: string; within?: string }
 }
@@ -392,6 +394,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   if (action.kind === "press" || action.kind === "scroll") {
     const before = await callAgent<string>(tabId, "snapshot", [{ full: false }])
     guard()
+    hooks.acted = true
     if (action.kind === "press") await input.press(tabId, action.key)
     else {
       const px = action.px ?? (await input.viewport(tabId)).height
@@ -430,6 +433,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     if (fileInput) {
       const before = await callAgent<string>(tabId, "snapshot", [{ full: false }])
       guard()
+      hooks.acted = true
       await setFiles(tabId, fileInput, action.files)
       return withUploaded(await finish(r, before, { upload: { ref: fileInput.ref, names: action.files.map(baseName) } }), action.files)
     }
@@ -485,6 +489,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   // ACT
   if (action.kind === "upload") {
     // No input is associated with the target: click it and answer the file chooser the page opens.
+    hooks.acted = true
     const held = await setFiles(tabId, null, action.files, { x: c.x, y: c.y })
     guard()
     const names = action.files.map(baseName)
@@ -498,11 +503,13 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   if (action.kind === "click") {
     const handled = await hasClickHandler(tabId, c.x, c.y)
     guard()
+    hooks.acted = true
     await input.click(tabId, c.x, c.y)
     return withPopups(await finish(r, before, { click: { handled } }), closedPopups)
   }
   if (action.kind === "fill") {
     const text = action.value ?? ""
+    hooks.acted = true
     await input.click(tabId, c.x, c.y)
     guard()
     await input.selectAll(tabId)
@@ -514,6 +521,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   const value = action.value ?? ""
   const selected = await callAgent<boolean>(tabId, "setSelect", [found.ref, value])
   if (!selected) return early(r, "error", { detail: `no option ${JSON.stringify(value)} in ${found.line}` })
+  hooks.acted = true
   return withPopups(await finish(r, before, {}), closedPopups)
 }
 
@@ -688,13 +696,21 @@ export function goto(s: Session, url: string): Promise<ActionResult> {
   return capped(tabId, (p) => navigate(s, tabId, url, p))
 }
 
-async function navigate(s: Session, tabId: number, url: string, p: Progress, policy?: DialogPolicy): Promise<ActionResult> {
+async function navigate(
+  s: Session,
+  tabId: number,
+  url: string,
+  p: Progress,
+  policy?: DialogPolicy,
+  hooks: Hooks = {},
+): Promise<ActionResult> {
   let navigated = false
   const current = await tabUrl(tabId)
   if (isRestrictedUrl(current) && current !== "about:blank") {
     // The debugger can't attach to the current page (e.g. chrome://newtab): let the browser navigate first.
     const loaded = waitTabComplete(tabId, READY.timeoutMs)
     if (p.expired) throw new Expired()
+    hooks.acted = true
     await chrome.tabs.update(tabId, { url })
     await loaded
     navigated = true
@@ -704,6 +720,7 @@ async function navigate(s: Session, tabId: number, url: string, p: Progress, pol
       if (p.expired) throw new Expired() // the cap already answered: don't navigate after the fact
       const nav = await send<{ loaderId?: string; errorText?: string }>(tabId, "Page.navigate", { url })
       if (nav.errorText) return early(r, "error", { detail: `navigation failed: ${nav.errorText}` })
+      hooks.acted = true
       if (nav.loaderId) r.watch.expectLoad()
     }
     const ready = await settle(tabId, r.watch, r.net, p)
@@ -728,6 +745,8 @@ export interface StepOutcome extends ActionResult {
   resolved?: { role: string; name: string; within?: string }
   /** `risky` (beforeAct refused) or `time` (the step's cap expired). */
   halt?: HaltReason
+  /** The step's own input went out (or the navigation started): resending it would repeat it. */
+  acted: boolean
 }
 
 /**
@@ -754,12 +773,12 @@ export async function runStep(
     tabId,
     (p) =>
       action.kind === "goto"
-        ? navigate(s, tabId, action.url, p, opts.dialog)
+        ? navigate(s, tabId, action.url, p, opts.dialog, hooks)
         : begin(s, tabId, p, (r) => act(r, action, hooks), opts.dialog ? { policy: opts.dialog } : {}),
     { capMs: opts.capMs, holdsLock: true },
   )
   opts.linger?.(tail)
-  const out: StepOutcome = { ...res }
+  const out: StepOutcome = { ...res, acted: !!hooks.acted }
   if (hooks.resolved) out.resolved = hooks.resolved
   if (expired) out.halt = "time"
   else if (hooks.refused) out.halt = hooks.refused

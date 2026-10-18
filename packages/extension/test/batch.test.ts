@@ -58,7 +58,7 @@ vi.mock("../background/pipeline", () => ({
 }))
 
 function ok(extra: Partial<ActionResult> = {}): ActionResult & { resolved?: any; halt?: any } {
-  return { ok: true, status: "done", diff: { added: [], removed: [] }, page: "P", ...extra }
+  return { ok: true, status: "done", diff: { added: [], removed: [] }, page: "P", acted: true, ...extra } as any
 }
 const after = (ms: number, res: any = ok()) => () => new Promise((r) => setTimeout(() => r(res), ms))
 
@@ -121,7 +121,7 @@ describe("runBatch", () => {
   })
 
   it("not_found on step 1 halts with next:1; step 2 never runs", async () => {
-    state.script = [() => ok(), () => ok({ ok: false, status: "not_found", detail: 'no element matches "B"' })]
+    state.script = [() => ok(), () => ok({ ok: false, status: "not_found", detail: 'no element matches "B"', acted: false } as any)]
     const { p } = await run({ steps: [click("A"), click("B"), click("C")] })
     const r = await p
     expect(r.ok).toBe(false)
@@ -153,7 +153,7 @@ describe("runBatch", () => {
       ({ opts }) => {
         expect(opts.beforeAct({ ref: "@e1", line: "", role: "button", name: "Delete account" })).toBe("risky")
         expect(opts.beforeAct({ ref: "@e1", line: "", role: "button", name: "Save" })).toBeNull()
-        return ok({ ok: false, status: "error", detail: 'refusing to click "Delete account" in a batch' , halt: "risky" } as any)
+        return ok({ ok: false, status: "error", detail: 'refusing to click "Delete account" in a batch', halt: "risky", acted: false } as any)
       },
     ]
     const r = await (await run({ steps: [click("Delete account"), click("B")] })).p
@@ -311,6 +311,8 @@ describe("runBatch", () => {
     const r = await (await run({ steps: [click("A"), click("B"), click("C")] })).p
     expect(r.halted).toMatchObject({ index: 1, reason: "dialog" })
     expect(r.halted!.detail).toContain("Really?")
+    expect(r.halted!.detail).toContain('resend step 1 with dialog: "accept" to confirm')
+    expect(r.next).toBe(1) // the dismissed dialog cancelled the step's effect
     expect(r.dialogs).toEqual([alert, confirm])
   })
 
@@ -369,6 +371,82 @@ describe("runBatch", () => {
     const r = await (await run({ steps: [{ action: "switch_tab", to: "opener" } as Step] })).p
     expect(r.halted).toMatchObject({ index: 0, reason: "error" })
     expect(r.halted!.detail).toContain("99")
+    expect(r.next).toBe(0) // still on the old tab: resending must start with the switch
+  })
+
+  it("switch_tab to a tab the session does not own halts error with next at the switch", async () => {
+    const r = await (await run({ steps: [{ action: "switch_tab", to: 5 } as Step, click("A")] })).p
+    expect(r.halted).toMatchObject({ index: 0, reason: "error" })
+    expect(r.next).toBe(0)
+    expect(state.calls).toHaveLength(0)
+  })
+
+  it("an error before any input (navigation failed) halts with next at the step", async () => {
+    state.script = [
+      () => ok(),
+      () => ok({ ok: false, status: "error", detail: "navigation failed: net::ERR_NAME_NOT_RESOLVED", acted: false } as any),
+    ]
+    const r = await (await run({ steps: [click("A"), { action: "goto", url: "https://nope.invalid/" } as Step, click("B")] })).p
+    expect(r.halted).toMatchObject({ index: 1, reason: "error" })
+    expect(r.next).toBe(1)
+  })
+
+  it("an error after the input went out (value mismatch) halts with next after the step", async () => {
+    state.script = [() => ok({ ok: false, status: "error", detail: "value mismatch", acted: true } as any)]
+    const r = await (await run({ steps: [{ action: "fill", target: { text: "Name" }, value: "x" } as Step, click("B")] })).p
+    expect(r.halted).toMatchObject({ index: 0, reason: "error" })
+    expect(r.next).toBe(1)
+  })
+
+  it("a bad key (BAD_REQUEST thrown before input) halts error with next at the step", async () => {
+    const { RpcError } = await import("../background/errors")
+    state.script = [
+      () => ok(),
+      () => {
+        throw new RpcError("BAD_REQUEST", 'BAD_REQUEST: unknown key "Foo"')
+      },
+    ]
+    const r = await (await run({ steps: [click("A"), { action: "press", key: "Foo" } as Step] })).p
+    expect(r.halted).toMatchObject({ index: 1, reason: "error" })
+    expect(r.halted!.detail).toContain("unknown key")
+    expect(r.next).toBe(1)
+  })
+
+  it("after switch_tab the old tab's lock is free while the batch goes on", async () => {
+    const sessions = await import("../background/sessions")
+    ;(sessions.newestAdopted as any).mockReturnValue(2)
+    const { withTabLock } = await import("../background/serial")
+    let oldTabFree = false
+    state.script = [
+      () => ok(),
+      async () => {
+        // Runs on tab 2 while the batch still holds that lock: tab 1 must be takeable now.
+        await withTabLock(1, async () => {
+          oldTabFree = true
+        })
+        return ok()
+      },
+    ]
+    const { p } = await run({ steps: [click("Open"), { action: "switch_tab", to: "new" } as Step, click("Confirm")] })
+    await vi.advanceTimersByTimeAsync(0)
+    const r = await p
+    expect(r.ok).toBe(true)
+    expect(oldTabFree).toBe(true)
+  })
+
+  it("once runBatch has answered, the final tab's lock is free", async () => {
+    const sessions = await import("../background/sessions")
+    ;(sessions.newestAdopted as any).mockReturnValue(2)
+    const r = await (await run({ steps: [{ action: "switch_tab", to: "new" } as Step, click("Confirm")] })).p
+    expect(r.ok).toBe(true)
+    const { withTabLock } = await import("../background/serial")
+    let ran = false
+    const next = withTabLock(2, async () => {
+      ran = true
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    await next
+    expect(ran).toBe(true)
   })
 
   it("upload steps record base names only", async () => {
