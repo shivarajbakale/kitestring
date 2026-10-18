@@ -40,13 +40,18 @@ function probe(path: string, timeoutMs = 1000): Promise<"live" | "stale"> {
   })
 }
 
+/** A Windows named pipe (`\\.\pipe\…`): not a file, so no unlink and no chmod. */
+export const isPipePath = (p: string): boolean => p.startsWith("\\\\.\\pipe\\")
+
 export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   if ((await probe(opts.socketPath)) === "live") {
     throw new Error(`kitestring host already running (socket ${opts.socketPath} is in use)`)
   }
-  await unlink(opts.socketPath).catch((e: NodeJS.ErrnoException) => {
-    if (e.code !== "ENOENT") throw e
-  })
+  if (!isPipePath(opts.socketPath)) {
+    await unlink(opts.socketPath).catch((e: NodeJS.ErrnoException) => {
+      if (e.code !== "ENOENT") throw e
+    })
+  }
 
   const pending = new Map<number, Pending>()
   const sockets = new Set<net.Socket>()
@@ -109,7 +114,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
       resolve()
     })
   })
-  await chmod(opts.socketPath, 0o600)
+  if (!isPipePath(opts.socketPath)) await chmod(opts.socketPath, 0o600)
 
   return {
     fromExtension(msg) {
@@ -136,7 +141,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     async close() {
       for (const s of sockets) s.destroy()
       await new Promise<void>((resolve) => server.close(() => resolve()))
-      await unlink(opts.socketPath).catch(() => {})
+      if (!isPipePath(opts.socketPath)) await unlink(opts.socketPath).catch(() => {})
     },
   }
 }

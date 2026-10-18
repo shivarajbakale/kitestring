@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
-import { logPath, socketPath } from "../paths.js"
+import { kiteHome, logPath, socketPath } from "../paths.js"
 import { startDaemon } from "./daemon.js"
 import { FrameDecoder, encodeFrame } from "./framing.js"
 
@@ -15,7 +15,7 @@ function log(msg: string): void {
 }
 
 async function main(): Promise<void> {
-  mkdirSync(dirname(socketPath()), { recursive: true, mode: 0o700 })
+  mkdirSync(kiteHome(), { recursive: true, mode: 0o700 })
   const daemon = await startDaemon({
     socketPath: socketPath(),
     toExtension: (msg) => {
