@@ -28,6 +28,18 @@ export interface DialogEvent {
   handled: "accepted" | "dismissed"
 }
 
+/** Where FIND last found an element: a hint for the next run, never trusted without a role and name check. */
+export interface Locator {
+  ref: string
+  role: string
+  name: string
+  /** Names of the enclosing landmarks, outermost first. */
+  landmarkPath: string[]
+  cssPath: string
+  /** Index among the page's elements with the same role, name and landmark path. */
+  nth: number
+}
+
 export interface ActionResult {
   ok: boolean
   status: Status
@@ -43,6 +55,8 @@ export interface ActionResult {
   closedPopups?: string[]
   /** act.upload: base names of the files put into the input (never directories). */
   uploaded?: string[]
+  /** The action cache's locator hint found the element (FIND did not search). */
+  cached?: boolean
   page: string
 }
 

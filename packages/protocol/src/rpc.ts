@@ -22,6 +22,8 @@ export const METHODS = [
   "control.resume",
   "control.state",
   "activity.list",
+  "cache.stats",
+  "cache.clear",
 ] as const
 
 export type Method = (typeof METHODS)[number]

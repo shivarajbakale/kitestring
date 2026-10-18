@@ -174,3 +174,12 @@ describe("formatBatch", () => {
     expect(formatBatch(r)).not.toContain("SECRETNAME")
   })
 })
+
+describe("cache formats", () => {
+  it("stats and clear", async () => {
+    const { formatCacheClear, formatCacheStats } = await import("../src/client/format.js")
+    expect(formatCacheStats({ entries: 3, hits: 1, sites: 1 })).toBe("3 cached elements on 1 site, 1 hit")
+    expect(formatCacheStats({ entries: 1, hits: 0, sites: 1 })).toBe("1 cached element on 1 site, 0 hits")
+    expect(formatCacheClear({ cleared: 2 })).toBe("cleared 2 cached elements")
+  })
+})

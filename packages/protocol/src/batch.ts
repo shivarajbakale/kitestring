@@ -73,6 +73,8 @@ export interface StepResult {
   status: Status | "skipped"
   detail?: string
   ms: number
+  /** The action cache's locator hint found the element. */
+  cached?: boolean
   /** Internal: the pipeline's resolved target, used to write stored plans (refs are never stored). */
   resolved?: { role: string; name: string; within?: string }
 }

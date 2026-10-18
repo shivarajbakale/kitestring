@@ -1,6 +1,6 @@
 import { RefRegistry } from "./refs.js"
 import { find, type FindIntent, type FindResult } from "./find.js"
-import type { Target } from "@kitestring/protocol"
+import type { Locator, Target } from "@kitestring/protocol"
 import { snapshot, type SnapshotOpts } from "./snapshot.js"
 import { check, type CheckResult } from "./check.js"
 import { waitQuiet } from "./quiet.js"
@@ -12,7 +12,7 @@ import { fileInputFor, fileNames, watchFileInput } from "./files.js"
 export interface PageAgent {
   snapshot(opts?: SnapshotOpts): string
   resolve(ref: string): Element | null
-  find(target: Target, intent: FindIntent): FindResult
+  find(target: Target, intent: FindIntent, hint?: Locator): FindResult
   check(ref: string): CheckResult
   /** For a target covered by a cookie wall or newsletter modal: the control that dismisses it, else null. */
   closerFor(ref: string): Closer | null
@@ -43,7 +43,7 @@ export function createAgent(win: Window): PageAgent {
   return {
     snapshot: (opts = {}) => snapshot(doc, reg, opts),
     resolve: (ref) => reg.resolve(ref),
-    find: (target, intent) => find(doc, reg, target, intent),
+    find: (target, intent, hint) => find(doc, reg, target, intent, hint),
     check: (ref) => {
       const el = reg.resolve(ref)
       return el ? check(el) : { kind: "hidden" }
@@ -115,3 +115,4 @@ export { brief } from "./brief.js"
 export { closerFor } from "./popups.js"
 export { fileInputFor, fileNames, watchFileInput } from "./files.js"
 export type { Closer } from "./popups.js"
+export { describeLocator, resolveLocator } from "./locator.js"

@@ -11,6 +11,7 @@ import {
 import { diffSnapshots, type CheckResult, type Closer, type FindResult } from "@kitestring/page-agent"
 import { callAgent, isRestrictedUrl } from "./agent-bridge"
 import { ensureAttached, isNotAttached, onEvent, send } from "./cdp"
+import { cacheKey, getHint, ready as cacheReady, remember } from "./cache"
 import { assertNotPaused } from "./control"
 import { watchDialogs, type DialogPolicy, type DialogWatch } from "./dialogs"
 import { RestrictedPageError, RpcError } from "./errors"
@@ -327,6 +328,8 @@ interface Hooks {
   acted?: boolean
   /** What FIND resolved (text targets for stored plans; refs are never stored). */
   resolved?: { role: string; name: string; within?: string }
+  /** Set when the action cache's hint was the element (FIND did not search). */
+  cached?: boolean
 }
 
 async function early(r: Run, status: Status, extra: Partial<ActionResult>): Promise<ActionResult> {
@@ -439,14 +442,24 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     return finish(r, before, {})
   }
 
-  // FIND (not found → scroll one viewport and retry)
+  // FIND (not found → scroll one viewport and retry). A cached locator is only a hint the page agent verifies.
+  const key = cacheKey(r.urlBefore, action.target)
+  if (key) await cacheReady().catch(() => {})
+  const hint = key ? getHint(key) : undefined
   let found: Extract<FindResult, { kind: "found" }> | undefined
   for (let attempt = 0; !found; attempt++) {
     // An upload target is something to click (styled button, drop zone) unless it resolves to an input.
-    const f = await callAgent<FindResult>(tabId, "find", [action.target, action.kind === "upload" ? "click" : action.kind])
+    const f = await callAgent<FindResult>(tabId, "find", [
+      action.target,
+      action.kind === "upload" ? "click" : action.kind,
+      ...(hint ? [hint] : []),
+    ])
     guard()
     if (f.kind === "found") {
       found = f
+      if (f.hinted) hooks.cached = true
+      // Never cache a secret field (password, card, one-time code); an upload caches the locator only.
+      else if (key && f.locator && !f.secret) remember(key, f.locator)
       hooks.resolved = { role: f.role, name: f.name, ...(f.within ? { within: f.within } : {}) }
     } else if (f.kind === "ambiguous") {
       return early(r, "ambiguous", {
@@ -716,7 +729,13 @@ async function beginActing(
 export function runAction(s: Session, action: Action): Promise<ActionResult> {
   if (action.kind === "press") input.keyDef(action.key) // BAD_REQUEST before touching the page
   const tabId = activeTab(s)
-  return capped(tabId, (p) => begin(s, tabId, p, (r) => act(r, action)))
+  return capped(tabId, (p) =>
+    begin(s, tabId, p, async (r) => {
+      const hooks: Hooks = {}
+      const res = await act(r, action, hooks)
+      return hooks.cached ? { ...res, cached: true } : res
+    }),
+  )
 }
 
 function waitTabComplete(tabId: number, ms: number): Promise<void> {
@@ -835,6 +854,7 @@ export async function runStep(
   opts.linger?.(tail)
   const out: StepOutcome = { ...res, acted: !!hooks.acted }
   if (hooks.resolved) out.resolved = hooks.resolved
+  if (hooks.cached) out.cached = true
   if (expired) out.halt = "time"
   else if (hooks.refused) out.halt = hooks.refused
   return out

@@ -60,12 +60,57 @@ beforeEach(() => {
       get: vi.fn(async (id: number) => ({ id, url: "https://a.example/", title: "A" })),
       onCreated: { addListener: vi.fn(), removeListener: vi.fn() },
     },
+    storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) } },
   }
 })
 afterEach(() => {
   agent.extra = {}
   vi.clearAllMocks()
   vi.useRealTimers()
+})
+
+describe("runStep action cache", () => {
+  const LOC = { ref: "@e00001", role: "button", name: "Delete everything", landmarkPath: ["main"], cssPath: "#d", nth: 0 }
+  const key = (text: string) => ["https://a.example", "/", text, "", ""].join("\n")
+
+  it("remembers what FIND resolved and hands it back as a hint; a hinted find reports cached", async () => {
+    const cache = await import("../background/cache")
+    cache.resetForTest()
+    const { runStep } = await import("../background/pipeline")
+    const hints: unknown[] = []
+    agent.extra.find = (args) => {
+      hints.push(args[2])
+      return { ...FOUND, locator: LOC, hinted: args[2] !== undefined }
+    }
+    const first = await runStep(s, 1, { kind: "click", target: { text: "Delete everything" } }, { capMs: 15_000 })
+    expect(first.cached).toBeUndefined()
+    expect(cache.getHint(key("delete everything"))).toEqual(LOC)
+    const second = await runStep(s, 1, { kind: "click", target: { text: "Delete everything" } }, { capMs: 15_000 })
+    expect(hints).toEqual([undefined, LOC])
+    expect(second.cached).toBe(true)
+  })
+
+  it("a rejected hint is overwritten by the fresh find", async () => {
+    const cache = await import("../background/cache")
+    cache.resetForTest()
+    cache.remember(key("delete everything"), { ...LOC, ref: "@estale", role: "link" })
+    const { runStep } = await import("../background/pipeline")
+    agent.extra.find = () => ({ ...FOUND, locator: LOC, hinted: false })
+    const r = await runStep(s, 1, { kind: "click", target: { text: "Delete everything" } }, { capMs: 15_000 })
+    expect(r.cached).toBeUndefined()
+    expect(cache.getHint(key("delete everything"))).toEqual(LOC)
+  })
+
+  it("never caches a secret field or a ref target", async () => {
+    const cache = await import("../background/cache")
+    cache.resetForTest()
+    const { runStep } = await import("../background/pipeline")
+    agent.extra.find = () => ({ ...FOUND, role: "textbox", locator: LOC, hinted: false, secret: true })
+    await runStep(s, 1, { kind: "fill", target: { text: "Password" }, value: "hunter2" }, { capMs: 15_000 })
+    agent.extra.find = () => ({ ...FOUND, locator: LOC, hinted: false })
+    await runStep(s, 1, { kind: "click", target: { ref: "@e00001" } }, { capMs: 15_000 })
+    expect(cache.stats().entries).toBe(0)
+  })
 })
 
 describe("runStep", () => {

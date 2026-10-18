@@ -99,3 +99,11 @@ export function formatNetwork(entries: NetworkEntry[]): string {
     })
     .join("\n")
 }
+
+export function formatCacheStats(r: { entries: number; hits: number; sites: number }): string {
+  return `${r.entries} cached element${r.entries === 1 ? "" : "s"} on ${r.sites} site${r.sites === 1 ? "" : "s"}, ${r.hits} hit${r.hits === 1 ? "" : "s"}`
+}
+
+export function formatCacheClear(r: { cleared: number }): string {
+  return `cleared ${r.cleared} cached element${r.cleared === 1 ? "" : "s"}`
+}

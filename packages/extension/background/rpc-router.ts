@@ -11,6 +11,7 @@ import {
 } from "@kitestring/protocol"
 import * as activity from "./activity"
 import { callAgent } from "./agent-bridge"
+import * as cache from "./cache"
 import * as capture from "./capture"
 import * as control from "./control"
 import { RestrictedPageError, RpcError } from "./errors"
@@ -104,6 +105,18 @@ const handlers: Partial<Record<Method, Handler>> = {
       badRequest("params.limit must be a positive integer")
     }
     return { entries: activity.list(limit) }
+  },
+
+  "cache.stats": async () => {
+    await cache.ready()
+    return cache.stats()
+  },
+
+  "cache.clear": async (params) => {
+    const site = params.site
+    if (site !== undefined && typeof site !== "string") badRequest("params.site must be a string")
+    await cache.ready()
+    return { cleared: cache.clear(site) }
   },
 
   "tab.new": async (params, s) => {
@@ -238,6 +251,8 @@ const WHILE_PAUSED: ReadonlySet<Method> = new Set([
   "control.resume",
   "control.state",
   "activity.list",
+  "cache.stats",
+  "cache.clear",
 ])
 
 /** Methods that change something: recorded in the activity log, successful or not. */

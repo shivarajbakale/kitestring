@@ -1,0 +1,18 @@
+<!doctype html>
+<html><head><title>Locator</title></head>
+<body>
+<main id="root">
+  <form aria-label="Profile">
+    <label>Email <input type="text" id="em"></label>
+    <label>Password <input type="password" id="pw"></label>
+    <label>Card <input type="text" autocomplete="cc-number" id="cc"></label>
+    <button type="button" id="save">Save</button>
+  </form>
+</main>
+<script>
+  const FORM = document.getElementById("root").innerHTML
+  window.rerender = () => { document.getElementById("root").innerHTML = FORM }
+  window.asLink = () => { document.getElementById("save").outerHTML = '<a href="#x" id="save">Save</a>' }
+  window.rename = () => { document.getElementById("save").textContent = "Discard" }
+</script>
+</body></html>

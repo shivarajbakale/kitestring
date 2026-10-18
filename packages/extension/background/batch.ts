@@ -330,6 +330,7 @@ export async function runBatch(
         status: ran.status,
         ...(ran.detail ? { detail: ran.detail } : {}),
         ms: Date.now() - t,
+        ...(res?.cached ? { cached: true } : {}),
         ...(res?.resolved ? { resolved: res.resolved } : {}),
       }
       steps.push(result)

@@ -1,5 +1,5 @@
 import type { ActionResult, ActivityEntry, BatchResult, ConsoleEntry, Method, NetworkEntry } from "@kitestring/protocol"
-import { formatActivity, formatBatch, formatConsole, formatNetwork, formatResult } from "./format.js"
+import { formatActivity, formatCacheClear, formatCacheStats, formatBatch, formatConsole, formatNetwork, formatResult } from "./format.js"
 
 /** The text `kite` prints for a result; the MCP tools return the same text. */
 export function human(method: Method, result: unknown): string {
@@ -27,6 +27,10 @@ export function human(method: Method, result: unknown): string {
       return "resumed"
     case "activity.list":
       return formatActivity((r?.entries ?? []) as ActivityEntry[])
+    case "cache.stats":
+      return formatCacheStats(r)
+    case "cache.clear":
+      return formatCacheClear(r)
     case "act.batch":
       return formatBatch(r as BatchResult)
     default:

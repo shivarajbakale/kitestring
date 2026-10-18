@@ -182,6 +182,17 @@ export async function main(argv: string[]): Promise<number> {
       if (!/^[1-9]\d*$/.test(o.limit)) throw new UsageError(`--limit must be a positive integer: ${o.limit}`)
       return run("activity.list", { limit: Number(o.limit) })
     })
+  const cacheCmd = program.command("cache").description("the action cache that lets repeat runs skip searching for elements")
+  cacheCmd.command("stats").action(() => run("cache.stats", {}))
+  cacheCmd
+    .command("clear")
+    .option("--site <origin>", "only this origin, e.g. https://example.com")
+    .action((o: { site?: string }) => {
+      if (o.site !== undefined && !/^https?:\/\/[^/\s]+$/.test(o.site)) {
+        throw new UsageError(`--site must be an origin like https://example.com: ${o.site}`)
+      }
+      return run("cache.clear", o.site ? { site: o.site } : {})
+    })
   program
     .command("install-host")
     .option("--browser <browser>", "chrome|chromium", "chrome")

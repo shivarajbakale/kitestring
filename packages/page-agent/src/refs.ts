@@ -14,13 +14,18 @@ export function makeRef(role: string, name: string, path: string, occurrence: nu
   return "@e" + h.toString(36).padStart(5, "0").slice(-5)
 }
 
-export function landmarkPath(el: Element): string {
+/** Names of the enclosing landmarks, outermost first. */
+export function landmarkNames(el: Element): string[] {
   const parts: string[] = []
   for (let p = el.parentElement; p; p = p.parentElement) {
     const r = roleOf(p)
     if (r && PATH_ROLES.has(r)) parts.push(nameOf(p) || r)
   }
-  return parts.reverse().join("/")
+  return parts.reverse()
+}
+
+export function landmarkPath(el: Element): string {
+  return landmarkNames(el).join("/")
 }
 
 export class RefRegistry {
