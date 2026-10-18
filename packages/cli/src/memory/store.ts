@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { slug, type Plan } from "@kitestring/protocol"
@@ -44,26 +45,50 @@ function ensureDir(dir: string): void {
   chmodSync(dir, 0o700) // mkdir's mode is masked by umask and ignored for existing dirs
 }
 
-/** Writes the plan to `<home>/memory/<origin-slug>/<plan-slug>.json` (replacing a plan with the same slug). Returns the path. */
+const intentHash = (intent: string): string => createHash("sha1").update(intent).digest("hex").slice(0, 4)
+
+function readPlanFile(file: string): Plan | undefined {
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as Plan
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Writes the plan to `<home>/memory/<origin-slug>/<plan-slug>.json`. A plan with the same intent already there keeps its
+ * `createdAt`, gains the new `runs` and keeps its `lastOk` unless the new plan has one. A different intent that truncates
+ * to the same slug gets `-<4 hex of hash(intent)>` appended instead of overwriting. Returns the path.
+ */
 export function savePlan(home: string, plan: Plan): string {
   const dir = join(memoryDir(home), originSlug(plan.origin))
   ensureDir(memoryDir(home))
   ensureDir(dir)
-  const file = join(dir, `${slug(plan.intent)}.json`)
+  let file = join(dir, `${slug(plan.intent)}.json`)
+  let old = readPlanFile(file)
+  if (old && old.intent !== plan.intent) {
+    file = join(dir, `${slug(plan.intent).slice(0, 43)}-${intentHash(plan.intent)}.json`)
+    old = readPlanFile(file)
+  }
+  const merged: Plan =
+    old && old.intent === plan.intent
+      ? { ...plan, createdAt: old.createdAt ?? plan.createdAt, runs: (old.runs ?? 0) + plan.runs, lastOk: plan.lastOk ?? old.lastOk ?? null }
+      : plan
   const tmp = `${file}.${process.pid}.tmp`
-  writeFileSync(tmp, JSON.stringify(plan, null, 2) + "\n", { mode: 0o600 })
+  writeFileSync(tmp, JSON.stringify(merged, null, 2) + "\n", { mode: 0o600 })
   chmodSync(tmp, 0o600)
   renameSync(tmp, file)
   return file
 }
 
-interface Stored {
+export interface Stored {
   plan: Plan
   /** `<origin-slug>/<plan-slug>` */
   id: string
 }
 
-function readAll(home: string, origin?: string): Stored[] {
+/** Every stored plan with its id (`<origin-slug>/<file slug>`), optionally for one origin. */
+export function listPlans(home: string, origin?: string): Stored[] {
   const root = memoryDir(home)
   if (!existsSync(root)) return []
   const dirs = origin ? [originSlug(origin)] : readdirSync(root).filter((d) => !d.startsWith("."))
@@ -92,13 +117,13 @@ function readAll(home: string, origin?: string): Stored[] {
 
 /** All stored plans, optionally only those of one origin (e.g. "https://example.com"). */
 export function loadPlans(home: string, origin?: string): Plan[] {
-  return readAll(home, origin).map((s) => s.plan)
+  return listPlans(home, origin).map((s) => s.plan)
 }
 
 /** Best plan for `origin` whose intent overlaps `intent` by >= 0.6 (Jaccard); the first listed wins ties. */
 export function findPlan(home: string, origin: string, intent: string): { plan: Plan; score: number; slug: string } | undefined {
   let best: { plan: Plan; score: number; slug: string } | undefined
-  for (const s of readAll(home, origin)) {
+  for (const s of listPlans(home, origin)) {
     const score = intentScore(intent, s.plan.intent)
     if (score >= MATCH_THRESHOLD && (!best || score > best.score)) best = { plan: s.plan, score, slug: s.id.split("/")[1]! }
   }
@@ -112,7 +137,7 @@ export function findPlan(home: string, origin: string, intent: string): { plan: 
 export function forgetPlan(home: string, slugOrId: string): boolean {
   const parts = slugOrId.split("/")
   if (parts.length > 2 || !parts.every((p) => SAFE.test(p))) return false
-  const matches = readAll(home).filter((s) => (parts.length === 2 ? s.id === slugOrId : s.id.endsWith(`/${slugOrId}`)))
+  const matches = listPlans(home).filter((s) => (parts.length === 2 ? s.id === slugOrId : s.id.endsWith(`/${slugOrId}`)))
   if (!matches.length) return false
   if (matches.length > 1) throw new Error(`ambiguous plan slug ${slugOrId}: use one of ${matches.map((m) => m.id).join(", ")}`)
   rmSync(join(memoryDir(home), `${matches[0]!.id}.json`))

@@ -1,5 +1,8 @@
 import type { Step } from "./batch.js"
 
+/** A stored step; `droppedQuery` marks a goto whose query / fragment was not stored (it may have mattered). */
+export type PlanStep = Step & { droppedQuery?: boolean }
+
 /** A stored, parameterized task: batches whose values and upload files are `{{param}}` placeholders. */
 export interface Plan {
   version: 1
@@ -7,7 +10,7 @@ export interface Plan {
   origin: string
   pathPattern: string
   params: PlanParam[]
-  batches: Step[][]
+  batches: PlanStep[][]
   createdAt: string
   runs: number
   lastOk: string | null

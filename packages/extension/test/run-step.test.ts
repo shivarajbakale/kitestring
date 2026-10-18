@@ -88,6 +88,8 @@ describe("runStep action cache", () => {
     const second = await runStep(s, 1, { kind: "click", target: { text: "Delete everything" } }, { capMs: 15_000 })
     expect(hints).toEqual([undefined, LOC])
     expect(second.cached).toBe(true)
+    // a cache-served step still reports what it resolved, so a stored plan never needs the @ref
+    expect(second.resolved).toEqual({ role: "button", name: "Delete everything", within: "Danger zone" })
   })
 
   it("a rejected hint is overwritten by the fresh find", async () => {

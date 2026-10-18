@@ -194,28 +194,21 @@ export async function main(argv: string[]): Promise<number> {
       return run("cache.clear", o.site ? { site: o.site } : {})
     })
   const memoryCmd = program.command("memory").description("plans the agent saved for repeat tasks (no values are ever stored)")
-  memoryCmd
-    .command("list")
-    .action(async () => {
-      const { loadPlans } = await import("./memory/store.js")
-      const plans = loadPlans(kiteHome())
-      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(plans) + "\n")
-      if (!plans.length) return void process.stdout.write("no saved plans\n")
-      const { slug } = await import("@kitestring/protocol")
-      const { originSlug } = await import("./memory/store.js")
-      for (const p of plans) {
-        const names = p.params.map((x) => (x.secret ? `${x.name}*` : x.name)).join(", ")
-        process.stdout.write(
-          `${originSlug(p.origin)}/${slug(p.intent)}  ${p.intent}  (${p.runs} runs${names ? `; params: ${names}` : ""})\n`,
-        )
-      }
-    })
+  memoryCmd.command("list").action(async () => {
+    const { listPlans } = await import("./memory/store.js")
+    const plans = listPlans(kiteHome())
+    if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(plans.map((s) => ({ id: s.id, ...s.plan }))) + "\n")
+    if (!plans.length) return void process.stdout.write("no saved plans\n")
+    for (const { id, plan: p } of plans) {
+      const names = p.params.map((x) => (x.secret ? `${x.name}*` : x.name)).join(", ")
+      process.stdout.write(`${id}  ${p.intent}  (${p.runs} runs${names ? `; params: ${names}` : ""})\n`)
+    }
+  })
   memoryCmd.command("show <slug>").action(async (id: string) => {
-    const { loadPlans, originSlug } = await import("./memory/store.js")
-    const { slug } = await import("@kitestring/protocol")
-    const hits = loadPlans(kiteHome()).filter((p) => `${originSlug(p.origin)}/${slug(p.intent)}`.endsWith(id.includes("/") ? id : `/${id}`))
+    const { listPlans } = await import("./memory/store.js")
+    const hits = listPlans(kiteHome()).filter((s) => (id.includes("/") ? s.id === id : s.id.endsWith(`/${id}`)))
     if (hits.length !== 1) throw new UsageError(hits.length ? `ambiguous plan: ${id}` : `no such plan: ${id}`)
-    process.stdout.write(JSON.stringify(hits[0], null, 2) + "\n")
+    process.stdout.write(JSON.stringify(hits[0]!.plan, null, 2) + "\n")
   })
   memoryCmd.command("forget <slug>").action(async (id: string) => {
     const { forgetPlan } = await import("./memory/store.js")
