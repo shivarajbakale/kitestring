@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<!-- Lanternfly is a fictional developer console, made for Kitestring's demos and screenshots. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Edit listing · Lanternfly Console</title>
+<style>
+/* A believable "publish your extension" dashboard for demos and screenshots. Self-contained: no fonts or CDNs.
+   The accessible names match store-listing.html, so the same kite batch fills either page. */
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9; --side: #ffffff; --card: #ffffff; --ink: #14171c; --sub: #5b6270; --faint: #8a909c;
+  --line: #e3e6eb; --field: #ffffff; --field-line: #d5d9e0; --hover: #f0f2f5;
+  --brand: #3f5bd8; --brand-ink: #ffffff; --brand-wash: #eef1fd; --ring: rgba(63, 91, 216, .28);
+  --ok: #18794e; --ok-wash: #e7f5ee; --warn: #9a5b00; --warn-wash: #fdf3e1; --bad: #c4332b;
+  --shadow: 0 1px 2px rgba(20, 23, 28, .06);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115; --side: #14171c; --card: #171a20; --ink: #e8eaee; --sub: #a0a6b2; --faint: #6e7581;
+    --line: #262a32; --field: #11141a; --field-line: #333844; --hover: #1d2128;
+    --brand: #7d93ff; --brand-ink: #0b1030; --brand-wash: #1b2142; --ring: rgba(125, 147, 255, .32);
+    --ok: #4cc38a; --ok-wash: #12261d; --warn: #f0b04a; --warn-wash: #2a2010; --bad: #ff7b72;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  }
+}
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+html, body { margin: 0; height: 100% }
+body {
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased;
+}
+.app { display: grid; grid-template-columns: 208px 1fr; min-height: 100% }
+@media (max-width: 720px) { .app { grid-template-columns: 60px 1fr } .side .label, .side .org { display: none } }
+
+/* sidebar */
+.side { background: var(--side); border-right: 1px solid var(--line); padding: 16px 12px; display: flex; flex-direction: column; gap: 4px }
+.brand { display: flex; align-items: center; gap: 10px; padding: 2px 6px 16px; font-weight: 650; letter-spacing: -.01em }
+.logo { width: 26px; height: 26px; border-radius: 7px; background: var(--brand); display: grid; place-items: center; flex: none }
+.logo::after { content: ""; width: 10px; height: 10px; border-radius: 50% 50% 50% 0; background: var(--brand-ink); transform: rotate(-45deg) }
+.org { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; padding: 10px 8px 4px }
+.nav { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; color: var(--sub); text-decoration: none; font-weight: 500 }
+.nav:hover { background: var(--hover) }
+.nav.on { background: var(--brand-wash); color: var(--brand) }
+.nav svg { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round }
+
+/* main */
+.main { min-width: 0; display: flex; flex-direction: column }
+.top { height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--side); color: var(--sub); font-size: 13px }
+.top b { color: var(--ink); font-weight: 600 }
+.top .avatar { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #f2a65a, #d9534f) }
+.wrap { padding: 12px 24px 16px; max-width: 980px; width: 100% }
+.head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px }
+.head > div:nth-child(2) { min-width: 0 }
+.item-icon { width: 44px; height: 44px; border-radius: 11px; background: var(--card); border: 1px solid var(--line); display: grid; place-items: center; box-shadow: var(--shadow) }
+.item-icon span { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, var(--brand), #8a5cf6) }
+h1 { font-size: 19px; line-height: 1.2; margin: 0; letter-spacing: -.015em }
+.meta { color: var(--sub); font-size: 12.5px; margin-top: 3px; display: flex; gap: 8px; align-items: center }
+.pill { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--warn-wash); color: var(--warn) }
+.pill.ok { background: var(--ok-wash); color: var(--ok) }
+.actions { margin-left: auto; display: flex; gap: 8px; flex: none }
+.btn { white-space: nowrap; font: inherit; font-weight: 600; font-size: 13px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--field-line); background: var(--card); color: var(--ink); cursor: pointer }
+.btn:hover { background: var(--hover) }
+.btn.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink) }
+.btn.primary:hover { filter: brightness(1.06) }
+.btn:focus-visible, input:focus, textarea:focus, select:focus, [role="tab"]:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); border-color: var(--brand) }
+
+/* card + tabs */
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow) }
+.tabs { display: flex; gap: 4px; padding: 0 16px; border-bottom: 1px solid var(--line) }
+[role="tab"] { font: inherit; font-weight: 550; color: var(--sub); background: none; border: 0; border-bottom: 2px solid transparent; padding: 12px 8px 10px; margin-bottom: -1px; cursor: pointer; border-radius: 0 }
+[role="tab"][aria-selected="true"] { color: var(--ink); border-bottom-color: var(--brand) }
+[role="tabpanel"] { padding: 14px 16px 16px; display: grid; gap: 10px }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px }
+.field label, .lbl { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 600; margin-bottom: 4px }
+.hint { color: var(--faint); font-weight: 500 }
+.lrow { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px }
+input:not([type]), input[type="text"], textarea, select {
+  width: 100%; font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--field-line); border-radius: 8px; padding: 8px 10px;
+  transition: box-shadow .15s, border-color .15s;
+}
+textarea { resize: none; min-height: 60px }
+select { appearance: none; padding-right: 32px; cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238a909c' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.5 6.5 8 10l3.5-3.5'/%3E%3C/svg%3E"); background-position: right 10px center; background-size: 16px; background-repeat: no-repeat }
+.field label.drop { display: flex; justify-content: flex-start; font-size: 13px; font-weight: 400; margin: 0; align-items: center; gap: 14px; border: 1.5px dashed var(--field-line); border-radius: 10px; padding: 10px 14px; color: var(--sub); cursor: pointer; background: var(--bg) }
+.drop:hover { border-color: var(--brand) }
+.drop .ico { width: 34px; height: 34px; border-radius: 8px; background: var(--brand-wash); color: var(--brand); display: grid; place-items: center; flex: none }
+.drop .ico svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round }
+.drop strong { color: var(--ink); display: block; font-size: 13px }
+.drop small { font-size: 12px }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap }
+.radio { display: flex; gap: 10px; align-items: center; font-weight: 500; cursor: pointer }
+.radio input { appearance: none; margin: 0; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--field-line); background: var(--field); display: grid; place-items: center }
+.radio input:checked { border-color: var(--brand) }
+.radio input:checked::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--brand) }
+#state:empty, #errors:empty { display: none }
+.note { margin: 12px 0 0; padding: 9px 12px; border-radius: 8px; font-size: 13px; font-weight: 500 }
+#state { background: var(--ok-wash); color: var(--ok) }
+#errors { background: var(--warn-wash); color: var(--warn) }
+</style></head><body>
+<div class="app">
+<nav class="side" aria-label="Console">
+  <div class="brand"><span class="logo"></span><span class="label">Lanternfly</span></div>
+  <div class="org">Workspace</div>
+  <a class="nav" href="#"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="label">Overview</span></a>
+  <a class="nav on" href="#" aria-current="page"><svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg><span class="label">Items</span></a>
+  <a class="nav" href="#"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span class="label">Analytics</span></a>
+  <a class="nav" href="#"><svg viewBox="0 0 24 24"><path d="M4 6h16v12H4zM4 10h16"/></svg><span class="label">Payouts</span></a>
+  <a class="nav" href="#"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span class="label">Settings</span></a>
+</nav>
+
+<div class="main">
+<div class="top">Items <span aria-hidden="true">/</span> <b>New item</b><span class="avatar" aria-hidden="true"></span></div>
+<main class="wrap">
+  <div class="head">
+    <div class="item-icon" aria-hidden="true"><span></span></div>
+    <div>
+      <h1>Publish an extension</h1>
+      <div class="meta"><span class="pill" id="badge">Draft</span><span>Version 0.1.0</span></div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="saveBtn" type="button">Save draft</button>
+      <button class="btn primary" id="submitBtn" type="button">Submit for review</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tabs" role="tablist" aria-label="Sections">
+      <button role="tab" id="t1" aria-selected="true" aria-controls="p1">Store listing</button>
+      <button role="tab" id="t2" aria-selected="false" aria-controls="p2">Privacy</button>
+      <button role="tab" id="t3" aria-selected="false" aria-controls="p3">Package</button>
+    </div>
+
+    <section role="tabpanel" id="p1" aria-labelledby="t1">
+      <div class="field"><label for="ftitle">Title</label><input id="ftitle" spellcheck="false" autocomplete="off" placeholder="Your extension's name"></div>
+      <div class="field"><div class="lrow"><label for="summary">Summary</label><span class="hint" id="counter">0/132</span></div><input id="summary" spellcheck="false" autocomplete="off" placeholder="One line people see in search results"></div>
+      <div class="field"><label for="desc">Description</label><textarea id="desc" spellcheck="false" rows="2" placeholder="What it does and why it helps"></textarea></div>
+      <div class="row">
+        <div class="field"><label for="cat">Category</label><select id="cat"><option value="">Choose a category</option><option>Developer Tools</option><option>Productivity</option><option>Accessibility</option></select></div>
+        <div class="field"><label for="lang">Language</label><select id="lang"><option value="">Choose a language</option><option>English</option><option>German</option><option>Japanese</option></select></div>
+      </div>
+      <div class="field">
+        <span class="lbl">Screenshots <span class="hint" id="shotsCount">1280×800 or 640×400 PNG</span></span>
+        <label class="drop" for="shots">
+          <span class="ico"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></span>
+          <span><strong>Drop images here or browse</strong><small>Up to 5 screenshots</small></span>
+          <input class="sr" type="file" id="shots" multiple accept="image/png" aria-label="Screenshots">
+        </label>
+      </div>
+    </section>
+
+    <section role="tabpanel" id="p2" aria-labelledby="t2" hidden>
+      <div class="field"><label for="purpose">Single purpose</label><textarea id="purpose" rows="2"></textarea></div>
+      <div class="row">
+        <div class="field"><label for="j-debugger">debugger justification</label><textarea id="j-debugger" rows="2"></textarea></div>
+        <div class="field"><label for="j-native">nativeMessaging justification</label><textarea id="j-native" rows="2"></textarea></div>
+      </div>
+      <div class="row">
+        <div class="field"><label for="j-tabs">tabs justification</label><textarea id="j-tabs" rows="2"></textarea></div>
+        <div class="field"><label for="j-host">host permissions justification</label><textarea id="j-host" rows="2"></textarea></div>
+      </div>
+      <label class="radio"><input type="radio" name="data" id="nodata"> Does not collect user data</label>
+    </section>
+
+    <section role="tabpanel" id="p3" aria-labelledby="t3" hidden>
+      <div class="field">
+        <span class="lbl">Extension zip <span class="hint" id="zipName">One .zip, up to 2 GB</span></span>
+        <label class="drop" for="zip">
+          <span class="ico"><svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg></span>
+          <span><strong>Drop your package here or browse</strong><small>Built with your extension's production settings</small></span>
+          <input class="sr" type="file" id="zip" accept=".zip" aria-label="Extension zip">
+        </label>
+      </div>
+    </section>
+  </div>
+  <p id="state" class="note" role="status"></p><p id="errors" class="note" role="alert"></p>
+</main>
+</div>
+</div>
+<script>
+window.__result = undefined
+const tabs = [t1, t2, t3], panels = [p1, p2, p3]
+tabs.forEach((t, i) => t.addEventListener("click", () => {
+  tabs.forEach((x, j) => { x.setAttribute("aria-selected", String(i === j)); panels[j].hidden = i !== j })
+}))
+const update = () => { counter.textContent = summary.value.length + "/132" }
+summary.addEventListener("input", update)
+const names = (input) => Array.from(input.files, (f) => f.name)
+zip.addEventListener("change", () => { zipName.textContent = names(zip).join(", ") || "One .zip, up to 2 GB" })
+shots.addEventListener("change", () => { shotsCount.textContent = shots.files.length + " selected" })
+let saved = false
+saveBtn.addEventListener("click", () => {
+  const missing = []
+  const need = (ok, label) => { if (!ok) missing.push(label) }
+  need(ftitle.value, "Title"); need(summary.value, "Summary"); need(summary.value.length <= 132, "Summary (max 132)")
+  need(desc.value, "Description"); need(cat.value, "Category"); need(lang.value, "Language")
+  if (missing.length) { errors.textContent = "Missing: " + missing.join(", "); state.textContent = ""; return }
+  errors.textContent = ""
+  state.textContent = "Draft saved"
+  saved = true
+  window.__result = "saved:" + JSON.stringify({
+    title: ftitle.value, summary: summary.value, description: desc.value, category: cat.value, language: lang.value,
+    screenshots: names(shots),
+  })
+})
+submitBtn.addEventListener("click", () => {
+  if (!saved) { window.__result = "WRONG:submit-before-save"; return }
+  window.__result = "submitted"
+  state.textContent = "Submitted for review"
+  badge.textContent = "In review"; badge.className = "pill ok"
+})
+</script>
+</body></html>

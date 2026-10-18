@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, test } from "./fixtures"
+import { ROOT } from "./launch.ts"
 
 const out = (r: { stdout: string; stderr: string }) => r.stdout + r.stderr
 
@@ -460,5 +461,37 @@ test.describe("M3 exit", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+  test("showcase-listing: the styled demo page fills and saves with the same names; submit halts risky", async ({ kite, kiteStdin, context, torture, result }) => {
+    const url = `${torture}/showcase-listing`
+    await kite("tab", "new", url)
+    const page = () => context.pages().find((p) => p.url() === url)!
+    const b = counted()
+    must(
+      await b.run(kiteStdin, [
+        { action: "fill", target: "Title", value: "Kitestring" },
+        { action: "fill", target: "Summary", value: "Your agent drives your real Chrome." },
+        { action: "fill", target: "Description", value: "Acts, remembers and replays." },
+        { action: "select", target: "Category", value: "Developer Tools" },
+        { action: "select", target: "Language", value: "English" },
+        { action: "upload", target: "Screenshots", files: [join(ROOT, "brand", "icons", "icon-512.png")] },
+        { action: "click", target: "Save draft" },
+      ]),
+    )
+    expect(await result(page())).toBe(
+      "saved:" +
+        JSON.stringify({
+          title: "Kitestring",
+          summary: "Your agent drives your real Chrome.",
+          description: "Acts, remembers and replays.",
+          category: "Developer Tools",
+          language: "English",
+          screenshots: ["icon-512.png"],
+        }),
+    )
+    const r = await b.run(kiteStdin, [{ action: "click", target: "Submit for review" }])
+    expect(r.halted).toMatchObject({ index: 0, reason: "risky" })
+    expect(out(await kite("click", "Submit for review"))).toMatch(/^✓ done$/m)
+    expect(await result(page())).toBe("submitted")
   })
 })
