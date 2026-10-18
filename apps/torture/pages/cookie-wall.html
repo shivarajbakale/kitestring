@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>cookie-wall</title></head><body>
+<main><h1>Preferences</h1>
+<form aria-label="Newsletter preferences"><label for="e">Email</label><input id="e" type="email"><button id="go" type="button">Continue</button></form></main>
+<div id="onetrust-banner-sdk" style="position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center">
+<div style="background:#fff;padding:24px"><p>We use cookies.</p><button id="all">Accept all</button><button id="none">Reject all</button></div></div>
+<script>
+window.__result = undefined
+let consent = "unset"
+all.addEventListener("click", () => { consent = "all"; document.getElementById("onetrust-banner-sdk").remove() })
+none.addEventListener("click", () => { consent = "none"; document.getElementById("onetrust-banner-sdk").remove() })
+go.addEventListener("click", () => { window.__result = "continued:" + consent })
+</script>
+</body></html>

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>newsletter-modal</title></head><body>
+<main><h1>Article</h1><p>Some long article text.</p><button id="read">Read article</button></main>
+<script>
+window.__result = undefined
+read.addEventListener("click", () => { window.__result = "read" })
+setTimeout(() => {
+  const m = document.createElement("div")
+  m.id = "promo"
+  m.setAttribute("style", "position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center")
+  m.innerHTML = '<div style="background:#fff;padding:24px"><p>Get 10% off — subscribe to our newsletter</p><button id="x" aria-label="Close">×</button><button id="sub">Subscribe</button></div>'
+  document.body.appendChild(m)
+  document.getElementById("x").addEventListener("click", () => m.remove())
+  document.getElementById("sub").addEventListener("click", () => { window.__result = "WRONG:subscribed"; m.remove() })
+}, 500)
+</script>
+</body></html>

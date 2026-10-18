@@ -60,3 +60,24 @@ test.describe("tab watcher", () => {
     expect(await result(context.pages().find((p) => p.url() === opener)!)).toBe("signed-in")
   })
 })
+
+test.describe("popup closer", () => {
+  test("a cookie wall is closed with Reject all and the click goes through", async ({ kite, context, torture, result }) => {
+    const url = `${torture}/cookie-wall`
+    await kite("tab", "new", url)
+    const r = await kite("click", "Continue")
+    expect(out(r)).toMatch(/^✓ done$/m)
+    expect(out(r)).toContain('⨯ closed popup cookie "Reject all"')
+    expect(await result(context.pages().find((p) => p.url() === url)!)).toBe("continued:none")
+  })
+
+  test("a newsletter modal is dismissed, never subscribed", async ({ kite, context, torture, result }) => {
+    const url = `${torture}/newsletter-modal`
+    await kite("tab", "new", url)
+    await new Promise((r) => setTimeout(r, 700))
+    const r = await kite("click", "Read article")
+    expect(out(r)).toMatch(/^✓ done$/m)
+    expect(out(r)).toContain('closed popup newsletter "Close"')
+    expect(await result(context.pages().find((p) => p.url() === url)!)).toBe("read")
+  })
+})

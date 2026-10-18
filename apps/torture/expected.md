@@ -7,7 +7,10 @@ Serve with `pnpm --filter torture dev` (default http://127.0.0.1:4173). Each pag
 | `basic-form` | `kite fill Name Ada`, `kite fill Email ada@x.io`, `kite click Submit` | `submitted:Ada:ada@x.io` |
 | `duplicate-buttons` | `kite click Save --within Profile` (Billing Save gives `WRONG:billing`) | `saved:profile` |
 | `icon-only` | `kite click "Delete item"` | `deleted` |
-| `covered-by-banner` | `kite click Continue` (status `blocked`), `kite click Accept`, `kite click Continue` | `continued` |
+| `covered-by-banner` | `kite click Continue` (status `done`; the cookie banner is closed first: `closed popup cookie "Accept"`) | `continued` |
+| `covered-by-overlay` | `kite click Continue` (status `blocked`, a maintenance notice is not a cookie wall or newsletter), `kite click OK`, `kite click Continue` | `continued` |
+| `cookie-wall` | `kite click Continue` (`done`, `closed popup cookie "Reject all"`) | `continued:none` |
+| `newsletter-modal` | wait 700 ms, `kite click "Read article"` (the newsletter modal is closed with `Close`, never `Subscribe`) | `read` |
 | `infinite-scroll` | `kite click "Item 57"` (finder scrolls, two loads needed) | `item:57` |
 | `slow-button` | `kite click "Load data"` (result diff contains `Data ready`) | `loaded` |
 | `never-idle` | `kite click Go` (returns `done` within 3000 ms) | `go` |

@@ -39,6 +39,8 @@ export interface ActionResult {
   candidates?: Candidate[]
   blockedBy?: string
   dialogs?: DialogEvent[]
+  /** Cookie walls / newsletter modals closed to reach the target, each `<kind> "<button name>"`. */
+  closedPopups?: string[]
   page: string
 }
 

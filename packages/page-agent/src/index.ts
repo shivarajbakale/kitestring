@@ -6,12 +6,15 @@ import { check, type CheckResult } from "./check.js"
 import { waitQuiet } from "./quiet.js"
 import { brief } from "./brief.js"
 import { norm } from "./normalize.js"
+import { closerFor, type Closer } from "./popups.js"
 
 export interface PageAgent {
   snapshot(opts?: SnapshotOpts): string
   resolve(ref: string): Element | null
   find(target: Target, intent: FindIntent): FindResult
   check(ref: string): CheckResult
+  /** For a target covered by a cookie wall or newsletter modal: the control that dismisses it, else null. */
+  closerFor(ref: string): Closer | null
   /** Scrolls the element into view; its box in document (page) coordinates, or null if absent/empty. */
   rect(ref: string): { x: number; y: number; width: number; height: number } | null
   waitQuiet(): Promise<{ quiet: boolean; waitedMs: number }>
@@ -31,6 +34,7 @@ export function createAgent(win: Window): PageAgent {
       const el = reg.resolve(ref)
       return el ? check(el) : { kind: "hidden" }
     },
+    closerFor: (ref) => closerFor(doc, reg, reg.resolve(ref)),
     rect: (ref) => {
       const el = reg.resolve(ref)
       if (!el || !el.isConnected) return null
@@ -75,3 +79,5 @@ export { waitQuiet } from "./quiet.js"
 export { diffSnapshots } from "./diff.js"
 export type { Diff } from "./diff.js"
 export { brief } from "./brief.js"
+export { closerFor } from "./popups.js"
+export type { Closer } from "./popups.js"

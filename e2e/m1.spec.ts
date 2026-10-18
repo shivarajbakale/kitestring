@@ -160,12 +160,19 @@ test.describe("torture", () => {
 
   test("covered-by-banner", async ({ kite, context, torture, result }) => {
     const page = await open({ kite, context }, `${torture}/covered-by-banner`)
+    const r = await ok(kite, "click", "Continue")
+    expect(r.stdout).toContain('closed popup cookie "Accept"')
+    expect(await result(page)).toBe("continued")
+  })
+
+  test("covered-by-overlay", async ({ kite, context, torture, result }) => {
+    const page = await open({ kite, context }, `${torture}/covered-by-overlay`)
     const first = await kite("click", "Continue")
     expect(first.code).toBe(1)
     expect(first.stdout).toContain("blocked")
-    expect(first.stdout).toContain("Cookie banner")
+    expect(first.stdout).toContain("Scheduled maintenance")
     expect(await result(page)).toBe("undefined")
-    await ok(kite, "click", "Accept")
+    await ok(kite, "click", "OK")
     await ok(kite, "click", "Continue")
     expect(await result(page)).toBe("continued")
   })

@@ -1,5 +1,5 @@
 import { ErrorCode, READY, type ActionResult, type DialogEvent, type Diff, type Status, type Target } from "@kitestring/protocol"
-import { diffSnapshots, type CheckResult, type FindResult } from "@kitestring/page-agent"
+import { diffSnapshots, type CheckResult, type Closer, type FindResult } from "@kitestring/page-agent"
 import { callAgent, isRestrictedUrl } from "./agent-bridge"
 import { ensureAttached, isNotAttached, onEvent, send } from "./cdp"
 import { assertNotPaused } from "./control"
@@ -383,9 +383,31 @@ async function act(r: Run, action: Action): Promise<ActionResult> {
   }
 
   // CHECK (scrolls the element into view)
-  const c = await callAgent<CheckResult>(tabId, "check", [found.ref])
+  let c = await callAgent<CheckResult>(tabId, "check", [found.ref])
   guard()
-  if (c.kind === "blocked") return early(r, "blocked", { detail: `covered by ${c.by}`, blockedBy: c.by })
+  const closedPopups: string[] = []
+  if (c.kind === "blocked") {
+    // A cookie wall or newsletter modal in the way: close it once, then check again.
+    const closer = await callAgent<Closer | null>(tabId, "closerFor", [found.ref])
+    guard()
+    const cc = closer && (await callAgent<CheckResult>(tabId, "check", [closer.ref]))
+    guard()
+    if (closer && cc && cc.kind === "ok") {
+      await input.click(tabId, cc.x, cc.y)
+      closedPopups.push(`${closer.kind} "${/^\S+ "(.*)" \[@/.exec(closer.line)?.[1] ?? closer.line}"`)
+      await settle(tabId, r.watch, r.net, p)
+      guard()
+      c = await callAgent<CheckResult>(tabId, "check", [found.ref])
+      guard()
+    }
+  }
+  if (c.kind === "blocked") {
+    return early(r, "blocked", {
+      detail: `covered by ${c.by}`,
+      blockedBy: c.by,
+      ...(closedPopups.length ? { closedPopups } : {}),
+    })
+  }
   if (c.kind === "disabled") {
     return early(r, "disabled", {
       detail: c.errors.length ? c.errors.join("; ") : "element is disabled",
@@ -403,7 +425,7 @@ async function act(r: Run, action: Action): Promise<ActionResult> {
     const handled = await hasClickHandler(tabId, c.x, c.y)
     guard()
     await input.click(tabId, c.x, c.y)
-    return finish(r, before, { click: { handled } })
+    return withPopups(await finish(r, before, { click: { handled } }), closedPopups)
   }
   if (action.kind === "fill") {
     const text = action.value ?? ""
@@ -413,12 +435,16 @@ async function act(r: Run, action: Action): Promise<ActionResult> {
     guard()
     if (text === "") await input.press(tabId, "Backspace")
     else await input.insertText(tabId, text)
-    return finish(r, before, { fill: { ref: found.ref, text } })
+    return withPopups(await finish(r, before, { fill: { ref: found.ref, text } }), closedPopups)
   }
   const value = action.value ?? ""
   const selected = await callAgent<boolean>(tabId, "setSelect", [found.ref, value])
   if (!selected) return early(r, "error", { detail: `no option ${JSON.stringify(value)} in ${found.line}` })
-  return finish(r, before, {})
+  return withPopups(await finish(r, before, {}), closedPopups)
+}
+
+function withPopups(res: ActionResult, closedPopups: string[]): ActionResult {
+  return closedPopups.length ? { ...res, closedPopups } : res
 }
 
 /**

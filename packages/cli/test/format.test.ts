@@ -19,6 +19,9 @@ describe("formatResult", () => {
       formatResult({ ...base, dialogs: [{ type: "alert", message: "Hello", handled: "accepted" }, { type: "confirm", message: "Sure?", handled: "dismissed" }] }),
     ).toBe('✓ done\n! dialog alert "Hello" accepted\n! dialog confirm "Sure?" dismissed\npage: P')
   })
+  it("prints one line per closed popup", () => {
+    expect(formatResult({ ...base, closedPopups: ['cookie "Reject all"'] })).toBe('✓ done\n⨯ closed popup cookie "Reject all"\npage: P')
+  })
   it("omits empty errors and newTabs", () => {
     expect(formatResult({ ...base, errors: [], newTabs: [] })).toBe("✓ done\npage: P")
   })
