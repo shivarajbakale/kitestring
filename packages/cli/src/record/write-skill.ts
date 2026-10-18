@@ -38,6 +38,23 @@ function isLink(p: string): boolean {
 /** The skill folder for a recording name: `<home>/.agents/skills/kite-<name>`. */
 export const skillDirFor = (home: string, name: string): string => join(agentsSkillsDir(home), `kite-${name}`)
 
+/**
+ * After a save updated plan `id` (`<site>/<slug>`): a note that the recorded skill `kite-<slug>` for it (its SKILL.md names
+ * the plan's origin) still shows the old steps, or undefined when there is no such skill.
+ */
+export function staleSkillNote(home: string, id: string, origin: string): string | undefined {
+  const slug = id.split("/")[1] ?? id
+  const path = join(skillDirFor(home, slug), "SKILL.md")
+  let md: string
+  try {
+    md = readFileSync(path, "utf8")
+  } catch {
+    return undefined
+  }
+  if (!md.includes(origin)) return undefined
+  return `skill ${path} is now out of date: re-record it (kite record start --name ${slug}, then kite record stop --force)`
+}
+
 /** Throws (without writing anything) when the skill would replace something and `force` is not set. */
 export function checkSkillTarget(home: string, name: string, force: boolean): void {
   if (!RECORD_NAME_RE.test(name)) throw new Error(`invalid recording name ${JSON.stringify(name)}: use a lowercase slug like ada-signup`)

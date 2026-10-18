@@ -7,6 +7,7 @@ import { formatReplay } from "../client/format.js"
 import { appendPending, discardPending, recordReplayStop, savePending } from "../memory/pending.js"
 import { runPlan } from "../memory/replay.js"
 import { findAnyPlan, planById } from "../memory/store.js"
+import { staleSkillNote } from "../record/write-skill.js"
 import { kiteHome } from "../paths.js"
 import { resolveUploads } from "../upload-guard.js"
 
@@ -274,7 +275,8 @@ export const TOOLS: ToolDef[] = [
       if (!saved) throw new KiteError("BAD_REQUEST", `nothing to save: no batches journaled in session "${session}"`)
       const names = saved.plan.params.map((x) => (x.secret ? `${x.name}*` : x.name)).join(", ")
       const n = saved.plan.batches.length
-      return `${saved.note ? `note: ${saved.note}\n` : ""}${saved.updated ? "updated" : "saved"} plan ${saved.id} (${n} batch${n === 1 ? "" : "es"}${names ? `; params: ${names} (* = secret)` : ""})`
+      const stale = saved.updated && staleSkillNote(homedir(), saved.id, saved.plan.origin)
+      return `${saved.note ? `note: ${saved.note}\n` : ""}${stale ? `note: ${stale}\n` : ""}${saved.updated ? "updated" : "saved"} plan ${saved.id} (${n} batch${n === 1 ? "" : "es"}${names ? `; params: ${names} (* = secret)` : ""})`
     },
   },
   {

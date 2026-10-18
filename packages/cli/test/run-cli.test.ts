@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -42,9 +42,9 @@ async function startFake(): Promise<void> {
   daemon = d
 }
 
-function kite(args: string[], input?: string): Promise<{ code: number | null; out: string; err: string }> {
+function kite(args: string[], input?: string, env: Record<string, string> = {}): Promise<{ code: number | null; out: string; err: string }> {
   return new Promise((resolve) => {
-    const p = spawn(process.execPath, [BIN, ...args], { env: { ...process.env, KITE_SESSION: "", KITE_HOME: dir } })
+    const p = spawn(process.execPath, [BIN, ...args], { env: { ...process.env, KITE_SESSION: "", KITE_HOME: dir, ...env } })
     if (input !== undefined) p.stdin.end(input)
     let out = ""
     let err = ""
@@ -265,5 +265,23 @@ describe("kite batch -> kite memory save / discard", () => {
       [{ action: "click", target: { text: "Save changes", role: "button" } }],
     ])
     expect(JSON.stringify(stored!.plan)).not.toContain("create a listing")
+    expect(s.err).not.toContain("out of date")
+  })
+
+  it("updating a plan that has a recorded skill says the skill is now out of date", async () => {
+    const home = join(dir, "home")
+    const skill = join(home, ".agents", "skills", "kite-publish-store-listing", "SKILL.md")
+    mkdirSync(dirname(skill), { recursive: true })
+    writeFileSync(skill, "Recorded once with `kite record` on https://dash.example.com/.\n\nkite run publish-store-listing\n")
+    await startFake()
+    savePlan(dir, PLAN)
+    answers = [ok(1), { ...ok(2), ok: false, steps: [ok(1).steps[0]!, { i: 1, action: "click", status: "not_found", ms: 1 }], halted: { index: 1, reason: "not_found" }, next: 1 }]
+    await kite(["run", "publish-store-listing", "--param", "title=a", "--param", "password=b"], undefined, { HOME: home })
+    answers = [{ ...RES, steps: [{ i: 0, action: "click", status: "done", ms: 1, resolved: { role: "button", name: "Save changes" } }], startUrl: "https://dash.example.com/items/1" }]
+    await kite(["batch", "-"], JSON.stringify([{ action: "click", target: "Save changes" }]), { HOME: home })
+    const s = await kite(["memory", "save", "publish store listing"], undefined, { HOME: home })
+    expect(s.code, s.err).toBe(0)
+    expect(s.err).toContain(`skill ${skill} is now out of date`)
+    expect(s.err).toContain("kite record start --name publish-store-listing")
   })
 })

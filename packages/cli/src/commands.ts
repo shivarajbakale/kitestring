@@ -368,9 +368,12 @@ export async function main(argv: string[]): Promise<number> {
     .action(async (intent: string) => {
       const { savePending } = await import("./memory/pending.js")
       if (!intent.trim()) throw new UsageError("intent must not be empty")
+      const { staleSkillNote } = await import("./record/write-skill.js")
       const saved = savePending(kiteHome(), sessionName(), intent.trim())
       if (!saved) throw new UsageError(`nothing to save: no batches journaled in session "${sessionName()}"`)
       if (saved.note) process.stderr.write(`kite: note: ${saved.note}\n`)
+      const stale = saved.updated && staleSkillNote(homedir(), saved.id, saved.plan.origin)
+      if (stale) process.stderr.write(`kite: note: ${stale}\n`)
       if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify({ id: saved.id, updated: !!saved.updated, ...saved.plan }) + "\n")
       const names = saved.plan.params.map((x) => (x.secret ? `${x.name}*` : x.name)).join(", ")
       const n = saved.plan.batches.length
