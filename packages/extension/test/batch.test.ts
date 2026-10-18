@@ -204,9 +204,10 @@ describe("runBatch", () => {
     expect(state.calls).toHaveLength(2)
   })
 
-  it("other keys get no risk check", async () => {
-    await (await run({ steps: [{ action: "press", key: "Tab" } as Step] })).p
+  it("other keys get no risk check; Space does (it activates a focused button)", async () => {
+    await (await run({ steps: [{ action: "press", key: "Tab" } as Step, { action: "press", key: "Space" } as Step] })).p
     expect(state.calls[0]!.opts.beforeAct).toBeUndefined()
+    expect(state.calls[1]!.opts.beforeAct({ ref: "@e1", line: "", role: "button", name: "Delete account" })).toBe("risky")
   })
 
   it("passes a step's nocache flag (set by plan replay) to the step's action, and never into the result", async () => {

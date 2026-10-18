@@ -159,6 +159,17 @@ describe("writeSkill", () => {
     expect(readFileSync(file, "utf8")).toBe(before)
   })
 
+  it("a failed write after the old skill folder was moved aside moves it back", () => {
+    writeSkill(home, REC, { force: false, kiteHome: kh })
+    writeFileSync(join(skillDir("ada-signup"), "notes.txt"), "mine")
+    // the Claude link's parent is a file: the new folder is written, then linking it fails
+    rmSync(join(home, ".claude"), { recursive: true, force: true })
+    writeFileSync(join(home, ".claude"), "x")
+    expect(() => writeSkill(home, REC, { force: true, kiteHome: kh })).toThrow()
+    expect(readFileSync(join(skillDir("ada-signup"), "notes.txt"), "utf8")).toBe("mine")
+    expect(readdirSync(join(home, ".agents", "kite-backups", "skills"))).toEqual([])
+  })
+
   it("tells the agent an upload param is an absolute path", () => {
     const up: Recording = {
       ...REC,

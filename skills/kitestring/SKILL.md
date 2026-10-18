@@ -50,7 +50,7 @@ When you already know the next steps (a form, a multi-page flow), send them toge
 5. Read the result: `✓` done, `·` skipped, `✗` the problem. After a halt, read `halted at step N (reason): detail` and `resume with steps from N`. Fix that step (or the page), then resend `steps.slice(next)` only. Step numbers are 1-based in the text, 0-based in `--json` (`next`, `halted.index`).
 6. A batch also stops by design at: a different site than it started on (`domain`; add `allow_domains` if intended), a confirm/prompt dialog with no `dialog` policy (`dialog`), the human pausing (`paused`), and the time budget (`time`: resend from `next`).
 
-Risky clicks (pay, buy, place order, send, delete, publish, submit for review, transfer) halt with `risky` by design. Never override that inside a batch: do the step as a single `kite click` only after the fresh yes the safety rules below require. A `press Enter` in a form field is checked the same way, against the button it would submit, so do not try to get around a risky halt with Enter. Keep batches to one page flow (about 5 to 15 steps), not a whole session.
+Risky clicks (pay, buy, place order, send, delete, publish, submit for review, transfer) halt with `risky` by design. Never override that inside a batch: do the step as a single `kite click` only after the fresh yes the safety rules below require. A `press Enter` or `press Space` is checked the same way, against the focused button or link or the form button an Enter would submit, so do not try to get around a risky halt with a key press. Keep batches to one page flow (about 5 to 15 steps), not a whole session.
 
 ## Remembered tasks
 
@@ -58,7 +58,7 @@ Kitestring remembers your batches so a repeat task replays without you planning 
 
 1. Before a multi-step task on a site, call `browser_plan_find` with the task in a few words (`kite memory find "<intent>"` on the CLI).
 2. Found one: run it with `browser_plan_run {slug: <id>, params, secrets}`, passing the `id` it returned (`<site>/<slug>`) (`kite run <id> --param name=value`; `--secret name=value` keeps a value out of the output). Name every password or code param in `secrets` (on the CLI: pass it with `--secret`) so its value is never kept, not even hashed. Pass every param by name; missing or unknown names are refused before anything runs. The tab must be on the plan's site (else it stops with `wrong_page`), unless the plan opens with a goto there.
-3. A replay stops at the first problem and leaves the page there: read `stopped at batch N step M (reason: step)` and take over from that step with snapshot and batches. `needs_agent` means a field whose name matched a typed value was not stored: you fill that one. `risky` stops it as in any batch (CLI exit 3). A flow that moves to another site stops with `domain` on replay (the plan does not keep `allow_domains`): continue it yourself with `allow_domains`.
+3. A replay stops at the first problem and leaves the page there: read `stopped at batch N step M (reason: step)` and take over from that step with snapshot and batches. `needs_agent` means a target whose name matched a typed or picked value was not stored: you do that step (fill the field or click the control). `risky` stops it as in any batch (CLI exit 3). A flow that moves to another site stops with `domain` on replay (the plan does not keep `allow_domains`): continue it yourself with `allow_domains`.
 4. Finish the task, then save. After a new multi-step task, `browser_plan_save {intent}` (`kite memory save "<intent>"`) stores your batches as a plan. After taking over from a stopped replay, saving with the same intent updates that plan: the part that replayed fine plus your batches. Send the fixed step in a batch too (a one-step batch is fine): a single action is not remembered, so the updated plan would skip it. Saving with another intent makes a new plan and leaves the stopped one as it was.
 5. Only steps sent with `browser_batch` / `kite batch` are remembered, not single actions. Memory is per session (MCP: `agent`; CLI: `--session`, default `default`). A batch on another site, or more than 30 min after the last one, starts a new task memory. To drop it before an unrelated task: `browser_plan_discard` (`kite memory discard`).
 
@@ -98,7 +98,7 @@ Upload paths: relative paths resolve against the working directory of the `kite`
 | batch `domain` | The tab landed on another site. If intended, resend from `next` with `allow_domains`; else stop and look. |
 | batch `dialog` | A confirm/prompt was dismissed, cancelling the step. Resend from `next` with `dialog: "accept"` on that step only if confirming is what the human wants. |
 | batch `expect` | The step ran but the page is not the one you expected. Snapshot; fix the flow; resend from `next` (that step ran already). |
-| replay `needs_agent` | The plan does not know that field's name. Snapshot, fill it yourself, continue the task from there. |
+| replay `needs_agent` | The plan does not know that target's name. Snapshot, do that step yourself, continue the task from there. |
 | batch `time` | The budget ran out; the halted step may have partly run. Snapshot, then resend from `next`. |
 | `NOT_CONNECTED` | Run `kite doctor` and show the human the failing `fix:` lines (they may need to run `kite init` or load the extension). Then `kite status`. |
 | `NO_TAB` | `kite tab new <url>`. |

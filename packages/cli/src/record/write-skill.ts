@@ -242,18 +242,38 @@ export function writeSkill(home: string, rec: Recording, opts: WriteSkillOptions
 function writeSkillFiles(home: string, rec: Recording, plan: Plan, planSlug: string, now: Date): { skillPath: string; planSlug: string } {
   const dir = skillDirFor(home, rec.name)
   const link = join(claudeSkillsDir(home), `kite-${rec.name}`)
-  if (existsSync(dir) || isLink(dir)) moveAside(dir, skillBackupPath(home, `kite-${rec.name}`, now))
-  const state = linkState(link, dir)
-  if (state === "not-symlink") moveAside(link, skillBackupPath(home, `kite-${rec.name}.claude-link`, now))
-  else if (state === "other-symlink") unlinkSync(link)
-
-  mkdirSync(dir, { recursive: true })
-  const skillPath = join(dir, "SKILL.md")
-  writeFileSync(skillPath, skillMarkdown(rec, plan, planSlug))
-  if (linkState(link, dir) !== "ours") {
-    mkdirSync(dirname(link), { recursive: true })
-    rmSync(link, { force: true })
-    symlinkSync(dir, link)
+  /** What was moved aside, to move back if the new skill cannot be written. */
+  const moved: { from: string; to: string }[] = []
+  const aside = (from: string, to: string) => {
+    moveAside(from, to)
+    moved.push({ from, to })
   }
-  return { skillPath, planSlug }
+  try {
+    if (existsSync(dir) || isLink(dir)) aside(dir, skillBackupPath(home, `kite-${rec.name}`, now))
+    const state = linkState(link, dir)
+    if (state === "not-symlink") aside(link, skillBackupPath(home, `kite-${rec.name}.claude-link`, now))
+    else if (state === "other-symlink") unlinkSync(link)
+
+    mkdirSync(dir, { recursive: true })
+    const skillPath = join(dir, "SKILL.md")
+    writeFileSync(skillPath, skillMarkdown(rec, plan, planSlug))
+    if (linkState(link, dir) !== "ours") {
+      mkdirSync(dirname(link), { recursive: true })
+      rmSync(link, { force: true })
+      symlinkSync(dir, link)
+    }
+    return { skillPath, planSlug }
+  } catch (e) {
+    if (moved.length) {
+      rmSync(dir, { recursive: true, force: true }) // the half-written new skill
+      for (const m of moved.reverse()) {
+        try {
+          renameSync(m.to, m.from)
+        } catch {
+          /* best effort: the backup stays in kite-backups */
+        }
+      }
+    }
+    throw e
+  }
 }

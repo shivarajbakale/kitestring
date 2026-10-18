@@ -207,7 +207,7 @@ describe("runPlan", () => {
     const r = await runPlan(plan, { a: "1", textbox: "2" }, { call: rpc.call as any, home })
     expect(rpc.calls).toHaveLength(1)
     expect(rpc.calls[0]!.params.steps).toHaveLength(1)
-    expect(r.stoppedAt).toEqual({ batch: 0, step: 1, reason: "needs_agent", detail: "field name not stored (it matched a typed value)", stepText: "fill textbox in Shipping" })
+    expect(r.stoppedAt).toEqual({ batch: 0, step: 1, reason: "needs_agent", detail: "target name not stored (it matched a typed or picked value)", stepText: "fill textbox in Shipping" })
   })
 
   it("dry run prints the filled batches with secrets masked and sends nothing", async () => {

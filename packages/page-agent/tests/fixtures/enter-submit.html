@@ -2,9 +2,13 @@
 <html lang="en"><head><meta charset="utf-8"><title>enter-submit</title></head><body>
 <form id="order" onsubmit="return false">
   <label>Order note <input id="note"></label>
+  <label>Gift message <textarea id="gift"></textarea></label>
+  <div id="ce" contenteditable="true" aria-label="Rich note"></div>
   <button type="button">Edit cart</button>
   <button>Place order</button>
   <input type="submit" value="Second">
+  <button type="button" id="del">Delete account</button>
+  <input type="button" id="pay" value="Pay now">
 </form>
 <form id="named" aria-label="Send money" onsubmit="return false">
   <label>Amount <input id="amount"></label>
@@ -16,4 +20,6 @@
 <label>Owned <input id="owned" form="outside"></label>
 <button form="outside" type="submit">Delete all</button>
 <label>Loose <input id="loose"></label>
+<button id="looseBtn">Publish</button>
+<a id="link" href="#x">Remove account</a>
 </body></html>

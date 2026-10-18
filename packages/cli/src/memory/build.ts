@@ -26,6 +26,11 @@ interface Echo {
   /** `"<batch>.<step>"` of the step that supplied it (a step's own value is not an echo in its own target). */
   owner: string
   param?: string
+  /**
+   * A select's chosen text that differs from the value sent: no param can replay it (the param holds the value), so a
+   * step naming it is stored role-only, a scope naming it is dropped, and a goto naming it is refused.
+   */
+  opaque?: true
 }
 
 /**
@@ -71,7 +76,9 @@ export function buildPlan(intent: string, url: string, sent: Step[][], results: 
       if (s.action === "fill" || s.action === "select") add(s.value)
       else if (s.action === "upload") s.files.forEach((f) => add(base(f)))
       // what was picked is a value too: a select's chosen text, and an option-like click's name (as the recorder does)
-      if (s.action === "select" && r?.chosen) add(r.chosen)
+      if (s.action === "select" && r?.chosen && norm(r.chosen) !== norm(s.value) && norm(r.chosen).length >= MIN_ECHO) {
+        echoes.push({ norm: norm(r.chosen), owner, opaque: true })
+      }
       if (s.action === "click" && r?.resolved && CHOICE_ROLES.has(r.resolved.role) && ran(b, i)) add(r.resolved.name)
     }),
   )
@@ -85,6 +92,7 @@ export function buildPlan(intent: string, url: string, sent: Step[][], results: 
   const echoParam = (e: Echo, label: string): string => (e.param ??= newParam(label, false))
   const clean = (text: string, owner: string, label: string): string => {
     const e = hit(text, owner)
+    if (e?.opaque) throw new Error(`cannot store step ${owner}: it names a picked option's text, which no param replays`)
     return e ? `{{${echoParam(e, label)}}}` : text
   }
   const echoed = (text: string): boolean => echoes.some((e) => norm(text).includes(e.norm))
@@ -103,7 +111,7 @@ export function buildPlan(intent: string, url: string, sent: Step[][], results: 
       if (label === undefined) return
       const name = newParam(label, secrets.has(`${b}.${i}`))
       own.set(`${b}.${i}`, name)
-      for (const e of echoes) if (e.owner === `${b}.${i}`) e.param ??= name
+      for (const e of echoes) if (e.owner === `${b}.${i}` && !e.opaque) e.param ??= name
     }),
   )
 
@@ -142,15 +150,24 @@ export function buildPlan(intent: string, url: string, sent: Step[][], results: 
           const choice = step.action === "click" && target.role !== undefined && CHOICE_ROLES.has(target.role)
           const e = hit(target.text, id)
           const scope = target.within && !echoed(target.within) ? target.within : target.role
+          // a scope named after a picked option's text that no param replays is dropped
+          const within = target.within && hit(target.within, id)?.opaque ? undefined : target.within
           let text = target.text
-          if (e) text = `{{${echoParam(e, label)}}}`
+          if (e?.opaque) {
+            // named after a picked option's text: role-only (+ clean scope); the replay hands this step to the agent
+            if (!target.role) throw new Error(`cannot store step ${id}: no role`)
+            target = { role: target.role, ...(within && !echoed(within) ? { within } : {}) }
+          } else if (e) text = `{{${echoParam(e, label)}}}`
           else if (choice) {
             // the pick's own echo (its name) shares its param, so a later step naming it replays the same value
             const p = echoes.find((x) => x.owner === id && x.param)?.param ?? newParam(scope!, false)
             for (const x of echoes) if (x.owner === id) x.param ??= p
             text = `{{${p}}}`
           }
-          target = { ...target, text, ...(target.within ? { within: clean(target.within, id, label) } : {}) }
+          if ("text" in target) {
+            const { within: _w, ...rest } = target
+            target = { ...rest, text, ...(within ? { within: clean(within, id, label) } : {}) }
+          }
         }
         out.target = target
       }

@@ -438,14 +438,15 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
 
   if (action.kind === "press" || action.kind === "scroll") {
     if (action.kind === "press" && hooks.beforeAct) {
-      // The batch checks a press of Enter against what it would submit: the focused field's form's default button.
-      const submit = await callAgent<Found | null>(tabId, "enterSubmit", [])
+      // The batch checks a press of Enter / Space against what it would activate: the focused button or link, or the
+      // focused field's form's default button.
+      const submit = await callAgent<Found | null>(tabId, "pressTarget", [action.key])
       guard()
       const refused = submit && hooks.beforeAct(submit)
       if (refused) {
         hooks.refused = refused
         return early(r, "error", {
-          detail: `refused: ${action.key} would submit ${JSON.stringify(submit.name)}, which looks ${refused === "risky" ? "risky (it may pay, send or delete something)" : refused}; click it on its own if intended`,
+          detail: `refused: ${action.key} would activate ${JSON.stringify(submit.name)}, which looks ${refused === "risky" ? "risky (it may pay, send or delete something)" : refused}; click it on its own if intended`,
         })
       }
     }

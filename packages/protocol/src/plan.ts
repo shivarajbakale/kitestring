@@ -12,11 +12,13 @@ export type RoleTarget = { role: string; within?: string }
 export type PlanTarget = Target | RoleTarget
 
 /**
- * A fill / select / upload whose field name echoed a value, so only its role (and clean scope) was stored.
+ * A fill / select / upload whose field name echoed a value, or a click named after a select's chosen text that no param
+ * replays, so only its role (and clean scope) was stored.
  * Replay rule: a replay halts at a role-only step and hands the page to the agent; it never guesses a field.
  */
 export type RoleStep = StepBase &
   (
+    | { action: "click"; target: RoleTarget }
     | { action: "fill" | "select"; target: RoleTarget; value: string }
     | { action: "upload"; target: RoleTarget; files: string[] }
   )

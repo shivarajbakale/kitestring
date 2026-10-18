@@ -8,7 +8,7 @@ import { brief } from "./brief.js"
 import { norm } from "./normalize.js"
 import { closerFor, type Closer } from "./popups.js"
 import { fileInputFor, fileNames, watchFileInput } from "./files.js"
-import { enterSubmit } from "./submit.js"
+import { pressTarget } from "./submit.js"
 import { elementLine } from "./snapshot.js"
 import { roleOf } from "./roles.js"
 
@@ -38,10 +38,11 @@ export interface PageAgent {
   markFileInput(ref: string, token: string): boolean
   unmarkFileInput(token: string): void
   /**
-   * What an Enter on the focused element would submit (its form's default button, else the form),
-   * for the batch risk check (`ref` is "" for a form without a submit button); null when focus is not inside a form.
+   * What a press of `key` (Enter or Space) on the focused element would activate, for the batch risk check: the focused
+   * button or link itself, else (Enter in a form field) the form's default button, else the form (`ref` ""). null when it
+   * activates nothing to check (no form, a textarea or contenteditable, Space off a button).
    */
-  enterSubmit(): { ref: string; line: string; role: string; name: string } | null
+  pressTarget(key: string): { ref: string; line: string; role: string; name: string } | null
 }
 
 const fold = (s: string): string => s.replace(/\s+/g, " ").toLowerCase()
@@ -107,12 +108,18 @@ export function createAgent(win: Window): PageAgent {
         if (el.getAttribute("data-kite-upload") === token) el.removeAttribute("data-kite-upload")
       }
     },
-    enterSubmit: () => {
-      const s = enterSubmit(doc)
-      if (!s) return null
-      if (!s.button) return { ref: "", line: `form ${JSON.stringify(s.name)}`, role: "form", name: s.name }
-      const role = roleOf(s.button) ?? "button"
-      return { ref: reg.refFor(s.button), line: elementLine(s.button, role, reg), role, name: s.name }
+    pressTarget: (key) => {
+      const t = pressTarget(doc, key)
+      if (!t) return null
+      if (!t.control) return { ref: "", line: `form ${JSON.stringify(t.name)}`, role: "form", name: t.name }
+      const role = roleOf(t.control) ?? "button"
+      let ref = ""
+      try {
+        ref = reg.refFor(t.control)
+      } catch {
+        /* not in the snapshot's interactive set: the name is what is checked */
+      }
+      return { ref, line: ref ? elementLine(t.control, role, reg) : `${role} ${JSON.stringify(t.name)}`, role, name: t.name }
     },
   }
 }

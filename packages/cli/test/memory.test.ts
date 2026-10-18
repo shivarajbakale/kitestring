@@ -239,16 +239,46 @@ describe("buildPlan never echoes a value", () => {
     expect(p.batches[0]![2]).toMatchObject({ target: { text: "{{category}}", role: "button" } })
     expect(p.params.map((x) => x.name)).toEqual(["category"])
   })
-  it("a select's chosen visible text is a value too, not only the value the agent sent", () => {
+  it("a select's chosen text that differs from the sent value never stands in for it: a later step naming it is role-only", () => {
     const p = build(
       [
         { action: "select", target: "@e1", value: "IN" },
+        { action: "click", target: "@e2" },
+        { action: "click", target: "@e3" },
+      ],
+      [
+        { ...ok(0, "select", R("combobox", "Country")), chosen: "India" } as StepResult,
+        ok(1, "click", R("button", "Ship to India")),
+        ok(2, "click", R("button", "Continue", "Shipping to India")),
+      ],
+    )
+    expect(JSON.stringify(p)).not.toMatch(/india/i)
+    expect(p.batches[0]![1]).toEqual({ action: "click", target: { role: "button" } })
+    expect(p.batches[0]![2]).toEqual({ action: "click", target: { text: "Continue", role: "button" } })
+    expect(p.params.map((x) => x.name)).toEqual(["country"])
+    // regression: replay never clicks a target named by the option value ("IN" would match "Sign in")
+    const filled = fillPlan(p, { country: "IN" })[0]!
+    expect(filled[1]).toEqual({ action: "click", target: { role: "button" } })
+    expect(JSON.stringify(filled.slice(1))).not.toContain("IN")
+  })
+  it("a select whose chosen text is its sent value (any case) shares the select's param", () => {
+    const p = build(
+      [
+        { action: "select", target: "@e1", value: "india" },
         { action: "click", target: "@e2" },
       ],
       [{ ...ok(0, "select", R("combobox", "Country")), chosen: "India" } as StepResult, ok(1, "click", R("button", "Ship to India"))],
     )
     expect(JSON.stringify(p)).not.toMatch(/india/i)
     expect(p.batches[0]![1]).toMatchObject({ target: { text: "{{country}}" } })
+  })
+  it("a goto whose path names a select's differing chosen text is refused, not stored", () => {
+    expect(() =>
+      build(
+        [{ action: "select", target: "@e1", value: "IN" }, { action: "goto", url: "https://x.example.com/ship/india" }],
+        [{ ...ok(0, "select", R("combobox", "Country")), chosen: "India" } as StepResult, ok(1, "goto")],
+      ),
+    ).toThrow(/picked option/)
   })
   it("goto: echoing path segment becomes a param, query dropped and marked", () => {
     const p = build(

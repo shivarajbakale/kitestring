@@ -35,8 +35,8 @@ const FIND_POLL_MS = 200
 /** switch_tab "new" without `wait`: adoption follows chrome.tabs.onCreated asynchronously. */
 const SWITCH_NEW_WAIT_MS = 3_000
 const EMPTY = { added: [], removed: [] }
-/** Enter, with or without modifiers ("Shift+Enter"): it may submit the focused field's form. */
-const isEnter = (key: string) => /(^|\+)Enter$/.test(key)
+/** Enter (with or without modifiers) or Space: it may activate the focused button or submit the focused field's form. */
+const activatesKey = (key: string) => /(^|\+)Enter$/.test(key) || key === "Space"
 
 /** A late-appearing target still gets this long to act after its `wait`. */
 const ACT_AFTER_WAIT_MS = 2_000
@@ -243,8 +243,8 @@ export async function runBatch(
         const res = await runStep(s, tabId, action, {
           capMs: Math.min(STEP_CAP_MS, remaining() - STEP_MARGIN_MS),
           ...(step.dialog ? { dialog: step.dialog } : {}),
-          // A click, or an Enter that would submit a form (checked against that form's submit button).
-          ...(step.action === "click" || (step.action === "press" && isEnter(step.key))
+          // A click, or an Enter / Space that activates a control or submits a form (checked against what it activates).
+          ...(step.action === "click" || (step.action === "press" && activatesKey(step.key))
             ? { beforeAct: (f: Found) => (isRisky(f.name) ? "risky" : null) }
             : {}),
           linger: (t) => (linger = t),

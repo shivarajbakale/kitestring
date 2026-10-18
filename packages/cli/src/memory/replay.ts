@@ -44,7 +44,7 @@ export interface ReplayDeps {
   onStop?: (at: { batch: number; step: number }) => void
 }
 
-export const NEEDS_AGENT_DETAIL = "field name not stored (it matched a typed value)"
+export const NEEDS_AGENT_DETAIL = "target name not stored (it matched a typed or picked value)"
 const MASK = "••••"
 
 function originOf(url: string): string | undefined {
@@ -91,7 +91,7 @@ export function stepText(s: PlanStep): string {
  * there for the agent. Before each batch the active tab must be on the plan's origin (else `wrong_page`, nothing sent),
  * unless the batch opens with a goto to that origin. Nothing is sent until every parameter checks out: an unknown name is `BAD_REQUEST`; missing names
  * return `{ok: false, missing}` listing all of them. Upload files come only from `values` and pass the upload deny list.
- * A role-only step (its field name matched a typed value) is never sent: the replay stops before it with `needs_agent`.
+ * A role-only step (its target name matched a typed or picked value) is never sent: the replay stops before it with `needs_agent`.
  * A risky click halts inside `act.batch` and is never continued. Only a fully ok run bumps the plan's `runs` / `lastOk`.
  */
 export async function runPlan(plan: Plan, values: Record<string, string>, deps: ReplayDeps): Promise<ReplayResult> {

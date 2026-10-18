@@ -191,7 +191,7 @@ describe("runStep", () => {
     const { runStep } = await import("../background/pipeline")
     const input = await import("../background/input")
     const submit = { ref: "@e00002", line: 'button "Place order" [@e00002]', role: "button", name: "Place order" }
-    agent.extra.enterSubmit = () => submit
+    agent.extra.pressTarget = () => submit
     const seen: unknown[] = []
     const r = await runStep(s, 1, { kind: "press", key: "Enter" }, {
       capMs: 15_000,
@@ -203,13 +203,13 @@ describe("runStep", () => {
     expect(seen).toEqual([submit])
     expect(input.press).not.toHaveBeenCalled()
     expect(r).toMatchObject({ ok: false, halt: "risky", acted: false })
-    expect(r.detail).toContain('Enter would submit "Place order"')
+    expect(r.detail).toContain('Enter would activate "Place order"')
   })
 
   it("a press outside any form (or with no beforeAct) goes through", async () => {
     const { runStep } = await import("../background/pipeline")
     const input = await import("../background/input")
-    agent.extra.enterSubmit = () => null
+    agent.extra.pressTarget = () => null
     const r = await runStep(s, 1, { kind: "press", key: "Enter" }, { capMs: 15_000, beforeAct: () => "risky" })
     expect(input.press).toHaveBeenCalledWith(1, "Enter")
     expect(r.halt).toBeUndefined()
