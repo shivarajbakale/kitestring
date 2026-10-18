@@ -321,3 +321,29 @@ describe("own-value names and safe goto params", () => {
     expect(() => fillPlan(gotoPlan("{{q}}"), { q: "https://evil.com/" })).toThrow(expect.objectContaining({ code: "BAD_REQUEST" }))
   })
 })
+
+describe("fillPlan goto origin check and role-less echo", () => {
+  const plan = (url: string, params: Plan["params"] = []): Plan => ({
+    version: 1, intent: "g", origin: "https://x.example.com", pathPattern: "/", params,
+    batches: [[{ action: "goto", url }]], createdAt: "", runs: 0, lastOk: null,
+  })
+  it("passes a recorded cross-origin goto through unchanged", () => {
+    expect((fillPlan(plan("https://auth.other.com/login"), {})[0]![0] as any).url).toBe("https://auth.other.com/login")
+  })
+  it("passes a relative goto without placeholders unchanged", () => {
+    expect((fillPlan(plan("/settings"), {})[0]![0] as any).url).toBe("/settings")
+  })
+  it("still checks a goto that took a parameter", () => {
+    expect(() => fillPlan(plan("{{q}}", [{ name: "q", secret: false }]), { q: "https://evil.com/" })).toThrow(/not on/)
+  })
+  it("throws when an echoing field has no role", () => {
+    expect(() =>
+      buildPlan(
+        "x", URL_,
+        [[{ action: "fill", target: { text: "Gold" }, value: "Gold" }]],
+        [batch([ok(0, "fill")])],
+        new Set(),
+      ),
+    ).toThrow("cannot store step 0.0: no role")
+  })
+})

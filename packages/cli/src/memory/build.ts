@@ -7,6 +7,8 @@ import {
   type Plan,
   type PlanParam,
   type PlanStep,
+  type PlanTarget,
+  type ReplayStep,
   type Step,
   type Target,
 } from "@kitestring/protocol"
@@ -41,8 +43,9 @@ interface Echo {
  * - `goto` loses its query and fragment; the stored step gets `droppedQuery: true`.
  * - Targets are written from `StepResult.resolved` as `{text, role, within?}`. Without it, a text target is stored with the
  *   step's own `within`/`role` folded in; an `@ref` target without `resolved` throws.
- * - A fill/select/upload target whose name or scope echoes any value (its own included) stores no such text: the target is
- *   `{role, within?}` (no `text`), so replay may halt `ambiguous` and the agent takes over. Its param is named from the role.
+ * - A fill/select/upload target whose name echoes any value (its own included) stores no such text: the target is
+ *   `{role, within?}` (a RoleStep; one with no role throws `cannot store step <b>.<i>: no role`). Replay halts at a role-only
+ *   step and hands the page to the agent. Its param is named from the role.
  * - Steps are copied field by field per action (an allowlist), so unknown keys never reach the plan.
  * - `secrets` holds `"<batch>.<step>"` (zero-based positions in `sent`) of fields that were password / cc-* / one-time-code.
  */
@@ -113,7 +116,7 @@ export function buildPlan(intent: string, url: string, sent: Step[][], results: 
       out.action = step.action
 
       if ("target" in step) {
-        let target: Target
+        let target: PlanTarget
         if (r.resolved) {
           target = { text: r.resolved.name, role: r.resolved.role, ...(r.resolved.within ? { within: r.resolved.within } : {}) }
         } else {
@@ -123,12 +126,13 @@ export function buildPlan(intent: string, url: string, sent: Step[][], results: 
         }
         if (step.action === "fill" || step.action === "select" || step.action === "upload") {
           // a field named after a value (its own or another) must not store that name: role (+ clean scope) only
-          const { text, within, ...rest } = target as { text: string; within?: string; role?: string }
-          target = {
-            ...(text && echoed(text) ? {} : { text }),
-            ...rest,
-            ...(within && !echoed(within) ? { within } : {}),
-          } as Target
+          const { text, within, role } = target as { text: string; within?: string; role?: string }
+          if (text && echoed(text)) {
+            if (!role) throw new Error(`cannot store step ${id}: no role`)
+            target = { role, ...(within && !echoed(within) ? { within } : {}) }
+          } else {
+            target = { text, ...(role ? { role } : {}), ...(within && !echoed(within) ? { within } : {}) }
+          }
         } else if ("text" in target) {
           const label = target.role ?? "value"
           const choice = step.action === "click" && target.role !== undefined && CHOICE_ROLES.has(target.role)
@@ -233,7 +237,7 @@ function cleanUrl(raw: string, clean: (seg: string) => string): { url: string; d
 }
 
 /** The plan's batches with every `{{param}}` replaced by `values[param]`. Throws `missing parameters: a, b` listing all. */
-export function fillPlan(plan: Plan, values: Record<string, string>): Step[][] {
+export function fillPlan(plan: Plan, values: Record<string, string>): ReplayStep[][] {
   const missing = plan.params.map((p) => p.name).filter((n) => !Object.hasOwn(values, n))
   if (missing.length) throw new Error(`missing parameter${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`)
   const sub = (s: string): string => s.replace(PLACEHOLDER, (m, name: string) => (Object.hasOwn(values, name) ? values[name]! : m))
@@ -244,7 +248,12 @@ export function fillPlan(plan: Plan, values: Record<string, string>): Step[][] {
       for (const k of ["value", "key"]) if (typeof c[k] === "string") c[k] = sub(c[k] as string)
       if (typeof c.url === "string") {
         // a value in a URL is one path segment: never a way to change host, path depth or query
-        const url: string = c.url.replace(PLACEHOLDER, (m, name: string) => (Object.hasOwn(values, name) ? safeSegment(values[name]!) : m))
+        let substituted = false
+        const url: string = c.url.replace(PLACEHOLDER, (m, name: string) => {
+          if (!Object.hasOwn(values, name)) return m
+          substituted = true
+          return safeSegment(values[name]!)
+        })
         c.url = url
         let same = false
         try {
@@ -252,14 +261,15 @@ export function fillPlan(plan: Plan, values: Record<string, string>): Step[][] {
         } catch {
           /* not absolute */
         }
-        if (!same) throw new KiteError("BAD_REQUEST", `refusing goto ${url}: not on ${plan.origin}`)
+        // a recorded goto is replayed as recorded; only a URL a parameter flowed into must stay on the plan's origin
+        if (substituted && !same) throw new KiteError("BAD_REQUEST", `refusing goto ${url}: not on ${plan.origin}`)
       }
       if (Array.isArray(c.files)) c.files = (c.files as string[]).map(sub)
       if (c.target && typeof c.target === "object" && "text" in c.target) {
         const t = c.target as { text: string; within?: string }
         c.target = { ...t, text: sub(t.text), ...(t.within ? { within: sub(t.within) } : {}) }
       }
-      return c as unknown as Step
+      return c as unknown as ReplayStep
     }),
   )
 }

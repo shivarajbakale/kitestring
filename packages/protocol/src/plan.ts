@@ -1,7 +1,25 @@
-import type { Step } from "./batch.js"
+import type { Step, StepBase } from "./batch.js"
+import type { Target } from "./target.js"
+
+/** A target with no name text, stored when the field's name echoed a value. */
+export type RoleTarget = { role: string; within?: string }
+export type PlanTarget = Target | RoleTarget
+
+/**
+ * A fill / select / upload whose field name echoed a value, so only its role (and clean scope) was stored.
+ * Replay rule: a replay halts at a role-only step and hands the page to the agent; it never guesses a field.
+ */
+export type RoleStep = StepBase &
+  (
+    | { action: "fill" | "select"; target: RoleTarget; value: string }
+    | { action: "upload"; target: RoleTarget; files: string[] }
+  )
+
+/** A step as stored and as filled for replay: a normal `Step`, or a role-only one (see {@link RoleStep}). */
+export type ReplayStep = Step | RoleStep
 
 /** A stored step; `droppedQuery` marks a goto whose query / fragment was not stored (it may have mattered). */
-export type PlanStep = Step & { droppedQuery?: boolean }
+export type PlanStep = ReplayStep & { droppedQuery?: boolean }
 
 /** A stored, parameterized task: batches whose values and upload files are `{{param}}` placeholders. */
 export interface Plan {
