@@ -2,8 +2,9 @@ import { accessSync, constants, existsSync, readFileSync, statSync } from "node:
 import { join } from "node:path"
 import { EXTENSION_ID, HOST_NAME, LEGACY_HOST_NAMES } from "@kitestring/protocol"
 import { KiteError, call } from "../client/rpc-client.js"
-import { tilde } from "../paths.js"
-import { hostsDir } from "../install/host-manifest.js"
+import { localAppData, socketPath, tilde } from "../paths.js"
+import { isPipePath } from "../host/daemon.js"
+import { hostWrapperName, hostsDir } from "../install/host-manifest.js"
 import { SERVER_NAME, claudeGetArgv, type AgentId } from "../init/agents.js"
 import { detect } from "../init/detect.js"
 import { EXTENSION_BUILD, defaultExec, findOnPath, parseClaudeGet, type ExecResult } from "../init/init.js"
@@ -26,6 +27,8 @@ export interface DoctorOptions {
   /** Default process.versions.node. */
   nodeVersion?: string
   exec?: (file: string, args: string[], env: NodeJS.ProcessEnv) => Promise<ExecResult>
+  /** Default process.platform; injectable so the win32 paths are testable anywhere. */
+  platform?: NodeJS.Platform
 }
 
 const MIN_NODE = [22, 12, 0]
@@ -78,8 +81,14 @@ function checkWrapper(o: DoctorOptions, wrapper: string): Check {
   const id = "host-wrapper"
   const fix = "run `kite install-host` (or `kite init`)"
   if (!existsSync(wrapper)) return { id, ok: false, detail: `${tilde(o.home, wrapper)} not found`, fix }
-  if (!isExecutable(wrapper)) return { id, ok: false, detail: `${tilde(o.home, wrapper)} is not executable`, fix }
+  if (!wrapper.endsWith(".cmd") && !isExecutable(wrapper)) return { id, ok: false, detail: `${tilde(o.home, wrapper)} is not executable`, fix }
   const text = readFileSync(wrapper, "utf8")
+  if (wrapper.endsWith(".cmd")) {
+    const node = /^"([^"]*)" "[^"]*" %\*\r?$/m.exec(text)?.[1]
+    if (!node) return { id, ok: false, detail: "wrapper names no node", fix }
+    if (!existsSync(node)) return { id, ok: false, detail: `node ${node} does not exist`, fix }
+    return { id, ok: true, detail: `${tilde(o.home, wrapper)}, node ${node}` }
+  }
   const list = /^for n in (.*); do$/m.exec(text)?.[1] ?? ""
   const nodes = [...list.matchAll(/'((?:[^']|'\\'')*)'/g)].map((m) => m[1]!.replace(/'\\''/g, "'"))
   const live = nodes.filter(isExecutable)
@@ -95,7 +104,7 @@ async function checkBridge(sock: string): Promise<{ bridge: Check; extension: Ch
     bridge,
     extension: { id: "extension", ok: false, detail: "not checked — bridge unreachable", fix: bridge.fix },
   })
-  if (!existsSync(sock)) {
+  if (!isPipePath(sock) && !existsSync(sock)) {
     return down({ id: "bridge", ok: false, detail: `no socket at ${sock} — the host never started`, fix: `host never started — ${loadExt}` })
   }
   let status: unknown
@@ -124,13 +133,15 @@ const initFix = "run `kite init`"
 /** `$KITE_HOME/bin/kite` (written by kite init) exists and runs; whether it is on PATH is only reported. */
 function checkCli(o: DoctorOptions, kiteHome: string): Check {
   const id = "cli"
-  const shim = shimPath(kiteHome)
-  const line = pathLine(o.home, kiteHome)
+  const plat = o.platform ?? process.platform
+  const lad = localAppData(o.env, o.home)
+  const shim = shimPath(kiteHome, plat, lad)
+  const line = pathLine(o.home, kiteHome, plat, lad)
   const where = tilde(o.home, shim)
-  if (!existsSync(shim)) return { id, ok: false, detail: `${where} not found`, fix: `${initFix}, then add \`${line}\` to your shell profile` }
+  if (!existsSync(shim)) return { id, ok: false, detail: `${where} not found`, fix: `${initFix}, then ${plat === "win32" ? "run" : "add"} \`${line}\`${plat === "win32" ? "" : " to your shell profile"}` }
   if (!isExecutableFile(shim)) return { id, ok: false, detail: `${where} is not executable`, fix: `${initFix} (rewrites it)` }
-  const on = onPath(shimDir(kiteHome), o.env.PATH)
-  return { id, ok: true, detail: on ? `${where} (on PATH)` : `${where} (not on PATH — add \`${line}\` to your shell profile)` }
+  const on = onPath(shimDir(kiteHome, plat, lad), o.env.PATH)
+  return { id, ok: true, detail: on ? `${where} (on PATH)` : `${where} (not on PATH — ${plat === "win32" ? "run" : "add"} \`${line}\`${plat === "win32" ? "" : " to your shell profile"})` }
 }
 
 /** Reads the launch args (bin.js path) that agent `id`'s config has for our MCP server; undefined = no entry. */
@@ -223,8 +234,9 @@ function checkSkills(o: DoctorOptions, id: AgentId): Check {
 /** Read-only health checks. Never writes anything. */
 export async function runDoctor(o: DoctorOptions): Promise<Check[]> {
   const kiteHome = o.env.KITE_HOME || join(o.home, ".kitestring")
-  const dir = hostsDir({ browser: "chrome", home: o.home })
-  const wrapper = join(kiteHome, "host.sh")
+  const plat = o.platform ?? process.platform
+  const dir = hostsDir({ browser: "chrome", home: o.home, platform: plat, localAppData: localAppData(o.env, o.home) })
+  const wrapper = join(kiteHome, hostWrapperName(plat))
   const checks: Check[] = []
 
   const v = o.nodeVersion ?? process.versions.node
@@ -236,7 +248,7 @@ export async function runDoctor(o: DoctorOptions): Promise<Check[]> {
   checks.push(checkManifest(o, dir, wrapper))
   checks.push(checkWrapper(o, wrapper))
   checks.push(checkCli(o, kiteHome))
-  const { bridge, extension } = await checkBridge(join(kiteHome, "kite.sock"))
+  const { bridge, extension } = await checkBridge(plat === "win32" ? socketPath("win32") : join(kiteHome, "kite.sock"))
   checks.push(bridge, extension)
   for (const a of detect(o.home)) {
     if (!a.present) continue

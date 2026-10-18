@@ -1,11 +1,13 @@
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs"
+import { EXTENSION_ID } from "@kitestring/protocol"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, existsSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { installHost } from "../src/install/host-manifest.js"
 import { isOurShim, shimCmdScript, shimDir, shimPath } from "../src/install/shim.js"
-import { socketPath } from "../src/paths.js"
-import { windowsAgentConfigFiles } from "../src/init/agents.js"
+import { localAppData, socketPath } from "../src/paths.js"
+import { runDoctor } from "../src/doctor/doctor.js"
+import { runInit } from "../src/init/init.js"
 import { isPipePath } from "../src/host/daemon.js"
 
 let dir: string
@@ -97,18 +99,64 @@ describe("kite.cmd shim", () => {
       "",
     ])
     const f = join(dir, "kite.cmd")
-    require("node:fs").writeFileSync(f, s)
+    writeFileSync(f, s)
     expect(isOurShim(f)).toBe(true)
   })
 })
 
-describe("windows agent config paths", () => {
-  it("are under USERPROFILE", () => {
-    expect(windowsAgentConfigFiles("C:\\Users\\a")).toEqual({
-      codex: "C:\\Users\\a\\.codex\\config.toml",
-      cursor: "C:\\Users\\a\\.cursor\\mcp.json",
-      gemini: "C:\\Users\\a\\.gemini\\settings.json",
-      opencode: "C:\\Users\\a\\.config\\opencode\\opencode.json",
+
+describe("kite doctor and kite init on win32", () => {
+  const lad = () => join(dir, "lad")
+  const env = () => ({ PATH: "", KITE_HOME: join(dir, "kh"), LOCALAPPDATA: lad() })
+  const nodeExe = () => join(dir, "node.exe")
+
+  const install = () => {
+    mkdirSync(dirname(nodeExe()), { recursive: true })
+    writeFileSync(nodeExe(), "")
+    installHost({ browser: "chrome", extensionId: EXTENSION_ID, kiteHome: join(dir, "kh"), platform: "win32", localAppData: lad(), execFile: () => {} })
+    // Point host.cmd at a node that exists.
+    const cmd = join(dir, "kh", "host.cmd")
+    writeFileSync(cmd, readFileSync(cmd, "utf8").replace(/"[^"]*node[^"]*" "/, `"${nodeExe()}" "`))
+  }
+
+  it("doctor reads the LOCALAPPDATA manifest and host.cmd, and uses the named pipe", async () => {
+    install()
+    const cs = await runDoctor({ home: join(dir, "home"), env: env(), platform: "win32" })
+    const by = (id: string) => cs.find((c) => c.id === id)!
+    expect(by("host-manifest").ok).toBe(true)
+    expect(by("host-wrapper").ok).toBe(true)
+    expect(by("host-wrapper").detail).toContain(nodeExe())
+    expect(by("bridge").ok).toBe(false)
+    expect(by("bridge").detail).not.toContain("kite.sock")
+    expect(by("cli").fix).toContain("setx PATH")
+    expect(by("cli").fix).not.toContain("export")
+  })
+
+  it("doctor reports a host.cmd whose node is gone", async () => {
+    install()
+    rmSync(nodeExe())
+    const cs = await runDoctor({ home: join(dir, "home"), env: env(), platform: "win32" })
+    expect(cs.find((c) => c.id === "host-wrapper")!.ok).toBe(false)
+  })
+
+  it("init prints the Windows manifest path, a setx hint and writes kite.cmd", async () => {
+    const home = join(dir, "home")
+    mkdirSync(join(home, ".codex"), { recursive: true })
+    const lines: string[] = []
+    const code = await runInit({
+      home, env: env(), platform: "win32", dryRun: true, yes: true, out: (s) => lines.push(s), isConnected: async () => false, node: "C:\\n\\node.exe",
     })
+    const text = lines.join("\n")
+    expect(code, text).toBe(0)
+    expect(text).toContain(join(lad(), "Kitestring", "com.kitestring.bridge.json"))
+    expect(text).toContain(join(lad(), "Kitestring", "bin", "kite.cmd"))
+    expect(text).toContain(`setx PATH "%PATH%;${join(lad(), "Kitestring", "bin")}"`)
+    expect(text).not.toContain("export PATH")
+    expect(text).not.toContain(".zshrc")
+  })
+
+  it("LOCALAPPDATA falls back to <home>\\AppData\\Local", () => {
+    expect(localAppData({}, "/h")).toBe(join("/h", "AppData", "Local"))
+    expect(localAppData({ LOCALAPPDATA: "/x" }, "/h")).toBe("/x")
   })
 })

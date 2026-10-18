@@ -20,7 +20,7 @@ import {
 import { delimiter, dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { EXTENSION_ID, HOST_NAME } from "@kitestring/protocol"
-import { tilde } from "../paths.js"
+import { localAppData, tilde } from "../paths.js"
 import { hostsDir, installHost, legacyNotices } from "../install/host-manifest.js"
 import {
   AGENTS,
@@ -62,6 +62,8 @@ export interface InitOptions {
   tty?: boolean
   confirm?: (question: string) => Promise<boolean>
   out: (line: string) => void
+  /** Default process.platform; injectable so the win32 paths are testable anywhere. */
+  platform?: NodeJS.Platform
   /** Where to print the "re-run with --yes" hint (default: out). */
   err?: (line: string) => void
   /** Node binary for MCP entries (default resolveNode()). */
@@ -324,11 +326,12 @@ function planSkills(ctx: Ctx, install: boolean, sharedSkills: boolean, claudeLin
 /** `$KITE_HOME/bin/kite`: install or refresh it; on a full uninstall remove it (only if it is ours). */
 function planShim(ctx: Ctx, install: boolean): void {
   const { o, plan } = ctx
-  const path = shimPath(kiteHomeOf(o))
+  const win = (o.platform ?? process.platform) === "win32"
+  const path = shimPath(kiteHomeOf(o), o.platform, localAppData(o.env, o.home))
   if (install) {
     const nodes = o.shimNodes ?? nodeCandidates()
     const text =
-      process.platform === "win32" ? shimCmdScript(kiteHomeOf(o), nodes[0]!, ctx.launch.bin) : shimScript(kiteHomeOf(o), nodes, ctx.launch.bin)
+      win ? shimCmdScript(kiteHomeOf(o), nodes[0]!, ctx.launch.bin) : shimScript(kiteHomeOf(o), nodes, ctx.launch.bin)
     if (readOrNull(path) === text && isExecutableFile(path)) plan.notes.push(`cli: ${tilde(o.home, path)} up to date`)
     else plan.steps.push({ kind: "write", agent: "cli", path, text, what: `write ${path} (runs kite)` })
   } else if (existsSync(path)) {
@@ -486,16 +489,19 @@ function kiteHomeOf(o: InitOptions): string {
 /** When `$KITE_HOME/bin` is not on PATH: the exact line to add to the shell profile (never edited for you). */
 function printPathHint(o: InitOptions): void {
   const kh = kiteHomeOf(o)
-  if (onPath(shimDir(kh), o.env.PATH)) return
+  const plat = o.platform ?? process.platform
+  const lad = localAppData(o.env, o.home)
+  if (onPath(shimDir(kh, plat, lad), o.env.PATH)) return
   o.out("")
-  o.out(`cli: ${shimDir(kh)} is not on your PATH. To run \`kite\` from any shell or agent, add this line to your shell profile (~/.zshrc, ~/.bashrc, …):`)
-  o.out(`  ${pathLine(o.home, kh)}`)
+  if (plat === "win32") o.out(`cli: ${shimDir(kh, plat, lad)} is not on your PATH. To run \`kite\` from any shell or agent, add it to your user PATH, e.g. in cmd.exe:`)
+  else o.out(`cli: ${shimDir(kh)} is not on your PATH. To run \`kite\` from any shell or agent, add this line to your shell profile (~/.zshrc, ~/.bashrc, …):`)
+  o.out(`  ${pathLine(o.home, kh, plat, lad)}`)
 }
 
 export async function runInit(o: InitOptions): Promise<number> {
   const { ctx, selected } = await buildPlan(o, true)
   const { plan } = ctx
-  const manifest = join(hostsDir({ browser: "chrome", home: o.home }), `${HOST_NAME}.json`)
+  const manifest = join(hostsDir({ browser: "chrome", home: o.home, platform: o.platform, localAppData: localAppData(o.env, o.home) }), `${HOST_NAME}.json`)
   printPlan(o, plan, o.dryRun ? "kite init — dry run (nothing will be written):" : "kite init — plan:")
   o.out(`host: install native host manifest ${manifest}`)
   if (selected.length === 0) o.out("No supported agents found (looked for ~/.claude, ~/.codex, ~/.cursor, ~/.gemini, ~/.config/opencode).")
@@ -508,7 +514,7 @@ export async function runInit(o: InitOptions): Promise<number> {
 
   const failures = await applyPlan(ctx)
   try {
-    const r = installHost({ browser: "chrome", extensionId: EXTENSION_ID, kiteHome: kiteHomeOf(o), home: o.home })
+    const r = installHost({ browser: "chrome", extensionId: EXTENSION_ID, kiteHome: kiteHomeOf(o), home: o.home, platform: o.platform, localAppData: localAppData(o.env, o.home) })
     o.out(`host: native host manifest ${r.manifestPath}`)
     for (const line of legacyNotices(r, o.home)) o.out(`host: ${line}`)
   } catch (e) {

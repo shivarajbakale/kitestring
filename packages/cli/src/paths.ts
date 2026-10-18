@@ -8,6 +8,10 @@ export function socketPath(plat: NodeJS.Platform = process.platform, user?: stri
   if (plat === "win32") return `\\\\.\\pipe\\kitestring-${user ?? userInfo().username}`
   return join(kiteHome(), "kite.sock")
 }
+/** `%LOCALAPPDATA%`, falling back to `<home>\AppData\Local` when unset. */
+export function localAppData(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
+  return env.LOCALAPPDATA || join(home, "AppData", "Local")
+}
 export function logPath(): string {
   return join(kiteHome(), "logs", "host.log")
 }

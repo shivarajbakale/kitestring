@@ -4,6 +4,7 @@ import { homedir, platform } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { HOST_NAME, LEGACY_HOST_NAMES, PRODUCT } from "@kitestring/protocol"
+import { localAppData as defaultLocalAppData } from "../paths.js"
 import { nodeCandidates } from "../init/node-path.js"
 
 export interface InstallOpts {
@@ -29,7 +30,8 @@ function hostCmd(kiteHome: string, node: string, mainJs: string): string {
   return ["@echo off", `set "KITE_HOME=${kiteHome}"`, `"${node}" "${mainJs}" %*`, ""].join("\r\n")
 }
 
-export function hostsDir(o: Pick<InstallOpts, "browser" | "userDataDir" | "home">): string {
+export function hostsDir(o: Pick<InstallOpts, "browser" | "userDataDir" | "home" | "platform" | "localAppData">): string {
+  if ((o.platform ?? process.platform) === "win32") return join(o.localAppData ?? defaultLocalAppData(), "Kitestring")
   if (o.userDataDir) return join(o.userDataDir, "NativeMessagingHosts")
   const h = o.home ?? homedir()
   if (platform() === "darwin") {
@@ -37,6 +39,9 @@ export function hostsDir(o: Pick<InstallOpts, "browser" | "userDataDir" | "home"
   }
   return join(h, ".config", o.browser === "chrome" ? "google-chrome" : "chromium", "NativeMessagingHosts")
 }
+
+/** `host.sh` on POSIX, `host.cmd` on Windows. */
+export const hostWrapperName = (plat: NodeJS.Platform = process.platform): string => (plat === "win32" ? "host.cmd" : "host.sh")
 
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
@@ -69,7 +74,7 @@ export function installHost(o: InstallOpts): { manifestPath: string; wrapperPath
   const mainJs = join(pkgRoot, "dist", "host", "main.js")
   mkdirSync(o.kiteHome, { recursive: true, mode: 0o700 })
   const win = (o.platform ?? process.platform) === "win32"
-  const wrapperPath = join(o.kiteHome, win ? "host.cmd" : "host.sh")
+  const wrapperPath = join(o.kiteHome, hostWrapperName(win ? "win32" : "linux"))
   if (win) {
     writeFileSync(wrapperPath, hostCmd(o.kiteHome, nodeCandidates()[0]!, mainJs))
   } else {
@@ -77,7 +82,7 @@ export function installHost(o: InstallOpts): { manifestPath: string; wrapperPath
     chmodSync(wrapperPath, 0o755)
   }
 
-  const dir = win ? join(o.localAppData ?? process.env.LOCALAPPDATA ?? "", "Kitestring") : hostsDir(o)
+  const dir = hostsDir({ ...o, platform: win ? "win32" : undefined })
   mkdirSync(dir, { recursive: true })
   const manifestPath = join(dir, `${HOST_NAME}.json`)
   const manifest = {

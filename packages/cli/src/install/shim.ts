@@ -1,5 +1,6 @@
 import { accessSync, constants, readFileSync, statSync } from "node:fs"
 import { delimiter, join, resolve } from "node:path"
+import { localAppData as defaultLocalAppData } from "../paths.js"
 
 /** First line after the shebang: marks the file as ours (uninstall removes only this). */
 export const SHIM_MARKER = "# kitestring cli shim (written by kite init)"
@@ -9,7 +10,7 @@ const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 /** `$KITE_HOME/bin`: the directory to put on PATH. */
 export const SHIM_CMD_MARKER = "REM kitestring cli shim (written by kite init)"
 
-export const shimDir = (kiteHome: string, plat: NodeJS.Platform = process.platform, localAppData: string = process.env.LOCALAPPDATA ?? ""): string =>
+export const shimDir = (kiteHome: string, plat: NodeJS.Platform = process.platform, localAppData: string = defaultLocalAppData()): string =>
   plat === "win32" ? join(localAppData, "Kitestring", "bin") : join(kiteHome, "bin")
 export const shimPath = (kiteHome: string, plat: NodeJS.Platform = process.platform, localAppData?: string): string =>
   join(shimDir(kiteHome, plat, localAppData), plat === "win32" ? "kite.cmd" : "kite")
@@ -69,8 +70,9 @@ export function onPath(dir: string, path: string | undefined): boolean {
 }
 
 /** The line to add to a shell profile, e.g. `export PATH="$HOME/.kitestring/bin:$PATH"`. */
-export function pathLine(home: string, kiteHome: string): string {
-  const dir = shimDir(kiteHome)
+export function pathLine(home: string, kiteHome: string, plat: NodeJS.Platform = process.platform, localAppData?: string): string {
+  const dir = shimDir(kiteHome, plat, localAppData)
+  if (plat === "win32") return `setx PATH "%PATH%;${dir}"`
   const shown = dir.startsWith(home + "/") ? "$HOME" + dir.slice(home.length).replace(/["\\$`]/g, "\\$&") : dir.replace(/["\\$`]/g, "\\$&")
   return `export PATH="${shown}:$PATH"`
 }
