@@ -123,3 +123,10 @@ export function formatReplay(slug: string, r: ReplayResult): string {
   if (r.result) lines.push(formatBatch(r.result))
   return lines.join("\n")
 }
+
+/** A batch result as printed for --json / returned to agents: without the internal `startUrl` (it may carry a token). */
+export function withoutStartUrl<T>(r: T): T {
+  if (!r || typeof r !== "object" || !("startUrl" in r)) return r
+  const { startUrl: _s, ...rest } = r as T & { startUrl?: string }
+  return rest as T
+}

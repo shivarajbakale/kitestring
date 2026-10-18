@@ -139,6 +139,17 @@ export function findPlan(home: string, origin: string, intent: string): { plan: 
   return best
 }
 
+/** {@link findPlan} for one origin, or across every stored origin when `origin` is undefined (best score wins). */
+export function findAnyPlan(home: string, intent: string, origin?: string): { plan: Plan; score: number; slug: string } | undefined {
+  const origins = origin ? [origin] : [...new Set(listPlans(home).map((s) => s.plan.origin))]
+  let best: ReturnType<typeof findPlan>
+  for (const o of origins) {
+    const hit = findPlan(home, o, intent)
+    if (hit && (!best || hit.score > best.score)) best = hit
+  }
+  return best
+}
+
 /**
  * Deletes a plan by `<plan-slug>` or `<origin-slug>/<plan-slug>`. False when none matches;
  * throws when a bare slug exists under several origins.

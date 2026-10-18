@@ -53,12 +53,22 @@ const halted = (n: number, index: number, reason: any, detail: string, extra: Pa
   page: "P",
 })
 
-/** A fake RPC answering act.batch with the given results in order; records every call. */
-function fake(answers: BatchResult[]) {
+/**
+ * A fake RPC: act.batch answers the given results in order (recorded in `calls`); tab.list answers the active tab's URL,
+ * taking the next of `urls` each time (the last one sticks).
+ */
+function fake(answers: BatchResult[], urls: string[] = ["https://dash.example.com/items/1/edit"]) {
   const calls: { method: string; params: any }[] = []
+  const lists: string[] = []
   return {
     calls,
+    lists,
     call: async (method: string, params: object) => {
+      if (method === "tab.list") {
+        const url = urls.length > 1 ? urls.shift()! : urls[0]!
+        lists.push(url)
+        return { tabs: [{ id: 1, url, active: true }] }
+      }
       calls.push({ method, params })
       const a = answers.shift()
       if (!a) throw new Error("no more answers")
@@ -96,12 +106,47 @@ describe("runPlan", () => {
     expect(rpc.calls).toEqual([])
   })
 
-  it("an unknown param is BAD_REQUEST, nothing sent", async () => {
+  it("an unknown param is BAD_REQUEST, nothing sent; missing ones are named in the same error", async () => {
     const rpc = fake([])
     const e = await runPlan(PLAN, { ...VALUES, titel: "x" }, { call: rpc.call as any, home }).catch((x) => x)
     expect(e).toBeInstanceOf(KiteError)
     expect(e.code).toBe("BAD_REQUEST")
     expect(e.message).toContain("titel")
+    const both = await runPlan(PLAN, { title: "x", titel: "y" }, { call: rpc.call as any, home }).catch((x) => x)
+    expect(both.code).toBe("BAD_REQUEST")
+    expect(both.message).toMatch(/unknown parameter: titel.*missing parameters: password, summary/)
+    expect(rpc.calls).toEqual([])
+    expect(rpc.lists).toEqual([])
+  })
+
+  it("the tab on another site: stops wrong_page before sending a single value there", async () => {
+    const plan: Plan = { ...PLAN, batches: [PLAN.batches[1]!], params: [{ name: "summary", secret: false }] }
+    const rpc = fake([], ["https://evil.example.net/login"])
+    let started = 0
+    const r = await runPlan(plan, { summary: "Flies high" }, { call: rpc.call as any, home, onStart: () => void started++ })
+    expect(rpc.calls).toEqual([])
+    expect(started).toBe(1)
+    expect(r).toMatchObject({ ok: false, batches: 0 })
+    expect(r.stoppedAt).toEqual({
+      batch: 0, step: 0, reason: "wrong_page",
+      detail: "tab is on https://evil.example.net, plan is for https://dash.example.com", stepText: '"Short description"',
+    })
+  })
+
+  it("a batch that opens with a goto to the plan's site may start anywhere; a later batch is checked again", async () => {
+    const rpc = fake([okBatch(3)], ["https://elsewhere.example.org/"])
+    const r = await runPlan(PLAN, VALUES, { call: rpc.call as any, home })
+    expect(rpc.calls).toHaveLength(1)
+    expect(rpc.lists).toHaveLength(1) // batch 1 opened with the goto: not checked
+    expect(r.stoppedAt).toMatchObject({ batch: 1, step: 0, reason: "wrong_page", detail: "tab is on https://elsewhere.example.org, plan is for https://dash.example.com" })
+  })
+
+  it("an upload whose files are not each one {{param}} is refused", async () => {
+    const plan: Plan = { ...PLAN, params: [], batches: [[{ action: "upload", target: { text: "Icon", role: "button" }, files: ["/etc/hosts"] }]] }
+    const rpc = fake([])
+    const e = await runPlan(plan, {}, { call: rpc.call as any, home }).catch((x) => x)
+    expect(e).toBeInstanceOf(KiteError)
+    expect(e.code).toBe("BAD_REQUEST")
     expect(rpc.calls).toEqual([])
   })
 
@@ -149,9 +194,12 @@ describe("runPlan", () => {
   it("dry run prints the filled batches with secrets masked and sends nothing", async () => {
     const rpc = fake([])
     const lines: string[] = []
-    const r = await runPlan(PLAN, VALUES, { call: rpc.call as any, out: (s) => lines.push(s), dryRun: true, secretNames: new Set(["summary"]), home })
+    let started = 0
+    const r = await runPlan(PLAN, VALUES, { call: rpc.call as any, out: (s) => lines.push(s), dryRun: true, secretNames: new Set(["summary"]), home, onStart: () => void started++ })
     expect(r.ok).toBe(true)
     expect(rpc.calls).toEqual([])
+    expect(rpc.lists).toEqual([])
+    expect(started).toBe(0)
     const text = lines.join("\n")
     expect(text).toContain("My kite")
     expect(text).toContain("••••")

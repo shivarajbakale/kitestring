@@ -17,6 +17,8 @@ let daemon: Daemon | undefined
 let received: any[]
 let reply: { error: { code: string; message: string } } | undefined
 let canned: unknown
+/** What tab.list answers (default: `canned`). */
+let tabs: unknown
 let client: Client | undefined
 
 beforeEach(() => {
@@ -24,6 +26,7 @@ beforeEach(() => {
   received = []
   reply = undefined
   canned = done
+  tabs = undefined
 })
 afterEach(async () => {
   await client?.close()
@@ -39,7 +42,11 @@ async function startFake(): Promise<void> {
     toExtension: (msg: any) => {
       received.push(msg)
       const r = reply
-      const result = msg.method === "page.screenshot" ? SHOT : msg.method === "page.snapshot" ? { text: "snap text" } : canned
+      const result =
+        msg.method === "page.screenshot" ? SHOT
+        : msg.method === "page.snapshot" ? { text: "snap text" }
+        : msg.method === "tab.list" && tabs ? tabs
+        : canned
       queueMicrotask(() => d.fromExtension(r ? { id: msg.id, ...r } : { id: msg.id, result }))
     },
   })
@@ -61,7 +68,7 @@ async function connect(env: Record<string, string> = {}): Promise<{ stderr: () =
 }
 
 describe("kite mcp", () => {
-  it("lists all 20 tools with the server name", async () => {
+  it("lists all 21 tools with the server name", async () => {
     await connect()
     const { tools } = await client!.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual(
@@ -69,10 +76,10 @@ describe("kite mcp", () => {
         "browser_status", "browser_tabs", "browser_tab_new", "browser_tab_use", "browser_tab_close",
         "browser_goto", "browser_snapshot", "browser_click", "browser_fill", "browser_select",
         "browser_press", "browser_scroll", "browser_console", "browser_network", "browser_screenshot", "browser_upload", "browser_batch",
-        "browser_plan_find", "browser_plan_run", "browser_plan_save",
+        "browser_plan_find", "browser_plan_run", "browser_plan_save", "browser_plan_discard",
       ].sort(),
     )
-    expect(tools).toHaveLength(20)
+    expect(tools).toHaveLength(21)
     expect(client!.getServerVersion()?.name).toBe("kitestring")
     for (const t of tools) expect(t.description).toBeTruthy()
   })
@@ -290,10 +297,11 @@ describe("kite mcp plans", () => {
     expect(text(miss)).toBe("no plan")
 
     received = []
+    tabs = { tabs: [{ id: 1, url: "https://shop.example.com/cart", active: true }] }
     const run: any = await client!.callTool({ name: "browser_plan_run", arguments: { slug: "fill-the-shipping-form", params: { full_name: "Grace Hopper" } } })
     expect(run.isError, text(run)).toBeFalsy()
     expect(text(run)).toMatch(/^ran plan fill-the-shipping-form · 1 batch · /)
-    expect(received.map((m) => m.method)).toEqual(["act.batch"])
+    expect(received.map((m) => m.method)).toEqual(["act.batch"]) // opens with a goto to the plan's site: no tab check
     expect(received[0].session).toBe("agent")
     expect(received[0].params.steps[1].value).toBe("Grace Hopper")
 
@@ -312,6 +320,22 @@ describe("kite mcp plans", () => {
     expect(r.isError).toBeFalsy()
     expect(text(r)).toBe("no plan")
     expect(received[0].method).toBe("tab.list")
+  })
+
+  it("browser_plan_discard drops this session's journal", async () => {
+    canned = {
+      ok: true,
+      steps: [{ i: 0, action: "click", status: "done", ms: 1, resolved: { role: "button", name: "Go" } }],
+      diff: { added: [], removed: [] },
+      page: "P",
+      startUrl: "https://shop.example.com/?token=abc123",
+    }
+    await startFake()
+    await connect()
+    const b: any = await client!.callTool({ name: "browser_batch", arguments: { steps: [{ action: "click", target: "Go" }] } })
+    expect(text(b)).not.toContain("abc123")
+    expect(text(await client!.callTool({ name: "browser_plan_discard", arguments: {} }))).toBe("discarded pending steps")
+    expect(text(await client!.callTool({ name: "browser_plan_discard", arguments: {} }))).toBe("nothing pending")
   })
 
   it("browser_plan_save with nothing journaled says so", async () => {

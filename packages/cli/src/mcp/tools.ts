@@ -4,9 +4,9 @@ import { z } from "zod"
 import { KiteError, call } from "../client/rpc-client.js"
 import { human } from "../client/human.js"
 import { formatReplay } from "../client/format.js"
-import { appendPending, savePending } from "../memory/pending.js"
+import { appendPending, discardPending, recordReplayStop, savePending } from "../memory/pending.js"
 import { runPlan } from "../memory/replay.js"
-import { findPlan, listPlans, planById } from "../memory/store.js"
+import { findAnyPlan, planById } from "../memory/store.js"
 import { kiteHome } from "../paths.js"
 import { resolveUploads } from "../upload-guard.js"
 
@@ -222,12 +222,7 @@ export const TOOLS: ToolDef[] = [
       } catch {
         throw new KiteError("BAD_REQUEST", `not a URL: ${url}`)
       }
-      const origins = origin ? [origin] : [...new Set(listPlans(kiteHome()).map((s) => s.plan.origin))]
-      let best: ReturnType<typeof findPlan>
-      for (const o of origins) {
-        const hit = findPlan(kiteHome(), o, a.intent)
-        if (hit && (!best || hit.score > best.score)) best = hit
-      }
+      const best = findAnyPlan(kiteHome(), a.intent, origin)
       if (!best) return "no plan"
       return JSON.stringify({ slug: best.slug, intent: best.plan.intent, params: best.plan.params, score: Math.round(best.score * 100) / 100 })
     },
@@ -235,7 +230,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "browser_plan_run",
     description:
-      "Replay a saved plan with its parameter values (every param, by name). Stops at the first problem and leaves the page there: take over from stoppedAt with browser_snapshot / browser_batch.",
+      "Replay a saved plan with its parameter values (every param, by name). Stops at the first problem and leaves the page there: take over from stoppedAt with browser_snapshot / browser_batch, finish the task, then browser_plan_save updates the plan.",
     shape: {
       slug: z.string().min(1).describe("the plan's slug from browser_plan_find"),
       params: z.record(z.string()).optional().describe("value for each of the plan's params, by name"),
@@ -248,10 +243,14 @@ export const TOOLS: ToolDef[] = [
         throw new KiteError("BAD_REQUEST", (e as Error).message)
       }
       const notes: string[] = []
-      const r = await runPlan(stored.plan, a.params ?? {}, {
+      const values = a.params ?? {}
+      const r = await runPlan(stored.plan, values, {
         call: (method, params) => call(method, params, { session, timeoutMs: mcpTimeout() }),
         out: (line) => void notes.push(line),
+        // a replay starts a new task memory; a stop makes it the takeover of this plan (saving updates the plan)
+        onStart: () => void discardPending(kiteHome(), session),
       })
+      if (!r.ok && !r.missing && r.stoppedAt) recordReplayStop(kiteHome(), session, stored.id, stored.plan, r.stoppedAt, values)
       const text = [...notes, formatReplay(stored.id.split("/")[1]!, r)].join("\n")
       if (r.missing) throw new KiteError("BAD_REQUEST", text)
       return text
@@ -267,8 +266,14 @@ export const TOOLS: ToolDef[] = [
       if (!saved) throw new KiteError("BAD_REQUEST", `nothing to save: no batches journaled in session "${session}"`)
       const names = saved.plan.params.map((x) => (x.secret ? `${x.name}*` : x.name)).join(", ")
       const n = saved.plan.batches.length
-      return `saved plan ${saved.id} (${n} batch${n === 1 ? "" : "es"}${names ? `; params: ${names} (* = secret)` : ""})`
+      return `${saved.updated ? "updated" : "saved"} plan ${saved.id} (${n} batch${n === 1 ? "" : "es"}${names ? `; params: ${names} (* = secret)` : ""})`
     },
+  },
+  {
+    name: "browser_plan_discard",
+    description: "Forget the batches journaled in this session since the last save (before starting an unrelated task you will not save).",
+    shape: {},
+    run: async (_a: unknown, session) => (discardPending(kiteHome(), session) ? "discarded pending steps" : "nothing pending"),
   },
 ]
 

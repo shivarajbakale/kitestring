@@ -1,10 +1,19 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import type { BatchResult, Step, StepResult } from "@kitestring/protocol"
+import type { BatchResult, Plan, Step, StepResult } from "@kitestring/protocol"
 import { buildPlan } from "../src/memory/build.js"
-import { PENDING_MAX_STEPS, appendPending, discardPending, planFromPending, takePending } from "../src/memory/pending.js"
+import {
+  PENDING_MAX_STEPS,
+  appendPending,
+  discardPending,
+  planFromPending,
+  recordReplayStop,
+  savePending,
+  takePending,
+} from "../src/memory/pending.js"
+import { listPlans, savePlan } from "../src/memory/store.js"
 
 let home: string
 beforeEach(() => void (home = mkdtempSync(join(tmpdir(), "kite-pending-"))))
@@ -142,5 +151,105 @@ describe("pending journal", () => {
     expect(discardPending(home, "../evil")).toBe(true)
     expect(discardPending(home, "../evil")).toBe(false)
     expect(readdirSync(join(home, "memory", ".pending"))).toHaveLength(0)
+  })
+
+  it("a batch on another site starts a new task memory", () => {
+    appendPending(home, "default", URL0, LOGIN, LOGIN_RES)
+    const note = appendPending(home, "default", "https://other.example.org/form", SHIP, SHIP_RES)
+    expect(note).toBe("started a new task memory (new site https://other.example.org; dropped 3 steps from https://shop.example.com)")
+    const p = takePending(home, "default")!
+    expect(p.origin).toBe("https://other.example.org")
+    expect(p.batches).toHaveLength(1)
+    expect(p.params.map((x) => x.name)).toEqual(["full_name"])
+  })
+
+  it("a batch more than 30 min after the last starts a new task memory", () => {
+    appendPending(home, "default", URL0, LOGIN, LOGIN_RES)
+    const f = JSON.parse(readFileSync(pendingFile(), "utf8"))
+    expect(Date.parse(f.updatedAt)).toBeGreaterThan(Date.now() - 5_000)
+    f.updatedAt = new Date(Date.now() - 31 * 60_000).toISOString()
+    writeFileSync(pendingFile(), JSON.stringify(f))
+    expect(appendPending(home, "default", URL0, SHIP, SHIP_RES)).toMatch(/^started a new task memory \(over 30 min since the last batch; dropped 3 steps\)$/)
+    expect(takePending(home, "default")!.batches).toHaveLength(1)
+  })
+
+  it("a whole batch resent after a halt does not journal its ok steps twice", () => {
+    const steps: Step[] = [
+      { action: "click", target: "Add item" },
+      { action: "fill", target: "Full name", value: "Ada Lovelace" },
+      { action: "click", target: "Continue" },
+    ]
+    const r = (n: number, halt?: number): BatchResult =>
+      res(
+        [
+          { action: "click", resolved: { role: "button", name: "Add item" } },
+          { resolved: { role: "textbox", name: "Full name" } },
+          { action: "click", resolved: { role: "button", name: "Continue" } },
+        ].slice(0, n).map((x, i) => (i === halt ? { ...x, status: "not_found" as const } : x)),
+        halt !== undefined ? { ok: false, halted: { index: halt, reason: "not_found" } } : {},
+      )
+    appendPending(home, "default", URL0, steps, r(3, 2)) // Continue not found
+    appendPending(home, "default", URL0, steps, r(3)) // the agent resends everything
+    const p = takePending(home, "default")!
+    expect(p.batches.flat().map((x) => x.action)).toEqual(["click", "fill", "click"])
+    expect(p.params.map((x) => x.name)).toEqual(["full_name"])
+    expect(JSON.stringify(p.batches)).toContain("{{full_name}}")
+  })
+
+  it("saving after taking over from a stopped replay stitches the plan's done part to the takeover", () => {
+    const stored: Plan = {
+      version: 1, intent: "log in and ship", origin: "https://shop.example.com", pathPattern: "/login",
+      params: [{ name: "email", secret: false }, { name: "password", secret: true }, { name: "full_name", secret: false }, { name: "old_field", secret: false }],
+      batches: [
+        [
+          { action: "fill", target: { text: "Email", role: "textbox" }, value: "{{email}}" },
+          { action: "fill", target: { text: "Password", role: "textbox" }, value: "{{password}}" },
+          { action: "click", target: { text: "Sign in", role: "button" } },
+        ],
+        [
+          { action: "fill", target: { text: "Full name", role: "textbox" }, value: "{{full_name}}" },
+          { action: "fill", target: { text: "Old field", role: "textbox" }, value: "{{old_field}}" },
+        ],
+      ],
+      createdAt: "2026-01-01T00:00:00.000Z", runs: 4, lastOk: "2026-02-01T00:00:00.000Z",
+    }
+    savePlan(home, stored)
+    recordReplayStop(home, "default", "shop-example-com/log-in-and-ship", stored, { batch: 1, step: 1 })
+    // the agent takes over: the renamed field, a fresh value named like an existing param, then continue
+    appendPending(
+      home, "default", "https://shop.example.com/ship",
+      [{ action: "fill", target: "Email", value: "x@y.io" }, { action: "fill", target: "New field", value: "v1" }, { action: "click", target: "Continue" }],
+      res([
+        { resolved: { role: "textbox", name: "Email" } },
+        { resolved: { role: "textbox", name: "New field" } },
+        { action: "click", resolved: { role: "button", name: "Continue" } },
+      ]),
+    )
+    const saved = savePending(home, "default", "whatever the agent calls it")!
+    expect(saved.updated).toBe(true)
+    expect(saved.id).toBe("shop-example-com/log-in-and-ship")
+    const [only] = listPlans(home)
+    expect(listPlans(home)).toHaveLength(1)
+    const p = only!.plan
+    expect(p.intent).toBe("log in and ship")
+    expect(p.runs).toBe(4)
+    expect(p.createdAt).toBe(stored.createdAt)
+    expect(p.batches).toEqual([
+      stored.batches[0],
+      [stored.batches[1]![0]],
+      [
+        { action: "fill", target: { text: "Email", role: "textbox" }, value: "{{email_2}}" },
+        { action: "fill", target: { text: "New field", role: "textbox" }, value: "{{new_field}}" },
+        { action: "click", target: { text: "Continue", role: "button" } },
+      ],
+    ])
+    expect(p.params).toEqual([
+      { name: "email", secret: false },
+      { name: "password", secret: true },
+      { name: "full_name", secret: false },
+      { name: "email_2", secret: false },
+      { name: "new_field", secret: false },
+    ])
+    expect(existsSync(pendingFile())).toBe(false)
   })
 })

@@ -42,7 +42,7 @@ pnpm i && pnpm build
 
 ## What agents can do
 
-The MCP server exposes 17 tools:
+The MCP server exposes 21 tools:
 
 | Tool | What it does |
 | --- | --- |
@@ -54,6 +54,7 @@ The MCP server exposes 17 tools:
 | `browser_batch` | run a list of steps in one call (see Batching) |
 | `browser_console`, `browser_network` | recent console messages and network requests of the tab |
 | `browser_screenshot` | capture the tab |
+| `browser_plan_find`, `browser_plan_run`, `browser_plan_save`, `browser_plan_discard` | find, replay, save and drop remembered tasks: plans built from the agent's batches, with every typed value a parameter |
 
 Every action runs a safe pipeline, **FIND → CHECK → ACT → WAIT → VERIFY → REPORT**: it finds the target by name, checks that nothing covers it and that it is not disabled, acts with real input events, waits until the DOM and network are quiet, then reports what changed.
 

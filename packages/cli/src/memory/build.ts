@@ -236,7 +236,10 @@ function cleanUrl(raw: string, clean: (seg: string) => string): { url: string; d
   return { url: prefix + path, dropped: tail.length > 1 }
 }
 
-/** The plan's batches with every `{{param}}` replaced by `values[param]`. Throws `missing parameters: a, b` listing all. */
+/**
+ * The plan's batches with every `{{param}}` replaced by `values[param]`. Throws `missing parameters: a, b` listing all, and
+ * BAD_REQUEST for an upload whose files are not each exactly one `{{param}}`.
+ */
 export function fillPlan(plan: Plan, values: Record<string, string>): ReplayStep[][] {
   const missing = plan.params.map((p) => p.name).filter((n) => !Object.hasOwn(values, n))
   if (missing.length) throw new Error(`missing parameter${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`)
@@ -264,7 +267,13 @@ export function fillPlan(plan: Plan, values: Record<string, string>): ReplayStep
         // a recorded goto is replayed as recorded; only a URL a parameter flowed into must stay on the plan's origin
         if (substituted && !same) throw new KiteError("BAD_REQUEST", `refusing goto ${url}: not on ${plan.origin}`)
       }
-      if (Array.isArray(c.files)) c.files = (c.files as string[]).map(sub)
+      if (Array.isArray(c.files)) {
+        // upload files come only from params: a stored path (a hand-edited plan) is never uploaded
+        if (!(c.files as string[]).every((f) => /^\{\{[a-z0-9_]+\}\}$/.test(f))) {
+          throw new KiteError("BAD_REQUEST", "refusing upload step: every file must be one {{param}}")
+        }
+        c.files = (c.files as string[]).map(sub)
+      }
       if (c.target && typeof c.target === "object" && "text" in c.target) {
         const t = c.target as { text: string; within?: string }
         c.target = { ...t, text: sub(t.text), ...(t.within ? { within: sub(t.within) } : {}) }

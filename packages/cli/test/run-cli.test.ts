@@ -13,11 +13,13 @@ let dir: string
 let daemon: Daemon | undefined
 let received: any[]
 let answers: unknown[]
+let tabUrl: string
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "kiterun-"))
   received = []
   answers = []
+  tabUrl = "https://dash.example.com/items/1"
 })
 afterEach(async () => {
   await daemon?.close()
@@ -30,7 +32,10 @@ async function startFake(): Promise<void> {
     socketPath: join(dir, "kite.sock"),
     toExtension: (msg: any) => {
       received.push(msg)
-      const result = answers.shift() ?? { ok: true, steps: [], diff: { added: [], removed: [] }, page: "P" }
+      const result =
+        msg.method === "tab.list"
+          ? { tabs: [{ id: 1, url: tabUrl, active: true }] }
+          : (answers.shift() ?? { ok: true, steps: [], diff: { added: [], removed: [] }, page: "P" })
       queueMicrotask(() => d.fromExtension({ id: msg.id, result }))
     },
   })
@@ -81,6 +86,9 @@ describe("kite run", () => {
     expect(r.code).toBe(2)
     expect(r.err).toContain("missing parameters: title, password")
     expect(received).toEqual([])
+    const both = await kite(["run", "publish-store-listing", "--param", "titel=c"])
+    expect(both.code).toBe(2)
+    expect(both.err).toMatch(/unknown parameter: titel.*missing parameters: title, password/)
   })
 
   it("an unknown --param is an error (exit 2), not ignored", async () => {
@@ -99,8 +107,8 @@ describe("kite run", () => {
     const r = await kite(["run", "publish-store-listing", "--param", "title=My kite", "--secret", "password=hunter2"])
     expect(r.code, r.err).toBe(0)
     expect(r.out).toMatch(/^ran plan publish-store-listing · 2 batches · \d+\.\d s · ✓$/m)
-    expect(received.map((m) => m.method)).toEqual(["act.batch", "act.batch"])
-    expect(received[0].session).toBe("default")
+    expect(received.map((m) => m.method)).toEqual(["tab.list", "act.batch", "tab.list", "act.batch"])
+    expect(received[1].session).toBe("default")
     expect(listPlans(dir)[0]!.plan.runs).toBe(1)
   })
 
@@ -133,6 +141,26 @@ describe("kite run", () => {
     answers = [ok(1), ok(2)]
     const r = await kite(["--json", "run", "publish-store-listing", "--param", "title=a", "--param", "password=b"])
     expect(JSON.parse(r.out)).toMatchObject({ ok: true, batches: 2 })
+  })
+
+  it("the tab on another site: exit 1, wrong_page, nothing sent", async () => {
+    await startFake()
+    savePlan(dir, PLAN)
+    tabUrl = "https://evil.example.net/"
+    const r = await kite(["run", "publish-store-listing", "--param", "title=a", "--param", "password=b"])
+    expect(r.code).toBe(1)
+    expect(r.out).toContain("stopped at batch 1 step 1 (wrong_page")
+    expect(received.filter((m) => String(m.method).startsWith("act."))).toEqual([])
+  })
+
+  it("memory find matches by intent", async () => {
+    savePlan(dir, PLAN)
+    const r = await kite(["memory", "find", "publish the store listing"])
+    expect(r.code).toBe(0)
+    expect(r.out).toContain("dash-example-com/publish-store-listing")
+    const none = await kite(["memory", "find", "delete my account", "--site", "https://dash.example.com"])
+    expect(none.code).toBe(1)
+    expect(none.out).toContain("no plan")
   })
 
   it("an unknown plan is exit 2", async () => {
@@ -194,5 +222,36 @@ describe("kite batch -> kite memory save / discard", () => {
     const b = await kite(["batch", "-"], JSON.stringify([STEPS[0], { action: "fill", target: "My secret kite", value: "My secret kite" }]))
     expect(b.code).toBe(0)
     expect(b.err).toMatch(/kite: not remembered: /)
+  })
+
+  it("--json batch output carries no startUrl", async () => {
+    await startFake()
+    answers = [{ ...RES, startUrl: "https://dash.example.com/?token=abc123" }]
+    const b = await kite(["--json", "batch", "-"], JSON.stringify(STEPS))
+    expect(b.out).not.toContain("startUrl")
+    expect(b.out).not.toContain("abc123")
+  })
+
+  it("a run discards the journal; after a stopped run the takeover is saved into the same plan", async () => {
+    await startFake()
+    answers = [RES]
+    await kite(["batch", "-"], JSON.stringify(STEPS)) // unrelated earlier work
+    savePlan(dir, PLAN)
+    answers = [ok(1), { ...ok(2), ok: false, steps: [ok(1).steps[0]!, { i: 1, action: "click", status: "not_found", ms: 1 }], halted: { index: 1, reason: "not_found" }, next: 1 }]
+    const r = await kite(["run", "publish-store-listing", "--param", "title=a", "--param", "password=b"])
+    expect(r.code).toBe(1)
+    answers = [{ ...RES, steps: [{ i: 0, action: "click", status: "done", ms: 1, resolved: { role: "button", name: "Save changes" } }], startUrl: "https://dash.example.com/items/1" }]
+    await kite(["batch", "-"], JSON.stringify([{ action: "click", target: "Save changes" }]))
+    const s = await kite(["memory", "save", "publish store listing"])
+    expect(s.code, s.err).toBe(0)
+    expect(s.out).toContain("updated plan dash-example-com/publish-store-listing")
+    const [stored] = listPlans(dir)
+    expect(listPlans(dir)).toHaveLength(1)
+    expect(stored!.plan.batches).toEqual([
+      PLAN.batches[0],
+      [PLAN.batches[1]![0]],
+      [{ action: "click", target: { text: "Save changes", role: "button" } }],
+    ])
+    expect(JSON.stringify(stored!.plan)).not.toContain("create a listing")
   })
 })

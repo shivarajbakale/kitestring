@@ -5,6 +5,7 @@ import { Command, CommanderError } from "commander"
 import { EXTENSION_ID, parseTarget, type BatchResult, type Method, type ScreenshotResult, type Step } from "@kitestring/protocol"
 import { KiteError, call } from "./client/rpc-client.js"
 import { human } from "./client/human.js"
+import { withoutStartUrl } from "./client/format.js"
 import { installHost, legacyNotices } from "./install/host-manifest.js"
 import { kiteHome } from "./paths.js"
 import { resolveUploads } from "./upload-guard.js"
@@ -34,7 +35,7 @@ export async function main(argv: string[]): Promise<number> {
     const g = program.opts<Globals>()
     const session = sessionName()
     const result = await call(method, params, { session })
-    if (g.json) process.stdout.write(JSON.stringify(result) + "\n")
+    if (g.json) process.stdout.write(JSON.stringify(method === "act.batch" ? withoutStartUrl(result) : result) + "\n")
     else process.stdout.write(human(method, result) + "\n")
     if (result && typeof result === "object" && "status" in result && (result as any).status !== "done") exitCode = 1
     // A batch has no single status: it is ok or halted.
@@ -174,6 +175,7 @@ export async function main(argv: string[]): Promise<number> {
     .action(async (id: string, o: { param: string[]; secret: string[]; dryRun?: boolean }) => {
       const { planById } = await import("./memory/store.js")
       const { runPlan } = await import("./memory/replay.js")
+      const { discardPending, recordReplayStop } = await import("./memory/pending.js")
       const { formatReplay } = await import("./client/format.js")
       const json = !!program.opts<Globals>().json
       let stored
@@ -202,12 +204,15 @@ export async function main(argv: string[]): Promise<number> {
           out: (line) => void (json ? process.stderr : process.stdout).write(line + "\n"),
           dryRun: !!o.dryRun,
           secretNames,
+          // a replay starts a new task memory; a stop makes it the takeover of this plan (saving updates the plan)
+          onStart: () => void discardPending(kiteHome(), session),
         })
       } catch (e) {
         if (e instanceof KiteError && e.code === "BAD_REQUEST" && /^unknown parameter/.test(e.message)) throw new UsageError(e.message)
         throw e
       }
-      if (json) process.stdout.write(JSON.stringify(r) + "\n")
+      if (!r.ok && !r.missing && r.stoppedAt) recordReplayStop(kiteHome(), session, stored.id, stored.plan, r.stoppedAt, values)
+      if (json) process.stdout.write(JSON.stringify(r.result ? { ...r, result: withoutStartUrl(r.result) } : r) + "\n")
       if (r.missing) {
         if (!json) process.stderr.write(`kite: ${formatReplay(slug, r)}\n`)
         exitCode = 2
@@ -269,6 +274,29 @@ export async function main(argv: string[]): Promise<number> {
       process.stdout.write(`${id}  ${p.intent}  (${p.runs} runs${names ? `; params: ${names}` : ""})\n`)
     }
   })
+  memoryCmd
+    .command("find <intent>")
+    .description("the saved plan that best matches <intent> (exit 1 when none)")
+    .option("--site <url>", "only plans for this site")
+    .action(async (intent: string, o: { site?: string }) => {
+      const { findAnyPlan, originSlug } = await import("./memory/store.js")
+      let origin: string | undefined
+      if (o.site !== undefined) {
+        try {
+          origin = new URL(o.site).origin
+        } catch {
+          throw new UsageError(`--site must be a URL like https://example.com: ${o.site}`)
+        }
+      }
+      const hit = findAnyPlan(kiteHome(), intent, origin)
+      if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(hit ? { id: `${originSlug(hit.plan.origin)}/${hit.slug}`, slug: hit.slug, intent: hit.plan.intent, params: hit.plan.params, score: hit.score } : null) + "\n")
+      else if (!hit) process.stdout.write("no plan\n")
+      else {
+        const names = hit.plan.params.map((x) => (x.secret ? `${x.name}*` : x.name)).join(", ")
+        process.stdout.write(`${originSlug(hit.plan.origin)}/${hit.slug}  ${hit.plan.intent}  (score ${hit.score.toFixed(2)}${names ? `; params: ${names}` : ""})\n`)
+      }
+      if (!hit) exitCode = 1
+    })
   memoryCmd.command("show <slug>").action(async (id: string) => {
     const { planById } = await import("./memory/store.js")
     let stored
@@ -287,10 +315,10 @@ export async function main(argv: string[]): Promise<number> {
       if (!intent.trim()) throw new UsageError("intent must not be empty")
       const saved = savePending(kiteHome(), sessionName(), intent.trim())
       if (!saved) throw new UsageError(`nothing to save: no batches journaled in session "${sessionName()}"`)
-      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify({ id: saved.id, ...saved.plan }) + "\n")
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify({ id: saved.id, updated: !!saved.updated, ...saved.plan }) + "\n")
       const names = saved.plan.params.map((x) => (x.secret ? `${x.name}*` : x.name)).join(", ")
       const n = saved.plan.batches.length
-      process.stdout.write(`saved plan ${saved.id} (${n} batch${n === 1 ? "" : "es"}${names ? `; params: ${names}` : ""})\n`)
+      process.stdout.write(`${saved.updated ? "updated" : "saved"} plan ${saved.id} (${n} batch${n === 1 ? "" : "es"}${names ? `; params: ${names}` : ""})\n`)
     })
   memoryCmd
     .command("discard")

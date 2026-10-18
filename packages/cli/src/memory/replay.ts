@@ -9,7 +9,7 @@ import { savePlan } from "./store.js"
 export type RpcCall = (method: Method, params: object) => Promise<unknown>
 
 /** Why a replay stopped: a batch halt, a missing parameter, or a role-only step only the agent can place. */
-export type ReplayStopReason = HaltReason | "missing_param" | "needs_agent"
+export type ReplayStopReason = HaltReason | "missing_param" | "needs_agent" | "wrong_page"
 
 export interface ReplayResult {
   ok: boolean
@@ -35,10 +35,21 @@ export interface ReplayDeps {
   secretNames?: Set<string>
   /** $KITE_HOME (default kiteHome()). */
   home?: string
+  /** Called once, right before the first call to the browser (not in a dry run, not when params are refused). */
+  onStart?: () => void
 }
 
 export const NEEDS_AGENT_DETAIL = "field name not stored (it matched a typed value)"
 const MASK = "••••"
+
+function originOf(url: string): string | undefined {
+  try {
+    const o = new URL(url).origin
+    return o === "null" ? undefined : o
+  } catch {
+    return undefined
+  }
+}
 
 const isRoleStep = (s: ReplayStep): boolean =>
   "target" in s && typeof s.target === "object" && !("text" in s.target) && !("ref" in s.target)
@@ -65,7 +76,8 @@ export function stepText(s: PlanStep): string {
 
 /**
  * Replays a stored plan with `values`, one `act.batch` per stored batch, stopping at the first halt with the page left
- * there for the agent. Nothing is sent until every parameter checks out: an unknown name is `BAD_REQUEST`; missing names
+ * there for the agent. Before each batch the active tab must be on the plan's origin (else `wrong_page`, nothing sent),
+ * unless the batch opens with a goto to that origin. Nothing is sent until every parameter checks out: an unknown name is `BAD_REQUEST`; missing names
  * return `{ok: false, missing}` listing all of them. Upload files come only from `values` and pass the upload deny list.
  * A role-only step (its field name matched a typed value) is never sent: the replay stops before it with `needs_agent`.
  * A risky click halts inside `act.batch` and is never continued. Only a fully ok run bumps the plan's `runs` / `lastOk`.
@@ -75,15 +87,17 @@ export async function runPlan(plan: Plan, values: Record<string, string>, deps: 
   const out = deps.out ?? (() => {})
   const names = plan.params.map((p) => p.name)
   const unknown = Object.keys(values).filter((k) => !names.includes(k))
+  const missing = names.filter((n) => !Object.hasOwn(values, n))
+  const missingText = `missing parameter${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`
   if (unknown.length) {
     throw new KiteError(
       "BAD_REQUEST",
-      `unknown parameter${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")} (plan takes: ${names.join(", ") || "none"})`,
+      `unknown parameter${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")} (plan takes: ${names.join(", ") || "none"})` +
+        (missing.length ? `; ${missingText}` : ""),
     )
   }
-  const missing = names.filter((n) => !Object.hasOwn(values, n))
   if (missing.length) {
-    const detail = `missing parameter${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`
+    const detail = missingText
     return { ok: false, batches: 0, ms: Date.now() - t0, missing, stoppedAt: { batch: 0, step: 0, reason: "missing_param", detail, stepText: "" } }
   }
 
@@ -101,9 +115,26 @@ export async function runPlan(plan: Plan, values: Record<string, string>, deps: 
   let sent = 0
   let cached = 0
   let last: BatchResult | undefined
+  deps.onStart?.()
   for (let b = 0; b < filled.length; b++) {
     const steps = filled[b]!
     const stored = plan.batches[b]!
+    // values only ever go to the plan's own site: check the tab first, unless the batch opens by going there
+    const lead = steps[0]
+    if (!(lead?.action === "goto" && originOf(lead.url) === plan.origin)) {
+      const tabs = (await deps.call("tab.list", {})) as { tabs?: { url?: string; active?: boolean }[] } | null
+      const on = originOf(tabs?.tabs?.find((t) => t.active)?.url ?? "")
+      if (on !== plan.origin) {
+        return {
+          ok: false,
+          batches: sent,
+          ms: Date.now() - t0,
+          stoppedAt: { batch: b, step: 0, reason: "wrong_page", detail: `tab is on ${on ?? "no web page"}, plan is for ${plan.origin}`, stepText: stored[0] ? stepText(stored[0]) : "" },
+          ...(last ? { result: last } : {}),
+          cached,
+        }
+      }
+    }
     const roleAt = steps.findIndex(isRoleStep)
     const send = (roleAt < 0 ? steps : steps.slice(0, roleAt)) as Step[]
     if (send.length) {

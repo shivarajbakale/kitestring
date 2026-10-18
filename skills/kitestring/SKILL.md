@@ -27,7 +27,7 @@ Two equivalent surfaces. Use MCP tools if your harness has them, else the `kite`
 | Scroll | `browser_scroll` | `kite scroll down [px]` |
 | Console / network | `browser_console` / `browser_network` | `kite console --errors` / `kite network --failed` |
 | Picture | `browser_screenshot` | `kite screenshot` (`--full`, `--ref @ref`) |
-| Find / run / save a remembered task | `browser_plan_find` / `browser_plan_run` / `browser_plan_save` | `kite memory list` / `kite run <slug> --param k=v` / `kite memory save "<intent>"` |
+| Find / run / save / drop a remembered task | `browser_plan_find` / `browser_plan_run` / `browser_plan_save` / `browser_plan_discard` | `kite memory find "<intent>"` (`kite memory list` lists all) / `kite run <slug> --param k=v` / `kite memory save "<intent>"` / `kite memory discard` |
 
 CLI: exit code 1 when status is not done; call errors print `kite: <message>` (exit 2 = not connected); `--json` gives raw results and error codes. If `kite` is not found, use the `browser_*` MCP tools and ask the human to run `kite doctor`. Keep one session name for the whole task: pass `--session <name>` on every call, or set `KITE_SESSION=<name>`. You only see and touch your session's tabs.
 
@@ -56,10 +56,11 @@ Risky clicks (pay, buy, place order, send, delete, publish, submit for review, t
 
 Kitestring remembers your batches so a repeat task replays without you planning each step again. It never stores the values you typed: each one becomes a param you pass on every run.
 
-1. Before a multi-step task on a site, call `browser_plan_find` with the task in a few words (`kite memory list` on the CLI).
-2. Found one: run it with `browser_plan_run {slug, params}` (`kite run <slug> --param name=value`; `--secret name=value` keeps a value out of the output). Pass every param by name; a missing or unknown name is refused before anything runs.
-3. A replay stops at the first problem and leaves the page there: read `stopped at batch N step M (reason: step)` and take over from that step with snapshot and batches. `needs_agent` means a field whose name matched a typed value was not stored: you fill that one. `risky` stops it as in any batch (CLI exit 3).
-4. After finishing a new multi-step task with batches, call `browser_plan_save {intent}` (`kite memory save "<intent>"`). Only steps sent with `browser_batch` / `kite batch` are remembered, not single actions; `kite memory discard` drops them instead.
+1. Before a multi-step task on a site, call `browser_plan_find` with the task in a few words (`kite memory find "<intent>"` on the CLI).
+2. Found one: run it with `browser_plan_run {slug, params}` (`kite run <slug> --param name=value`; `--secret name=value` keeps a value out of the output). Pass every param by name; missing or unknown names are refused before anything runs. The tab must be on the plan's site (else it stops with `wrong_page`), unless the plan opens with a goto there.
+3. A replay stops at the first problem and leaves the page there: read `stopped at batch N step M (reason: step)` and take over from that step with snapshot and batches. `needs_agent` means a field whose name matched a typed value was not stored: you fill that one. `risky` stops it as in any batch (CLI exit 3). A flow that moves to another site stops with `domain` on replay (the plan does not keep `allow_domains`): continue it yourself with `allow_domains`.
+4. Finish the task, then save. After a new multi-step task, `browser_plan_save {intent}` (`kite memory save "<intent>"`) stores your batches as a plan. After taking over from a stopped replay, the same save updates that plan: the part that replayed fine plus your batches.
+5. Only steps sent with `browser_batch` / `kite batch` are remembered, not single actions. Memory is per session (MCP: `agent`; CLI: `--session`, default `default`). A batch on another site, or more than 30 min after the last one, starts a new task memory. To drop it before an unrelated task: `browser_plan_discard` (`kite memory discard`).
 
 Upload paths: relative paths resolve against the working directory of the `kite` CLI, or of the MCP server (for MCP that is the agent harness's working directory, not necessarily your project). Prefer absolute paths.
 
