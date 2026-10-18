@@ -225,7 +225,7 @@ describe("pending journal", () => {
         { action: "click", resolved: { role: "button", name: "Continue" } },
       ]),
     )
-    const saved = savePending(home, "default", "whatever the agent calls it")!
+    const saved = savePending(home, "default", "log in & ship")!
     expect(saved.updated).toBe(true)
     expect(saved.id).toBe("shop-example-com/log-in-and-ship")
     const [only] = listPlans(home)
@@ -251,5 +251,54 @@ describe("pending journal", () => {
       { name: "new_field", secret: false },
     ])
     expect(existsSync(pendingFile())).toBe(false)
+  })
+
+  const STORED: Plan = {
+    version: 1, intent: "add an item and ship", origin: "https://shop.example.com", pathPattern: "/cart",
+    params: [{ name: "full_name", secret: false }],
+    batches: [[
+      { action: "click", target: { text: "Add item", role: "button" } },
+      { action: "fill", target: { text: "Full name", role: "textbox" }, value: "{{full_name}}" },
+      { action: "click", target: { text: "Continue", role: "button" } },
+    ]],
+    createdAt: "2026-01-01T00:00:00.000Z", runs: 2, lastOk: null,
+  }
+  const takeover = (steps: Step[], results: Partial<StepResult>[]) => appendPending(home, "default", "https://shop.example.com/cart", steps, res(results))
+
+  it("a save for another task after a stopped replay is a new plan; the stopped plan is unchanged", () => {
+    const file = savePlan(home, STORED)
+    const before = readFileSync(file, "utf8")
+    recordReplayStop(home, "default", "shop-example-com/add-an-item-and-ship", STORED, { batch: 0, step: 2 })
+    takeover([{ action: "click", target: "Export orders" }], [{ action: "click", resolved: { role: "button", name: "Export orders" } }])
+    const saved = savePending(home, "default", "export the orders")!
+    expect(saved.updated).toBeUndefined()
+    expect(saved.id).toBe("shop-example-com/export-the-orders")
+    expect(saved.note).toBe("saved as a new plan; shop-example-com/add-an-item-and-ship unchanged")
+    expect(readFileSync(file, "utf8")).toBe(before)
+    expect(listPlans(home)).toHaveLength(2)
+  })
+
+  it("a takeover that resends the stopped batch whole does not repeat its replayed steps", () => {
+    savePlan(home, STORED)
+    recordReplayStop(home, "default", "shop-example-com/add-an-item-and-ship", STORED, { batch: 0, step: 2 })
+    takeover(
+      [{ action: "click", target: "Add item" }, { action: "fill", target: "Full name", value: "Ada Lovelace" }, { action: "click", target: "Next" }],
+      [
+        { action: "click", resolved: { role: "button", name: "Add item" } },
+        { resolved: { role: "textbox", name: "Full name" } },
+        { action: "click", resolved: { role: "button", name: "Next" } },
+      ],
+    )
+    const saved = savePending(home, "default", "add an item and ship")!
+    expect(saved.updated).toBe(true)
+    expect(saved.plan.batches).toEqual([STORED.batches[0]!.slice(0, 2), [{ action: "click", target: { text: "Next", role: "button" } }]])
+    expect(saved.plan.params).toEqual([{ name: "full_name", secret: false }])
+  })
+
+  it("values passed as secrets are not hashed into the takeover journal", () => {
+    recordReplayStop(home, "default", "x/y", STORED, { batch: 0, step: 0 }, { full_name: "Ada Lovelace" }, new Set(["full_name"]))
+    expect(JSON.parse(readFileSync(pendingFile(), "utf8")).seen).toEqual([])
+    recordReplayStop(home, "default", "x/y", STORED, { batch: 0, step: 0 }, { full_name: "Ada Lovelace" })
+    expect(JSON.parse(readFileSync(pendingFile(), "utf8")).seen).toHaveLength(1)
   })
 })

@@ -249,8 +249,8 @@ export const TOOLS: ToolDef[] = [
         out: (line) => void notes.push(line),
         // a replay starts a new task memory; a stop makes it the takeover of this plan (saving updates the plan)
         onStart: () => void discardPending(kiteHome(), session),
+        onStop: (at) => recordReplayStop(kiteHome(), session, stored.id, stored.plan, at, values),
       })
-      if (!r.ok && !r.missing && r.stoppedAt) recordReplayStop(kiteHome(), session, stored.id, stored.plan, r.stoppedAt, values)
       const text = [...notes, formatReplay(stored.id.split("/")[1]!, r)].join("\n")
       if (r.missing) throw new KiteError("BAD_REQUEST", text)
       return text
@@ -266,7 +266,7 @@ export const TOOLS: ToolDef[] = [
       if (!saved) throw new KiteError("BAD_REQUEST", `nothing to save: no batches journaled in session "${session}"`)
       const names = saved.plan.params.map((x) => (x.secret ? `${x.name}*` : x.name)).join(", ")
       const n = saved.plan.batches.length
-      return `${saved.updated ? "updated" : "saved"} plan ${saved.id} (${n} batch${n === 1 ? "" : "es"}${names ? `; params: ${names} (* = secret)` : ""})`
+      return `${saved.note ? `note: ${saved.note}\n` : ""}${saved.updated ? "updated" : "saved"} plan ${saved.id} (${n} batch${n === 1 ? "" : "es"}${names ? `; params: ${names} (* = secret)` : ""})`
     },
   },
   {

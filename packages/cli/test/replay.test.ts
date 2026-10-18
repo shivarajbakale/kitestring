@@ -214,4 +214,26 @@ describe("runPlan", () => {
     expect(e).toBeInstanceOf(KiteError)
     expect(rpc.calls).toEqual([])
   })
+
+  it("a stop is reported through onStop, also when the browser call throws mid-replay", async () => {
+    const stops: unknown[] = []
+    const rpc = fake([okBatch(3)])
+    const call = async (method: string, params: object) => {
+      if (method === "act.batch" && rpc.calls.length === 1) throw new KiteError("PAUSED", "PAUSED: Kitestring is paused by the user")
+      return rpc.call(method, params)
+    }
+    const e = await runPlan(PLAN, VALUES, { call: call as any, home, onStop: (at) => void stops.push(at) }).catch((x) => x)
+    expect(e).toBeInstanceOf(KiteError)
+    expect(e.code).toBe("PAUSED")
+    expect(stops).toEqual([{ batch: 1, step: 0 }])
+
+    const stops2: unknown[] = []
+    const r = await runPlan(PLAN, VALUES, { call: fake([okBatch(3), halted(2, 1, "not_found", "x")]).call as any, home, onStop: (at) => void stops2.push(at) })
+    expect(r.ok).toBe(false)
+    expect(stops2).toEqual([{ batch: 1, step: 1 }])
+    const stops3: unknown[] = []
+    await runPlan(PLAN, { title: "x" }, { call: fake([]).call as any, home, onStop: (at) => void stops3.push(at) })
+    await runPlan(PLAN, VALUES, { call: fake([okBatch(3), okBatch(2)]).call as any, home, onStop: (at) => void stops3.push(at) })
+    expect(stops3).toEqual([]) // refused params and a full run are not stops
+  })
 })

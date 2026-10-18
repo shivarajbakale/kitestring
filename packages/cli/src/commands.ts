@@ -206,12 +206,12 @@ export async function main(argv: string[]): Promise<number> {
           secretNames,
           // a replay starts a new task memory; a stop makes it the takeover of this plan (saving updates the plan)
           onStart: () => void discardPending(kiteHome(), session),
+          onStop: (at) => recordReplayStop(kiteHome(), session, stored.id, stored.plan, at, values, secretNames),
         })
       } catch (e) {
         if (e instanceof KiteError && e.code === "BAD_REQUEST" && /^unknown parameter/.test(e.message)) throw new UsageError(e.message)
         throw e
       }
-      if (!r.ok && !r.missing && r.stoppedAt) recordReplayStop(kiteHome(), session, stored.id, stored.plan, r.stoppedAt, values)
       if (json) process.stdout.write(JSON.stringify(r.result ? { ...r, result: withoutStartUrl(r.result) } : r) + "\n")
       if (r.missing) {
         if (!json) process.stderr.write(`kite: ${formatReplay(slug, r)}\n`)
@@ -315,6 +315,7 @@ export async function main(argv: string[]): Promise<number> {
       if (!intent.trim()) throw new UsageError("intent must not be empty")
       const saved = savePending(kiteHome(), sessionName(), intent.trim())
       if (!saved) throw new UsageError(`nothing to save: no batches journaled in session "${sessionName()}"`)
+      if (saved.note) process.stderr.write(`kite: note: ${saved.note}\n`)
       if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify({ id: saved.id, updated: !!saved.updated, ...saved.plan }) + "\n")
       const names = saved.plan.params.map((x) => (x.secret ? `${x.name}*` : x.name)).join(", ")
       const n = saved.plan.batches.length

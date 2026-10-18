@@ -37,6 +37,11 @@ export interface ReplayDeps {
   home?: string
   /** Called once, right before the first call to the browser (not in a dry run, not when params are refused). */
   onStart?: () => void
+  /**
+   * Called when a started replay stops short: with `stoppedAt` on a returned stop, or `{batch, step: 0}` of the batch in
+   * flight when a browser call throws (the error is rethrown). Not called for a full run.
+   */
+  onStop?: (at: { batch: number; step: number }) => void
 }
 
 export const NEEDS_AGENT_DETAIL = "field name not stored (it matched a typed value)"
@@ -116,58 +121,74 @@ export async function runPlan(plan: Plan, values: Record<string, string>, deps: 
   let cached = 0
   let last: BatchResult | undefined
   deps.onStart?.()
-  for (let b = 0; b < filled.length; b++) {
-    const steps = filled[b]!
-    const stored = plan.batches[b]!
-    // values only ever go to the plan's own site: check the tab first, unless the batch opens by going there
-    const lead = steps[0]
-    if (!(lead?.action === "goto" && originOf(lead.url) === plan.origin)) {
-      const tabs = (await deps.call("tab.list", {})) as { tabs?: { url?: string; active?: boolean }[] } | null
-      const on = originOf(tabs?.tabs?.find((t) => t.active)?.url ?? "")
-      if (on !== plan.origin) {
-        return {
-          ok: false,
-          batches: sent,
-          ms: Date.now() - t0,
-          stoppedAt: { batch: b, step: 0, reason: "wrong_page", detail: `tab is on ${on ?? "no web page"}, plan is for ${plan.origin}`, stepText: stored[0] ? stepText(stored[0]) : "" },
-          ...(last ? { result: last } : {}),
-          cached,
+  let current = 0
+  let stopped: ReplayResult | undefined
+  try {
+    stopped = await (async (): Promise<ReplayResult | undefined> => {
+      for (let b = 0; b < filled.length; b++) {
+        current = b
+        const steps = filled[b]!
+        const stored = plan.batches[b]!
+        // values only ever go to the plan's own site: check the tab first, unless the batch opens by going there
+        const lead = steps[0]
+        if (!(lead?.action === "goto" && originOf(lead.url) === plan.origin)) {
+          const tabs = (await deps.call("tab.list", {})) as { tabs?: { url?: string; active?: boolean }[] } | null
+          const on = originOf(tabs?.tabs?.find((t) => t.active)?.url ?? "")
+          if (on !== plan.origin) {
+            return {
+              ok: false,
+              batches: sent,
+              ms: Date.now() - t0,
+              stoppedAt: { batch: b, step: 0, reason: "wrong_page", detail: `tab is on ${on ?? "no web page"}, plan is for ${plan.origin}`, stepText: stored[0] ? stepText(stored[0]) : "" },
+              ...(last ? { result: last } : {}),
+              cached,
+            }
+          }
+        }
+        const roleAt = steps.findIndex(isRoleStep)
+        const send = (roleAt < 0 ? steps : steps.slice(0, roleAt)) as Step[]
+        if (send.length) {
+          send.forEach((s, i) => {
+            const p = stored[i]!
+            if (p.action === "goto" && p.droppedQuery) out(`note: query string was not stored for ${p.url}`)
+          })
+          const r = (await deps.call("act.batch", { steps: send })) as BatchResult
+          sent++
+          last = r
+          cached += r.steps.filter((s) => s.cached).length
+          if (!r.ok) {
+            const step = r.halted?.index ?? r.next ?? r.steps.length
+            return {
+              ok: false,
+              batches: sent,
+              ms: Date.now() - t0,
+              stoppedAt: { batch: b, step, reason: r.halted?.reason ?? "error", detail: r.halted?.detail ?? "", stepText: stored[step] ? stepText(stored[step]) : "" },
+              result: r,
+              cached,
+            }
+          }
+        }
+        if (roleAt >= 0) {
+          return {
+            ok: false,
+            batches: sent,
+            ms: Date.now() - t0,
+            stoppedAt: { batch: b, step: roleAt, reason: "needs_agent", detail: NEEDS_AGENT_DETAIL, stepText: stepText(stored[roleAt]!) },
+            ...(last ? { result: last } : {}),
+            cached,
+          }
         }
       }
-    }
-    const roleAt = steps.findIndex(isRoleStep)
-    const send = (roleAt < 0 ? steps : steps.slice(0, roleAt)) as Step[]
-    if (send.length) {
-      send.forEach((s, i) => {
-        const p = stored[i]!
-        if (p.action === "goto" && p.droppedQuery) out(`note: query string was not stored for ${p.url}`)
-      })
-      const r = (await deps.call("act.batch", { steps: send })) as BatchResult
-      sent++
-      last = r
-      cached += r.steps.filter((s) => s.cached).length
-      if (!r.ok) {
-        const step = r.halted?.index ?? r.next ?? r.steps.length
-        return {
-          ok: false,
-          batches: sent,
-          ms: Date.now() - t0,
-          stoppedAt: { batch: b, step, reason: r.halted?.reason ?? "error", detail: r.halted?.detail ?? "", stepText: stored[step] ? stepText(stored[step]) : "" },
-          result: r,
-          cached,
-        }
-      }
-    }
-    if (roleAt >= 0) {
-      return {
-        ok: false,
-        batches: sent,
-        ms: Date.now() - t0,
-        stoppedAt: { batch: b, step: roleAt, reason: "needs_agent", detail: NEEDS_AGENT_DETAIL, stepText: stepText(stored[roleAt]!) },
-        ...(last ? { result: last } : {}),
-        cached,
-      }
-    }
+      return undefined
+    })()
+  } catch (e) {
+    // the page is somewhere inside batch `current`: the takeover redoes it from its start
+    deps.onStop?.({ batch: current, step: 0 })
+    throw e
+  }
+  if (stopped) {
+    deps.onStop?.({ batch: stopped.stoppedAt!.batch, step: stopped.stoppedAt!.step })
+    return stopped
   }
 
   try {

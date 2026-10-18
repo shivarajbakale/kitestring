@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, wri
 import { basename, dirname, join } from "node:path"
 import type { BatchResult, Plan, PlanParam, PlanStep, Step, StepResult } from "@kitestring/protocol"
 import { buildPlan } from "./build.js"
-import { planById, savePlan } from "./store.js"
+import { MATCH_THRESHOLD, intentScore, planById, savePlan } from "./store.js"
 
 /** The journal stops recording past this many stored steps (save or discard to start again). */
 export const PENDING_MAX_STEPS = 200
@@ -266,9 +266,11 @@ export function recordReplayStop(
   plan: Plan,
   stoppedAt: { batch: number; step: number },
   values: Record<string, string> = {},
+  /** Params the user passed as secrets (never hashed, like the plan's own secret params). */
+  secretNames: Set<string> = new Set(),
 ): void {
   const salt = randomBytes(16).toString("hex")
-  const secret = new Set(plan.params.filter((p) => p.secret).map((p) => p.name))
+  const secret = new Set([...plan.params.filter((p) => p.secret).map((p) => p.name), ...secretNames])
   const seen = Object.entries(values)
     .filter(([k, v]) => !secret.has(k) && norm(v).length >= MIN_ECHO)
     .map(([, v]) => hash(salt, norm(v)))
@@ -321,13 +323,21 @@ export function planFromPending(intent: string, p: Pending): Plan {
  * Saves the session's journal as a plan for `intent` and clears the journal (only after the plan is written).
  * Undefined when nothing was journaled. `id` is `<origin-slug>/<plan-slug>`.
  *
- * A journal that began where a replay stopped updates that plan instead (`updated: true`, its intent and slug kept): its
- * batches before the stop, the stopped batch's steps before the stopped step, then the takeover batches. Params are those
- * the kept part still uses plus the takeover's (renamed on a clash); `createdAt`, `runs` and `lastOk` are kept.
+ * A journal that began where a replay stopped, saved for the same task (intent overlap >= MATCH_THRESHOLD with the plan's),
+ * updates that plan instead (`updated: true`, its intent and slug kept): its batches before the stop, the stopped batch's
+ * steps before the stopped step, then the takeover batches, minus the takeover's leading steps that repeat the kept part's
+ * last ones (the agent resent the stopped batch whole). Params are those the result still uses, the takeover's renamed on a
+ * clash; `createdAt`, `runs` and `lastOk` are kept. Saved for another task, it is a new plan and `note` says the stopped
+ * plan is unchanged.
  */
-export function savePending(home: string, session: string, intent: string): { id: string; plan: Plan; updated?: true } | undefined {
+export function savePending(
+  home: string,
+  session: string,
+  intent: string,
+): { id: string; plan: Plan; updated?: true; note?: string } | undefined {
   const p = read(home, session)
   if (!p || !p.batches.length) return undefined
+  let note: string | undefined
   if (p.fromPlan && p.stoppedAt) {
     let stored
     try {
@@ -335,15 +345,25 @@ export function savePending(home: string, session: string, intent: string): { id
     } catch {
       /* the plan was forgotten meanwhile: save as a new one */
     }
+    if (stored && intentScore(intent, stored.plan.intent) < MATCH_THRESHOLD) {
+      note = `saved as a new plan; ${stored.id} unchanged`
+      stored = undefined
+    }
     if (stored) {
       const { batch, step } = p.stoppedAt
       const done = stored.plan.batches.slice(0, batch)
       const part = stored.plan.batches[batch]?.slice(0, step) ?? []
       if (part.length) done.push(part)
+      // a takeover that resent the stopped batch from its start repeats the steps the replay already did
+      const [head = [], ...rest] = p.batches
+      let k = Math.min(part.length, head.length)
+      while (k > 0 && !head.slice(0, k).every((st, j) => shape(st) === shape(part[part.length - k + j]!))) k--
+      const takeover = [head.slice(k), ...rest].filter((b) => b.length)
       const refs = referenced(done)
       const params = stored.plan.params.filter((x) => refs.has(x.name))
-      const map = addParams(params, p.params)
-      const plan: Plan = { ...stored.plan, params, batches: [...done, ...renameParams(p.batches, map)] }
+      const used = referenced(takeover)
+      const map = addParams(params, p.params.filter((x) => used.has(x.name)))
+      const plan: Plan = { ...stored.plan, params, batches: [...done, ...renameParams(takeover, map)] }
       savePlan(home, { ...plan, runs: 0, lastOk: null }) // merged: keeps createdAt, runs, lastOk
       discardPending(home, session)
       return { id: stored.id, plan, updated: true }
@@ -352,5 +372,5 @@ export function savePending(home: string, session: string, intent: string): { id
   const plan = planFromPending(intent, p)
   const file = savePlan(home, plan)
   discardPending(home, session)
-  return { id: `${basename(dirname(file))}/${basename(file, ".json")}`, plan }
+  return { id: `${basename(dirname(file))}/${basename(file, ".json")}`, plan, ...(note ? { note } : {}) }
 }
