@@ -42,17 +42,34 @@ async function backendNodeId(tabId: number, ref: string): Promise<number> {
   }
 }
 
+/** `input.files` names of a node known only by backendNodeId (e.g. a detached input). */
+async function namesOf(tabId: number, backendNodeId: number): Promise<string[]> {
+  const { object } = await send<{ object: { objectId?: string } }>(tabId, "DOM.resolveNode", { backendNodeId, objectGroup: OBJECT_GROUP })
+  try {
+    if (!object.objectId) return []
+    const r = await send<{ result: { value?: string[] } }>(tabId, "Runtime.callFunctionOn", {
+      objectId: object.objectId,
+      functionDeclaration: "function(){return Array.from(this.files||[], f => f.name)}",
+      returnByValue: true,
+    })
+    return r.result.value ?? []
+  } finally {
+    void send(tabId, "Runtime.releaseObjectGroup", { objectGroup: OBJECT_GROUP }).catch(() => {})
+  }
+}
+
 /**
  * Puts `files` (absolute paths) into a file input. With an input: set them directly, no dialog.
  * Without: intercept the file chooser, click at `clickAt`, and answer the chooser the page opens.
- * Interception is always switched off again.
+ * Interception is always switched off again. Returns, for the chooser path, the file names the
+ * chooser's input holds afterwards (read back through CDP: that input has no page-agent ref).
  */
 export async function setFiles(
   tabId: number,
   target: FileInputTarget | null,
   files: string[],
   clickAt?: { x: number; y: number },
-): Promise<void> {
+): Promise<string[] | undefined> {
   if (target) {
     if (files.length > 1 && !target.multiple) throw tooMany(files)
     await send(tabId, "DOM.setFileInputFiles", { files, backendNodeId: await backendNodeId(tabId, target.ref) })
@@ -81,6 +98,7 @@ export async function setFiles(
     }
     if (files.length > 1 && chooser.mode !== "selectMultiple") throw tooMany(files)
     await send(tabId, "DOM.setFileInputFiles", { files, backendNodeId: chooser.backendNodeId })
+    return await namesOf(tabId, chooser.backendNodeId)
   } finally {
     off()
     await send(tabId, "Page.setInterceptFileChooserDialog", { enabled: false }).catch(() => {})

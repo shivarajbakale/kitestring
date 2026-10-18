@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
@@ -79,6 +79,28 @@ describe("resolveUploads", () => {
     writeFileSync(join(home, ".ssh", "id_rsa"), "k")
     symlinkSync(join(home, ".ssh"), join(cwd, "d"))
     expect(refusal(["d/id_rsa"])).toContain("sensitive location")
+  })
+
+  it("case variants of denied names are refused (case-insensitive volumes)", () => {
+    writeFileSync(join(home, ".ssh", "x"), "k")
+    writeFileSync(join(home, ".config", "x", "x"), "k")
+    writeFileSync(join(cwd, ".env"), "S=1")
+    const variants = [join(home, ".SSH", "x"), join(home, ".Config", "x", "x"), join(cwd, ".ENV")]
+    // On a case-sensitive volume these paths do not exist (refused as not found); on macOS they resolve.
+    const found = variants.filter((p) => existsSync(p))
+    for (const p of found) expect(refusal([p]), p).toContain("sensitive location")
+    for (const p of variants.filter((p) => !found.includes(p))) expect(refusal([p])).toContain("not found")
+  })
+
+  it("an upper-case .ENV file is refused", () => {
+    writeFileSync(join(cwd, ".ENV.local"), "S=1")
+    expect(refusal([".ENV.local"])).toContain("sensitive location")
+  })
+
+  it("a child named ..something under a denied dir is still denied", () => {
+    const f = join(home, ".ssh", "..secret")
+    writeFileSync(f, "k")
+    expect(refusal([f])).toContain("sensitive location")
   })
 
   it(".env* anywhere: sensitive location", () => {

@@ -126,14 +126,17 @@ describe("kite mcp", () => {
     await startFake()
     // Not under KITE_HOME (dir), which is itself a denied location.
     const files = mkdtempSync(join(tmpdir(), "kitefiles-"))
-    writeFileSync(join(files, "kite.zip"), "x")
-    const want = realpathSync(files) + "/kite.zip"
-    await connect()
-    const r: any = await client!.callTool({ name: "browser_upload", arguments: { target: "Extension zip", files: [join(files, "kite.zip")] } })
-    rmSync(files, { recursive: true, force: true })
-    expect(r.isError).toBeFalsy()
-    expect(received[0].method).toBe("act.upload")
-    expect(received[0].params).toEqual({ target: { text: "Extension zip" }, files: [want] })
+    try {
+      writeFileSync(join(files, "kite.zip"), "x")
+      const want = realpathSync(files) + "/kite.zip"
+      await connect()
+      const r: any = await client!.callTool({ name: "browser_upload", arguments: { target: "Extension zip", files: [join(files, "kite.zip")] } })
+      expect(r.isError).toBeFalsy()
+      expect(received[0].method).toBe("act.upload")
+      expect(received[0].params).toEqual({ target: { text: "Extension zip" }, files: [want] })
+    } finally {
+      rmSync(files, { recursive: true, force: true })
+    }
   })
   it("browser_upload refuses a sensitive path without calling the browser", async () => {
     await startFake()

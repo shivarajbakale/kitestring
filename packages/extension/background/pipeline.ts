@@ -447,8 +447,15 @@ async function act(r: Run, action: Action): Promise<ActionResult> {
   // ACT
   if (action.kind === "upload") {
     // No input is associated with the target: click it and answer the file chooser the page opens.
-    await setFiles(tabId, null, action.files, { x: c.x, y: c.y })
-    return withPopups(withUploaded(await finish(r, before, {}), action.files), closedPopups)
+    const held = await setFiles(tabId, null, action.files, { x: c.x, y: c.y })
+    guard()
+    const names = action.files.map(baseName)
+    const res = withPopups(withUploaded(await finish(r, before, {}), action.files), closedPopups)
+    if (res.status === "done" && JSON.stringify(held) !== JSON.stringify(names)) {
+      const { uploaded: _unverified, ...rest } = res
+      return { ...rest, ok: false, status: "error", detail: `file input holds ${JSON.stringify(held)}, expected ${JSON.stringify(names)}` }
+    }
+    return res
   }
   if (action.kind === "click") {
     const handled = await hasClickHandler(tabId, c.x, c.y)

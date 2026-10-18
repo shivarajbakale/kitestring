@@ -154,16 +154,19 @@ describe("kite cli", () => {
     await startFake()
     // Not under KITE_HOME (dir), which is itself a denied location.
     const files = mkdtempSync(join(tmpdir(), "kitefiles-"))
-    const zip = join(files, "a.zip")
-    writeFileSync(zip, "x")
-    const want = realpathSync(files) + "/a.zip"
-    canned = { ...done, uploaded: ["a.zip"] }
-    const r = await kite(["upload", "Extension zip", zip])
-    rmSync(files, { recursive: true, force: true })
-    expect(r.code).toBe(0)
-    expect(received[0].method).toBe("act.upload")
-    expect(received[0].params).toEqual({ target: { text: "Extension zip" }, files: [want] })
-    expect(r.out).toContain("↑ uploaded a.zip")
+    try {
+      const zip = join(files, "a.zip")
+      writeFileSync(zip, "x")
+      const want = realpathSync(files) + "/a.zip"
+      canned = { ...done, uploaded: ["a.zip"] }
+      const r = await kite(["upload", "Extension zip", zip])
+      expect(r.code).toBe(0)
+      expect(received[0].method).toBe("act.upload")
+      expect(received[0].params).toEqual({ target: { text: "Extension zip" }, files: [want] })
+      expect(r.out).toContain("↑ uploaded a.zip")
+    } finally {
+      rmSync(files, { recursive: true, force: true })
+    }
   })
   it("upload from a sensitive location is refused before any RPC", async () => {
     await startFake()
