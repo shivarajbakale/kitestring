@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs
 import { homedir, platform } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { HOST_NAME, LEGACY_HOST_NAMES, PRODUCT } from "@kitestring/protocol"
+import { HOST_NAME, KITE_STORE_EXTENSION_ID, LEGACY_HOST_NAMES, PRODUCT } from "@kitestring/protocol"
 import { localAppData as defaultLocalAppData } from "../paths.js"
 import { nodeCandidates } from "../init/node-path.js"
 
@@ -11,6 +11,8 @@ export interface InstallOpts {
   browser: "chrome" | "chromium"
   userDataDir?: string
   extensionId: string
+  /** Web Store extension id to allow as well (defaults to KITE_STORE_EXTENSION_ID; empty means none). */
+  storeExtensionId?: string
   kiteHome: string
   /** Home dir to install under (defaults to the OS home); injectable so tests never touch the real one. */
   home?: string
@@ -20,6 +22,12 @@ export interface InstallOpts {
   localAppData?: string
   /** win32: runs `reg`; injectable so tests never touch a registry. */
   execFile?: (file: string, args: string[]) => void
+}
+
+/** Origins the native host accepts: the dev extension id, plus the Web Store id when one is set. */
+export function allowedOrigins(extensionId: string, storeExtensionId: string = KITE_STORE_EXTENSION_ID): string[] {
+  const ids = [extensionId, storeExtensionId].filter((id, i, all) => id !== "" && all.indexOf(id) === i)
+  return ids.map((id) => `chrome-extension://${id}/`)
 }
 
 /** win32 registry key that points a browser at the host manifest. */
@@ -90,7 +98,7 @@ export function installHost(o: InstallOpts): { manifestPath: string; wrapperPath
     description: `${PRODUCT} browser bridge`,
     path: wrapperPath,
     type: "stdio",
-    allowed_origins: [`chrome-extension://${o.extensionId}/`],
+    allowed_origins: allowedOrigins(o.extensionId, o.storeExtensionId),
   }
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n")
   if (win) (o.execFile ?? ((f, a) => void execFileSync(f, a, { stdio: "ignore" })))("reg", ["add", regKey(o.browser), "/ve", "/t", "REG_SZ", "/d", manifestPath, "/f"])

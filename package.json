@@ -7,9 +7,10 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "test": "pnpm -r test",
+    "test": "pnpm -r test && node --test scripts/*.test.mjs",
     "test:e2e": "pnpm -r test:e2e",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "package:store": "node scripts/package-store.mjs"
   },
   "devDependencies": {
     "typescript": "^5.6.0"

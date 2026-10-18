@@ -5,9 +5,11 @@
   </picture>
 </h1>
 
-Kitestring lets AI agents (Claude Code, Codex, Cursor, Gemini CLI, OpenCode) drive your real Chrome: your profile, your logins, your tabs. You can drive it from a terminal too, with `kite`.
+![A batch fills a form while the side panel shows each step](docs/demo.gif)
 
-It is an unpacked developer install for now: there is no Chrome Web Store listing yet, and it supports macOS and Linux only.
+Kitestring lets AI agents (Claude Code, Codex, Cursor, Gemini CLI, OpenCode) drive your real Chrome: your profile, your logins, your tabs. You can drive it from a terminal too, with `kite`. It never calls a model itself: the agent you already use plans, and Kitestring acts, remembers and replays.
+
+It is an unpacked developer install for now: there is no Chrome Web Store listing yet (the package is ready, see [Store package](#store-package)). macOS and Linux are supported; Windows support is written but untested (see [Windows](#windows)).
 
 ## Quickstart
 
@@ -54,11 +56,57 @@ The MCP server exposes 21 tools:
 | `browser_batch` | run a list of steps in one call (see Batching) |
 | `browser_console`, `browser_network` | recent console messages and network requests of the tab |
 | `browser_screenshot` | capture the tab |
-| `browser_plan_find`, `browser_plan_run`, `browser_plan_save`, `browser_plan_discard` | find, replay, save and drop remembered tasks: plans built from the agent's batches, with every typed value a parameter |
+| `browser_plan_find`, `browser_plan_run`, `browser_plan_save`, `browser_plan_discard` | find, replay, save and drop remembered tasks (see Remembered tasks): plans built from the agent's batches, with every typed value a parameter |
 
 Every action runs a safe pipeline, **FIND → CHECK → ACT → WAIT → VERIFY → REPORT**: it finds the target by name, checks that nothing covers it and that it is not disabled, acts with real input events, waits until the DOM and network are quiet, then reports what changed.
 
 Three skills ship with it and are installed by `kite init`: `kitestring` (how to use the tools well), `kitestring-debug-frontend` (diagnose a broken UI) and `kitestring-e2e-verify` (check a change in the browser before calling it done).
+
+## Faster the second time
+
+Three things make a repeated task cheaper than the first run. None of them calls a model, and all of it stays on your computer.
+
+### Action cache
+
+The extension remembers where it found each element (by site, page shape and the text you asked for) and tries that spot first. A hint is used only if the element still has the same role and a close enough name; otherwise it searches normally and updates the entry. Results that used it say `cached: true`. Fields that hold secrets are never cached.
+
+```sh
+kite cache stats                       # entries, hits, misses
+kite cache clear                       # everything
+kite cache clear --site https://example.com
+```
+
+### Remembered tasks
+
+When your agent runs a batch that works, `kite` journals its steps with every typed value already replaced by a named parameter (`{{email}}`); no value is ever written down. Ask the agent to save a task, or do it yourself:
+
+```sh
+kite memory save "fill the shipping form"   # turn this session's journal into a plan
+kite memory list
+kite memory show <slug>
+kite run <slug> --param email=ada@x.io --secret password=...   # replay, no model involved
+kite run <slug> --dry-run                                       # print the filled batches, send nothing
+```
+
+`kite run` checks that every parameter is given (exit 2, before the browser is touched), runs the plan with `act.batch` and stops at the first step that no longer works, saying which and why, and leaves the page where it stopped so the agent can take over. A risky click is never auto-continued (exit 3). Over MCP the same flow is `browser_plan_find` (is there a plan for this task?), `browser_plan_run` (replay it) and `browser_plan_save` (remember what just worked).
+
+### Memory
+
+Plans live in `$KITE_HOME/memory/<site>/<plan>.json` (directories 0700, files 0600) and hold the intent, the site, a path pattern, parameter names and the batches. A plan is found by site first, then by how much its intent overlaps the task. `kite memory forget <slug>` removes one; `kite memory discard` drops the unsaved journal.
+
+### Record, then it is a skill
+
+Planned in this release: `kite record start` begins recording what you do by hand in the current tab, and `kite record stop` writes it as a skill your agents pick up: `~/.agents/skills/kite-<name>/SKILL.md` (with a symlink in `~/.claude/skills`), plus the plan in memory. Typed values become parameters and are never stored; password and one-time-code fields are skipped entirely, and file inputs keep only the file's base name. It refuses to overwrite an existing skill unless you pass `--force` (the old one is backed up first).
+
+### Benchmark
+
+Planned in this release: scripted runs (no agent, no credits) against the torture site compare a first run, a cached run and a replayed plan:
+
+<!-- bench table -->
+
+### Windows
+
+Windows: untested. Planned in this release: the code for it (a named pipe, `\\.\pipe\kitestring-<username>`, and Windows install paths for the native host) and is covered by unit tests with a mocked platform, but nobody has run it on a real Windows machine yet. Reports are welcome.
 
 ## You stay in control
 
@@ -150,7 +198,7 @@ Codex's desktop app is not scripted, so check it by hand:
 
 ### Prerequisites
 
-- **macOS or Linux.** Windows host install comes later.
+- **macOS or Linux** (Windows is untested, see above).
 - **Node ≥ 22.12** (commander 15 needs it). Node 26 works too; `.nvmrc` says 22.12.
 - **pnpm.** Install it with `npm i -g pnpm`; corepack no longer ships with Node ≥ 25. This repo pins pnpm 12.14.0 (`packageManager` in `package.json`).
 - **Google Chrome or Chromium.**
@@ -233,7 +281,7 @@ Host logs are in `$KITE_HOME/logs/host.log`.
 ### Tests
 
 ```sh
-pnpm test        # unit tests: protocol, CLI/host, torture server, page agent (Vitest + Playwright)
+pnpm test        # unit tests: protocol, CLI/host, torture server, page agent (Vitest + Playwright), store packaging
 pnpm typecheck
 pnpm test:e2e    # page-agent fixtures + full end-to-end against the torture site
 ```
@@ -244,7 +292,7 @@ The end-to-end suite (`e2e/`) works like this:
 - It runs headless and doesn't touch your Chrome profile or `~/.kitestring`.
 - For each test it installs the native host into a temporary user-data-dir and starts the torture site (`apps/torture`, edge-case and multi-page flow pages; see `apps/torture/expected.md`).
 - It launches **Playwright's Chromium** with the built extension, then drives everything through the real `kite` CLI.
-- The UI tests screenshot the popup and side panel into the test output dir. To refresh the images in `docs/ui/` used by this README, run `KITE_UPDATE_DOCS=1 pnpm test:e2e`.
+- The UI tests screenshot the popup and side panel into the test output dir. To refresh the images in `docs/ui/`, the Store screenshots in `store/screenshots/` and `docs/demo.gif` used by this README, run `KITE_UPDATE_DOCS=1 pnpm test:e2e`.
 
 If Playwright's Chromium is missing, install it:
 
@@ -253,6 +301,16 @@ pnpm --filter @kitestring/e2e exec playwright install chromium
 ```
 
 To serve the torture site by hand, run `pnpm --filter torture dev` (http://127.0.0.1:4173).
+
+### Store package
+
+```sh
+pnpm package:store
+```
+
+Needs `zip` and `unzip` on your PATH (macOS and Linux). Builds the production extension, after deleting the old build folder, and writes `dist/kitestring-<version>.zip` (and prints its path and size). The script removes `manifest.key` (the Web Store assigns its own id), and fails if the build holds a `.map` file, a dotfile, `.env*`, `*.pem`, `*.key`, `key.json`, a `keys/` folder or a symlink. The listing text, the permission justifications and the privacy policy are in `store/` (`listing.md`, `privacy.md`); screenshots are regenerated with `KITE_UPDATE_DOCS=1` (`store-shots`) and `docs/demo.gif` with the `demo` spec. Nothing is uploaded for you: you submit the zip in the Developer Dashboard yourself.
+
+Once the Store gives the extension its id, put it in `KITE_STORE_EXTENSION_ID` (`packages/protocol/src/constants.ts`). The native host then allows both that id and the developer id (`kite install-host`, `kite init`, and `kite doctor` agree on the list).
 
 ### Environment notes
 
