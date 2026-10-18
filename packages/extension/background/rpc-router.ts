@@ -268,6 +268,11 @@ const WHILE_PAUSED: ReadonlySet<Method> = new Set([
 
 /** Methods that act in the session's tab: refused while the human is recording it, so only their actions are recorded. */
 const actsInTab = (m: Method): boolean => m.startsWith("act.") || m === "page.goto"
+/**
+ * Methods that read the session's tab: refused while the human is recording it (R13), since a snapshot shows field values
+ * and console / network entries can carry form posts. (A screenshot is also refused by the tab lock it takes.)
+ */
+const READS_TAB = new Set<Method>(["page.snapshot", "page.console", "page.network", "page.screenshot"])
 
 /** Methods that change something: recorded in the activity log, successful or not. */
 function isRecorded(m: Method): boolean {
@@ -408,7 +413,7 @@ export async function route(raw: unknown): Promise<RpcResponse> {
     else if (req.method !== "tab.new") tabBefore = existing?.activeTabId ?? null
     // Before any session is created: a paused request must leave no trace but its activity entry.
     if (!WHILE_PAUSED.has(req.method)) control.assertNotPaused()
-    if (actsInTab(req.method)) {
+    if (actsInTab(req.method) || READS_TAB.has(req.method)) {
       // Loads the recording state for the tab lock's check; refuse early for the tab the call names or the active one.
       await recorder.ready()
       const target = req.method === "act.batch" && typeof req.params.tab === "number" ? req.params.tab : tabBefore
