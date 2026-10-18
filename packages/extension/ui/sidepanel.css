@@ -204,6 +204,55 @@ body {
   }
 }
 
+.ks-batch {
+  display: grid;
+  border-radius: var(--ks-radius);
+}
+.ks-batch__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 8px;
+  border: 0;
+  border-radius: var(--ks-radius);
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ks-muted);
+  text-align: left;
+  cursor: pointer;
+}
+.ks-batch__head:hover {
+  background: var(--ks-hover);
+}
+.ks-batch__head svg {
+  flex: none;
+  transition: transform 120ms var(--ks-ease);
+}
+.ks-batch__head[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+.ks-batch__label {
+  font-weight: 550;
+  color: var(--ks-ink);
+}
+.ks-batch__session {
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ks-batch__steps {
+  list-style: none;
+  margin: 0 0 4px 12px;
+  padding: 0 0 0 8px;
+  border-left: 1px solid var(--ks-hover);
+  display: grid;
+  gap: 1px;
+}
+
 .ks-entry__main {
   display: grid;
   gap: 2px;

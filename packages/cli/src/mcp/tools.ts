@@ -40,6 +40,47 @@ function mcpTimeout(): number {
 
 const LOOP = "Loop: snapshot, act by visible text or @ref, read the returned diff."
 
+const expectSchema = z.union([z.object({ text: z.string() }), z.object({ url: z.string() })]).describe("checked after the step: page text contains {text}, or the URL contains {url} (or matches /regex/)")
+const stepBase = {
+  wait: z.number().min(0).max(10_000).optional().describe("ms to wait for the target to appear (max 10000)"),
+  expect: expectSchema.optional(),
+  if_present: z.boolean().optional().describe("target missing: skip this step and continue"),
+  within,
+  role,
+  dialog: z.enum(["accept", "dismiss"]).optional().describe("what to do with a confirm/prompt this step opens"),
+}
+const batchStep = z.discriminatedUnion("action", [
+  z.object({ ...stepBase, action: z.literal("goto"), url: z.string() }),
+  z.object({ ...stepBase, action: z.literal("click"), target }),
+  z.object({ ...stepBase, action: z.literal("fill"), target, value: z.string() }),
+  z.object({ ...stepBase, action: z.literal("select"), target, value: z.string() }),
+  z.object({ ...stepBase, action: z.literal("press"), key: z.string() }),
+  z.object({ ...stepBase, action: z.literal("scroll"), direction: z.enum(["up", "down"]), px: z.number().int().positive().optional() }),
+  z.object({ ...stepBase, action: z.literal("upload"), target, files: z.array(z.string()).min(1).describe("local file paths") }),
+  z.object({ ...stepBase, action: z.literal("switch_tab"), to: z.union([z.literal("new"), z.literal("opener"), z.number().int()]) }),
+  z.object({ ...stepBase, action: z.literal("wait"), ms: z.number().min(0).max(10_000).optional() }),
+])
+
+/** MCP step -> protocol Step: string targets become Target objects (the step's within/role fold in); upload paths are checked. */
+function batchStepParams(s: z.infer<typeof batchStep>): Record<string, unknown> {
+  const { within: w, role: r, ...rest } = s as typeof s & { within?: string; role?: string }
+  const out: Record<string, unknown> = { ...rest }
+  if ("target" in s) out.target = parseTarget(s.target, { within: w, role: r })
+  else {
+    if (w !== undefined) out.within = w
+    if (r !== undefined) out.role = r
+  }
+  if (s.action === "upload") {
+    out.files = resolveUploads(s.files, { cwd: process.cwd(), home: homedir(), kiteHome: kiteHome(), env: process.env })
+  }
+  return out
+}
+
+function batchBudget(): { budget_ms?: number } {
+  const n = Number(process.env.KITE_BATCH_BUDGET_MS)
+  return Number.isInteger(n) && n > 0 ? { budget_ms: n } : {}
+}
+
 export const TOOLS: ToolDef[] = [
   { name: "browser_status", description: "Show whether the browser extension is connected and this session's state.", method: "status", shape: {}, params: () => ({}) },
   { name: "browser_tabs", description: "List the tabs this session owns.", method: "tab.list", shape: {}, params: () => ({}) },
@@ -126,6 +167,21 @@ export const TOOLS: ToolDef[] = [
     method: "page.screenshot",
     shape: { full: z.boolean().optional(), ref: z.string().optional() },
     params: (a) => ({ full: !!a.full, ...(a.ref ? { ref: a.ref } : {}) }),
+  },
+  {
+    name: "browser_batch",
+    description:
+      "Prefer this over single actions when you know several steps ahead (forms, multi-page flows). Steps run in order with lazy targets; the batch stops at the first problem and tells you which step to resend from.",
+    method: "act.batch",
+    shape: {
+      steps: z.array(batchStep).min(1).max(50).describe("steps in order; each has an action (goto, click, fill, select, press, scroll, upload, switch_tab, wait)"),
+      allow_domains: z.array(z.string()).optional().describe("extra registrable domains the batch may move to"),
+    },
+    params: (a) => ({
+      steps: (a.steps as z.infer<typeof batchStep>[]).map(batchStepParams),
+      ...(a.allow_domains ? { allow_domains: a.allow_domains } : {}),
+      ...batchBudget(),
+    }),
   },
 ]
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import type { ActionResult } from "@kitestring/protocol"
-import { formatConsole, formatNetwork, formatResult } from "../src/client/format.js"
+import type { ActionResult, BatchResult } from "@kitestring/protocol"
+import { formatBatch, formatConsole, formatNetwork, formatResult } from "../src/client/format.js"
 
 const base: ActionResult = { ok: true, status: "done", diff: { added: [], removed: [] }, page: "P" }
 
@@ -68,5 +68,75 @@ describe("formatConsole / formatNetwork", () => {
         { ts: 1, method: "GET", url: "https://s.test/x", type: "Fetch", failed: true, error: "net::ERR_FAILED", nav: 0 },
       ]),
     ).toBe("GET 500 https://s.test/status/500 (34 ms)\nGET ERR https://s.test/x net::ERR_FAILED")
+  })
+})
+
+describe("formatBatch", () => {
+  const empty = { added: [], removed: [] }
+  it("ok: one line per step, skipped marked, diff and page", () => {
+    const r: BatchResult = {
+      ok: true,
+      steps: [
+        { i: 0, action: "fill", target: '"Name"', status: "done", ms: 10, resolved: { role: "textbox", name: "Name" } },
+        { i: 1, action: "click", target: '"Accept cookies"', status: "skipped", ms: 1 },
+        { i: 2, action: "press", status: "no_effect", ms: 3 },
+      ],
+      diff: { added: ["button Saved"], removed: ["button Save"] },
+      closedPopups: ['cookie "Reject all"'],
+      page: "Page",
+    }
+    expect(formatBatch(r)).toBe(
+      ['✓ 1 fill "Name"', '· 2 skipped "Accept cookies"', "✓ 3 press", '⨯ closed popup cookie "Reject all"', "+ button Saved", "- button Save", "page: Page"].join("\n"),
+    )
+  })
+  it("halted risky: reason, resume hint, candidates", () => {
+    const r: BatchResult = {
+      ok: false,
+      steps: [
+        { i: 0, action: "fill", target: '"Name"', status: "done", ms: 10 },
+        { i: 1, action: "click", target: '"Pay"', status: "blocked", detail: "risky", ms: 2 },
+      ],
+      halted: { index: 1, reason: "risky", detail: 'refusing to click "Pay" in a batch' },
+      next: 1,
+      diff: empty,
+      page: "Checkout",
+    }
+    expect(formatBatch(r)).toBe(
+      [
+        '✓ 1 fill "Name"',
+        '✗ 2 click "Pay": risky',
+        'halted at step 2 (risky): refusing to click "Pay" in a batch',
+        "resume with steps from 2",
+        "page: Checkout",
+      ].join("\n"),
+    )
+  })
+  it("halted time: dialogs, new tabs, no detail on the step", () => {
+    const r: BatchResult = {
+      ok: false,
+      steps: [{ i: 0, action: "click", target: '"Next"', status: "timeout", ms: 14000 }],
+      halted: { index: 0, reason: "time" },
+      next: 0,
+      newTabs: [5],
+      dialogs: [{ type: "confirm", message: "Sure?", handled: "dismissed" }],
+      diff: empty,
+      page: "P",
+    }
+    expect(formatBatch(r)).toBe(
+      ['✗ 1 click "Next": timeout', "halted at step 1 (time)", "resume with steps from 1", '! dialog confirm "Sure?" dismissed', "⧉ new tab 5", "page: P"].join("\n"),
+    )
+  })
+  it("halted without next has no resume line", () => {
+    const r: BatchResult = { ok: false, steps: [], halted: { index: 0, reason: "paused", detail: "x" }, diff: empty, page: "P" }
+    expect(formatBatch(r)).toBe("halted at step 1 (paused): x\npage: P")
+  })
+  it("does not print the internal resolved target", () => {
+    const r: BatchResult = {
+      ok: true,
+      steps: [{ i: 0, action: "click", target: '"Go"', status: "done", ms: 1, resolved: { role: "button", name: "SECRETNAME" } }],
+      diff: empty,
+      page: "P",
+    }
+    expect(formatBatch(r)).not.toContain("SECRETNAME")
   })
 })

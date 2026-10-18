@@ -61,17 +61,17 @@ async function connect(env: Record<string, string> = {}): Promise<{ stderr: () =
 }
 
 describe("kite mcp", () => {
-  it("lists all 16 tools with the server name", async () => {
+  it("lists all 17 tools with the server name", async () => {
     await connect()
     const { tools } = await client!.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual(
       [
         "browser_status", "browser_tabs", "browser_tab_new", "browser_tab_use", "browser_tab_close",
         "browser_goto", "browser_snapshot", "browser_click", "browser_fill", "browser_select",
-        "browser_press", "browser_scroll", "browser_console", "browser_network", "browser_screenshot", "browser_upload",
+        "browser_press", "browser_scroll", "browser_console", "browser_network", "browser_screenshot", "browser_upload", "browser_batch",
       ].sort(),
     )
-    expect(tools).toHaveLength(16)
+    expect(tools).toHaveLength(17)
     expect(client!.getServerVersion()?.name).toBe("kitestring")
     for (const t of tools) expect(t.description).toBeTruthy()
   })
@@ -144,6 +144,53 @@ describe("kite mcp", () => {
     writeFileSync(join(dir, ".ssh", "id_rsa"), "k")
     await connect({ HOME: dir })
     const r: any = await client!.callTool({ name: "browser_upload", arguments: { target: "Extension zip", files: [join(dir, ".ssh", "id_rsa")] } })
+    expect(r.isError).toBe(true)
+    expect(r.content[0].text).toMatch(/^BAD_REQUEST: refusing to upload .*id_rsa: sensitive location$/)
+    expect(received).toHaveLength(0)
+  })
+  it("browser_batch forwards act.batch with protocol-shaped targets and budget_ms from the env", async () => {
+    canned = { ok: true, steps: [{ i: 0, action: "fill", target: '"Name"', status: "done", ms: 1 }], diff: { added: [], removed: [] }, page: "P" }
+    await startFake()
+    await connect({ KITE_BATCH_BUDGET_MS: "12000" })
+    const r: any = await client!.callTool({
+      name: "browser_batch",
+      arguments: {
+        steps: [
+          { action: "fill", target: "Name", value: "Ada", within: "Form" },
+          { action: "click", target: "@e1k2d9", if_present: true },
+          { action: "press", key: "Enter", expect: { text: "Saved" } },
+        ],
+        allow_domains: ["example.org"],
+      },
+    })
+    expect(r.isError).toBeFalsy()
+    expect(r.content[0].text).toContain('✓ 1 fill "Name"')
+    expect(received[0].method).toBe("act.batch")
+    expect(received[0].params).toEqual({
+      steps: [
+        { action: "fill", target: { text: "Name", within: "Form" }, value: "Ada" },
+        { action: "click", target: { ref: "@e1k2d9" }, if_present: true },
+        { action: "press", key: "Enter", expect: { text: "Saved" } },
+      ],
+      allow_domains: ["example.org"],
+      budget_ms: 12000,
+    })
+  })
+  it("browser_batch without the env sends no budget_ms", async () => {
+    await startFake()
+    await connect({ KITE_BATCH_BUDGET_MS: "" })
+    await client!.callTool({ name: "browser_batch", arguments: { steps: [{ action: "scroll", direction: "down" }] } })
+    expect(received[0].params).toEqual({ steps: [{ action: "scroll", direction: "down" }] })
+  })
+  it("browser_batch refuses a sensitive upload without calling the browser", async () => {
+    await startFake()
+    mkdirSync(join(dir, ".ssh"))
+    writeFileSync(join(dir, ".ssh", "id_rsa"), "k")
+    await connect({ HOME: dir })
+    const r: any = await client!.callTool({
+      name: "browser_batch",
+      arguments: { steps: [{ action: "upload", target: "Zip", files: [join(dir, ".ssh", "id_rsa")] }] },
+    })
     expect(r.isError).toBe(true)
     expect(r.content[0].text).toMatch(/^BAD_REQUEST: refusing to upload .*id_rsa: sensitive location$/)
     expect(received).toHaveLength(0)

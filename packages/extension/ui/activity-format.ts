@@ -64,3 +64,22 @@ export function clockTime(ts: number): string {
   const d = new Date(ts)
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
+
+/** A batch with more steps than this starts collapsed in the feed. */
+export const BATCH_COLLAPSE_OVER = 5
+
+export type FeedItem =
+  | { kind: "entry"; entry: ActivityEntry }
+  | { kind: "batch"; id: number; /** Oldest first. */ steps: ActivityEntry[] }
+
+/** Entries newest first -> feed items: consecutive entries with the same `batch` id become one group. */
+export function groupBatches(entries: ActivityEntry[]): FeedItem[] {
+  const items: FeedItem[] = []
+  for (const e of entries) {
+    const last = items[items.length - 1]
+    if (e.batch === undefined) items.push({ kind: "entry", entry: e })
+    else if (last?.kind === "batch" && last.id === e.batch) last.steps.unshift(e)
+    else items.push({ kind: "batch", id: e.batch, steps: [e] })
+  }
+  return items
+}

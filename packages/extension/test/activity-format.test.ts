@@ -1,6 +1,6 @@
 import type { ActivityEntry } from "@kitestring/protocol"
 import { describe, expect, it } from "vitest"
-import { clockTime, describeAction, duration, statusTone, summaryDetail } from "../ui/activity-format"
+import { BATCH_COLLAPSE_OVER, clockTime, describeAction, duration, groupBatches, statusTone, summaryDetail } from "../ui/activity-format"
 
 const entry = (e: Partial<ActivityEntry>): ActivityEntry => ({
   id: 1,
@@ -69,5 +69,30 @@ describe("duration and clockTime", () => {
   it("shows a 24-hour wall clock", () => {
     const ts = new Date(2026, 9, 18, 9, 5, 7).getTime()
     expect(clockTime(ts)).toBe("09:05:07")
+  })
+})
+
+describe("groupBatches", () => {
+  it("groups consecutive entries of one batch (steps oldest first) and leaves the rest alone", () => {
+    // newest first, as the feed receives them
+    const log = [
+      entry({ id: 6 }),
+      entry({ id: 5, batch: 2 }),
+      entry({ id: 4, batch: 2 }),
+      entry({ id: 3, batch: 1 }),
+      entry({ id: 2, batch: 1 }),
+      entry({ id: 1, batch: 1 }),
+    ]
+    const g = groupBatches(log)
+    expect(g.map((x) => x.kind)).toEqual(["entry", "batch", "batch"])
+    expect(g[1]).toMatchObject({ kind: "batch", id: 2 })
+    expect((g[1] as { steps: ActivityEntry[] }).steps.map((e) => e.id)).toEqual([4, 5])
+    expect((g[2] as { steps: ActivityEntry[] }).steps.map((e) => e.id)).toEqual([1, 2, 3])
+  })
+  it("an entry with a batch id alone is still a group of one", () => {
+    expect(groupBatches([entry({ id: 1, batch: 9 })])).toMatchObject([{ kind: "batch", id: 9 }])
+  })
+  it("collapses over 5 steps", () => {
+    expect(BATCH_COLLAPSE_OVER).toBe(5)
   })
 })

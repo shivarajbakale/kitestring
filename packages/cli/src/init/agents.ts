@@ -53,7 +53,8 @@ export const opencodeEntry = ({ node, bin }: Launch) => ({
   type: "local",
   command: [node, bin, "mcp"],
   enabled: true,
-  environment: { KITE_SESSION: "opencode" },
+  // OpenCode gives tool calls ~15 s: keep a batch well inside it (the default budget is 40 s).
+  environment: { KITE_SESSION: "opencode", KITE_BATCH_BUDGET_MS: "12000" },
   timeout: 15000,
 })
 

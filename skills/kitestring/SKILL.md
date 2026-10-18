@@ -22,6 +22,7 @@ Two equivalent surfaces. Use MCP tools if your harness has them, else the `kite`
 | Type into a field | `browser_fill` | `kite fill "Email" "ada@x.io"` |
 | Choose an option | `browser_select` | `kite select "Country" "India"` |
 | Upload files | `browser_upload` | `kite upload "Extension zip" ./kite.zip` (refuses ~/.ssh, ~/.aws, ~/.config, .env files, > 100 MB) |
+| Several steps in one call | `browser_batch` | `kite batch steps.json` (or `-` for stdin; `--budget <ms>`, `--allow-domain <d>`) |
 | Key | `browser_press` | `kite press Enter` |
 | Scroll | `browser_scroll` | `kite scroll down [px]` |
 | Console / network | `browser_console` / `browser_network` | `kite console --errors` / `kite network --failed` |
@@ -36,6 +37,19 @@ CLI: exit code 1 when status is not done; call errors print `kite: <message>` (e
 3. Act by **visible text** (`kite click "Continue"`) or by **ref** from the snapshot (`kite click @e7hs02`).
 4. **Read the result.** `+` lines appeared, `-` lines disappeared, `→ navigated` means a new URL, `page:` is the brief. That IS the new state.
 5. Next action. Snapshot again only when the diff does not tell you enough (new page you have not seen, `--full` to read below the fold).
+
+## Batching: several steps in one call
+
+When you already know the next steps (a form, a multi-page flow), send them together instead of one round trip each. Steps run in order under one lock; the batch stops at the first problem and tells you where.
+
+1. `kite snapshot` once. Then send every step you can predict in one `browser_batch` (or `kite batch steps.json`, or `kite batch -` with the JSON on stdin). A step is `{"action":"fill","target":"Email","value":"ada@x.io"}`; actions: goto, click, fill, select, press, scroll, upload, switch_tab, wait.
+2. `if_present: true` on optional popups (cookie banner, "Not now"): a missing target is skipped, not a failure.
+3. `expect: {"text":"Order summary"}` (or `{"url":"/checkout"}`) after a step that changes the page, so the next step does not run on the wrong page.
+4. `wait: 5000` on a step whose target appears late (max 10000); it polls instead of failing.
+5. Read the result: `✓` done, `·` skipped, `✗` the problem. After a halt, read `halted at step N (reason): detail` and `resume with steps from N`. Fix that step (or the page), then resend `steps.slice(next)` only. Step numbers are 1-based in the text, 0-based in `--json` (`next`, `halted.index`).
+6. A batch also stops by design at: a different site than it started on (`domain`; add `allow_domains` if intended), a confirm/prompt dialog with no `dialog` policy (`dialog`), the human pausing (`paused`), and the time budget (`time`: resend from `next`).
+
+Risky clicks (pay, buy, place order, send, delete, publish, submit for review, transfer) halt with `risky` by design. Never override that inside a batch: do the step as a single `kite click` only when the human asked for exactly that action and the safety rules below are satisfied. Keep batches to one page flow (about 5 to 15 steps), not a whole session.
 
 ## Speed rules
 

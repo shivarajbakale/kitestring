@@ -35,6 +35,8 @@ export async function main(argv: string[]): Promise<number> {
     if (g.json) process.stdout.write(JSON.stringify(result) + "\n")
     else process.stdout.write(human(method, result) + "\n")
     if (result && typeof result === "object" && "status" in result && (result as any).status !== "done") exitCode = 1
+    // A batch has no single status: it is ok or halted.
+    if (method === "act.batch" && !(result as { ok?: boolean } | null)?.ok) exitCode = 1
   }
 
   program
@@ -128,15 +130,30 @@ export async function main(argv: string[]): Promise<number> {
         files: resolveUploads(files, { cwd: process.cwd(), home: homedir(), kiteHome: kiteHome(), env: process.env }),
       }),
     )
+  const collect = (v: string, prev: string[]): string[] => [...prev, v]
   program
     .command("batch <file>")
     .description("run steps from a JSON file (or - for stdin) under one tab lock: a Step[] or {steps, allow_domains?, budget_ms?}")
-    .action(async (file: string) => {
+    .option("--budget <ms>", "time budget in ms (5000..40000; default 40000)")
+    .option("--allow-domain <domain>", "also allow this registrable domain (repeatable)", collect, [] as string[])
+    .action(async (file: string, o: { budget?: string; allowDomain: string[] }) => {
+      if (o.budget !== undefined && !/^[1-9]\d*$/.test(o.budget)) throw new UsageError(`--budget must be a positive integer (ms): ${o.budget}`)
       const params = batchParams(file === "-" ? await readStdin() : readFileSync(file, "utf8"))
-      const g = program.opts<Globals>()
-      const result = (await call("act.batch", params, { session: g.session || process.env.KITE_SESSION || "default" })) as { ok?: boolean }
-      process.stdout.write(JSON.stringify(result) + "\n")
-      exitCode = result?.ok ? 0 : 1
+      if (o.budget !== undefined) params.budget_ms = Number(o.budget)
+      if (o.allowDomain.length) params.allow_domains = [...((params.allow_domains as string[] | undefined) ?? []), ...o.allowDomain]
+      const guard = { cwd: process.cwd(), home: homedir(), kiteHome: kiteHome(), env: process.env }
+      for (const step of params.steps as { action?: unknown; files?: unknown }[]) {
+        if (step && typeof step === "object" && step.action === "upload" && Array.isArray(step.files)) {
+          try {
+            step.files = resolveUploads(step.files as string[], guard)
+          } catch (e) {
+            // A batch has no single failing command: name the code in the message.
+            if (e instanceof KiteError) throw new KiteError(e.code, `${e.code}: ${e.message}`)
+            throw e
+          }
+        }
+      }
+      await run("act.batch", params)
     })
   program.command("press <key>").action((key: string) => run("act.press", { key }))
   program

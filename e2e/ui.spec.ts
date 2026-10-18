@@ -185,6 +185,42 @@ test.describe("live side panel", () => {
     await expect.poll(() => formPage.evaluate(() => document.visibilityState)).toBe("visible")
   })
 
+  test("a batch renders as one group with its steps; a long one starts collapsed", async ({ kite, kiteStdin, context, torture }) => {
+    const panel = await openPanel(context)
+    const feed = panel.getByRole("list", { name: "Activity" })
+    const rows = feed.locator(":scope > li")
+    expect((await kite("tab", "new", `${torture}/basic-form`)).code).toBe(0)
+    const r = await kiteStdin(
+      JSON.stringify([
+        { action: "fill", target: "Name", value: "Ada" },
+        { action: "fill", target: "Email", value: "ada@x.io" },
+        { action: "click", target: "Submit" },
+      ]),
+      "batch",
+      "-",
+    )
+    expect(r.code, out(r)).toBe(0)
+
+    await expect(rows).toHaveCount(2) // tab.new + the batch group
+    const group = rows.nth(0)
+    await expect(group.getByRole("button", { name: /batch · 3 steps/ })).toHaveAttribute("aria-expanded", "true")
+    const steps = group.locator("ol > li")
+    await expect(steps).toHaveCount(3)
+    await expect(steps.nth(0)).toContainText('fill "Name"')
+    await expect(steps.nth(2)).toContainText('click "Submit"')
+    await expect(feed).not.toContainText("Ada") // a filled value is never shown
+
+    const long = await kiteStdin(JSON.stringify(Array.from({ length: 6 }, () => ({ action: "scroll", direction: "down", px: 10 }))), "batch", "-")
+    expect(long.code, out(long)).toBe(0)
+    await expect(rows).toHaveCount(3)
+    const big = rows.nth(0)
+    const toggle = big.getByRole("button", { name: /batch · 6 steps/ })
+    await expect(toggle).toHaveAttribute("aria-expanded", "false")
+    await expect(big.locator("ol > li")).toHaveCount(0)
+    await toggle.click()
+    await expect(big.locator("ol > li")).toHaveCount(6)
+  })
+
   test("screenshots in light and dark", async ({ kite, kiteEnv, context, torture }) => {
     expect((await kite("tab", "new", `${torture}/basic-form`)).code).toBe(0)
     expect((await kite("fill", "Name", "Ada")).code).toBe(0)

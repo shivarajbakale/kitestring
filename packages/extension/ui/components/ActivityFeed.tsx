@@ -1,6 +1,6 @@
 import type { ActivityEntry } from "@kitestring/protocol"
 import { useId, useState } from "react"
-import { clockTime, describeAction, duration, summaryDetail } from "../activity-format"
+import { BATCH_COLLAPSE_OVER, clockTime, describeAction, duration, groupBatches, summaryDetail } from "../activity-format"
 import type { GroupColor } from "../messages"
 import { ChevronIcon } from "./icons"
 import { SessionDot } from "./SessionDot"
@@ -133,12 +133,52 @@ interface FeedProps {
   onFocus: (entry: ActivityEntry) => void
 }
 
+function BatchGroup({
+  steps,
+  colorOf,
+  freshAfter,
+  onFocus,
+}: {
+  steps: ActivityEntry[]
+  colorOf: (session: string) => GroupColor
+  freshAfter: number
+  onFocus: (entry: ActivityEntry) => void
+}) {
+  // Steps arrive one by one: the default follows the current count until the user picks.
+  const [chosen, setChosen] = useState<boolean | null>(null)
+  const open = chosen ?? steps.length <= BATCH_COLLAPSE_OVER
+  const listId = useId()
+  const label = `batch · ${steps.length} ${steps.length === 1 ? "step" : "steps"}`
+  const first = steps[0]!
+  return (
+    <li className="ks-batch" data-open={open || undefined}>
+      <button type="button" className="ks-batch__head" aria-expanded={open} aria-controls={open ? listId : undefined} onClick={() => setChosen(!open)}>
+        <ChevronIcon size={14} />
+        <span className="ks-batch__label">{label}</span>
+        <span className="ks-batch__session">{first.session}</span>
+        <StatusBadge status={steps[steps.length - 1]!.status} />
+      </button>
+      {open ? (
+        <ol className="ks-batch__steps" id={listId} aria-label={label}>
+          {steps.map((e) => (
+            <ActivityRow key={e.id} entry={e} color={colorOf(e.session)} fresh={e.id > freshAfter} onFocus={onFocus} />
+          ))}
+        </ol>
+      ) : null}
+    </li>
+  )
+}
+
 export function ActivityFeed({ entries, colorOf, freshAfter, onFocus }: FeedProps) {
   return (
     <ol className="ks-feed" aria-label="Activity">
-      {entries.map((e) => (
-        <ActivityRow key={e.id} entry={e} color={colorOf(e.session)} fresh={e.id > freshAfter} onFocus={onFocus} />
-      ))}
+      {groupBatches(entries).map((it) =>
+        it.kind === "entry" ? (
+          <ActivityRow key={it.entry.id} entry={it.entry} color={colorOf(it.entry.session)} fresh={it.entry.id > freshAfter} onFocus={onFocus} />
+        ) : (
+          <BatchGroup key={`b${it.id}`} steps={it.steps} colorOf={colorOf} freshAfter={freshAfter} onFocus={onFocus} />
+        ),
+      )}
     </ol>
   )
 }

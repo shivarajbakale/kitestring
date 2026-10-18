@@ -240,7 +240,7 @@ describe("kite init", () => {
       type: "local",
       command: [NODE, bin, "mcp"],
       enabled: true,
-      environment: { KITE_SESSION: "opencode" },
+      environment: { KITE_SESSION: "opencode", KITE_BATCH_BUDGET_MS: "12000" },
       timeout: 15000,
     })
     expect(read(".config/opencode/opencode.json")).toBe(fixture("full", ".config/opencode/opencode.json"))
@@ -288,6 +288,18 @@ describe("kite init", () => {
     expect(await runInit(opts({ now: new Date(2026, 9, 18, 12, 5, 0) }))).toBe(0)
     expect(snapshot(home)).toEqual(first)
     expect(out.join("\n")).toMatch(/up to date/i)
+  })
+
+  it("updates an OpenCode entry written before the batch budget existed", async () => {
+    useFixture("full")
+    expect(await runInit(opts())).toBe(0)
+    const f = join(home, ".config", "opencode", "opencode.jsonc")
+    const current = readFileSync(f, "utf8")
+    expect(current).toContain("KITE_BATCH_BUDGET_MS")
+    writeFileSync(f, current.replace(/,\s*"KITE_BATCH_BUDGET_MS":\s*"12000"/, ""))
+    expect(readFileSync(f, "utf8")).not.toContain("KITE_BATCH_BUDGET_MS")
+    expect(await runInit(opts({ now: new Date(2026, 9, 18, 12, 5, 0) }))).toBe(0)
+    expect(jsonc(read(".config/opencode/opencode.jsonc")).mcp.kitestring.environment).toEqual({ KITE_SESSION: "opencode", KITE_BATCH_BUDGET_MS: "12000" })
   })
 
   it("skips an agent that is not installed, without creating its config dir", async () => {

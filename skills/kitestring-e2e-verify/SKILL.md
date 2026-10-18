@@ -15,9 +15,12 @@ Tests passing is not "the feature works". Drive the actual user flow in the real
 
 1. **Define the flow and outcomes before driving.** Write the user steps and, for each, the visible outcome that proves it worked (a heading appears, a row is added, URL changes, a button becomes enabled).
 2. **Start the app**, then `kite tab new <dev url>` / `browser_tab_new`.
-3. **Drive every step** with the loop: one `kite snapshot` per new page, then `kite click` / `kite fill` / `kite select` / `kite press` by visible text.
+3. **Drive every step** with the loop: one `kite snapshot` per new page, then the steps by visible text. Steps you can predict go in one `kite batch` / `browser_batch` (form fills plus the submit), with `expect` on the step that should change the page:
+   ```
+   echo '[{"action":"fill","target":"Email","value":"test@example.com"},{"action":"click","target":"Save","expect":{"text":"Saved"}}]' | kite batch -
+   ```
 4. **Assert from each result**, not from memory:
-   - status is `done`
+   - status is `done` (a batch: every step `✓`, no `halted` line)
    - the `+` / `-` lines or `→ navigated` contain the expected outcome
    - anything else is a failure: record it, do not "fix the test".
    Plain text (toasts, paragraphs) is not in snapshots: check it with `kite screenshot`.
@@ -40,7 +43,7 @@ The **Not verified** list is required, even if empty ("none"). Never write "work
 ## Rules
 
 - If `kite` is not found, use the `browser_*` MCP tools and ask the human to run `kite doctor`.
-- A step that returned anything but `done` is not verified. A `timeout` is not a pass.
+- A step that returned anything but `done` is not verified. In a batch, a step after a `halted` line did not run: fix, resend from `next`, and report only what you saw. A `timeout` is not a pass.
 - Use obviously fake test data (`test@example.com`) and list it in the report. Submits on localhost / dev URLs are fine.
 - End with the Report block above, always, even when the verdict is "not ready" (say why: the failing step or error line).
 - On real accounts and production: read only, and follow the confirm rule in the `kitestring` skill for anything with consequences.

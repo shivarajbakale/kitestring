@@ -64,7 +64,7 @@ function kite(
 }
 
 describe("kite cli", () => {
-  it("batch from stdin: a Step[] becomes {steps}; raw JSON out; exit 0 iff ok", async () => {
+  it("batch from stdin: a Step[] becomes {steps}; human out; exit 0 iff ok", async () => {
     const result = { ok: true, steps: [{ i: 0, action: "click", status: "done", ms: 5 }], diff: { added: [], removed: [] }, page: "P" }
     canned = result as unknown as ActionResult
     await startFake()
@@ -73,7 +73,41 @@ describe("kite cli", () => {
     expect(r.code).toBe(0)
     expect(received[0].method).toBe("act.batch")
     expect(received[0].params).toEqual({ steps })
-    expect(JSON.parse(r.out)).toEqual(result)
+    expect(r.out).toBe('✓ 1 click\npage: P\n')
+  })
+  it("batch prints the human format; --json keeps raw JSON; flags override and repeat", async () => {
+    const result = {
+      ok: false,
+      steps: [{ i: 0, action: "click", target: "Pay", status: "blocked", detail: "risky", ms: 5 }],
+      halted: { index: 0, reason: "risky", detail: "no" },
+      next: 0,
+      diff: { added: [], removed: [] },
+      page: "P",
+    }
+    canned = result as unknown as ActionResult
+    await startFake()
+    const input = JSON.stringify({ steps: [{ action: "click", target: "Pay" }], budget_ms: 30000, allow_domains: ["a.com"] })
+    const r = await kite(["batch", "-", "--budget", "9000", "--allow-domain", "b.com", "--allow-domain", "c.com"], {}, input)
+    expect(r.code).toBe(1)
+    expect(r.out).toBe('✗ 1 click Pay: risky\nhalted at step 1 (risky): no\nresume with steps from 1\npage: P\n')
+    expect(received[0].params).toEqual({ steps: [{ action: "click", target: "Pay" }], budget_ms: 9000, allow_domains: ["a.com", "b.com", "c.com"] })
+    const j = await kite(["--json", "batch", "-"], {}, input)
+    expect(JSON.parse(j.out)).toEqual(result)
+  })
+  it("batch refuses a sensitive upload file before any RPC (exit 1)", async () => {
+    await startFake()
+    mkdirSync(join(dir, ".ssh"))
+    writeFileSync(join(dir, ".ssh", "id_rsa"), "k")
+    const r = await kite(["batch", "-"], { HOME: dir }, JSON.stringify([{ action: "upload", target: "Zip", files: [join(dir, ".ssh", "id_rsa")] }]))
+    expect(r.code).toBe(1)
+    expect(r.err).toMatch(/^kite: BAD_REQUEST: refusing to upload .*id_rsa/)
+    expect(received).toHaveLength(0)
+  })
+  it("batch rejects a bad --budget with exit 2", async () => {
+    await startFake()
+    const r = await kite(["batch", "-", "--budget", "soon"], {}, "[]")
+    expect(r.code).toBe(2)
+    expect(received).toHaveLength(0)
   })
   it("batch from a file with {steps, budget_ms}; a halted batch exits 1", async () => {
     canned = { ok: false, steps: [], halted: { index: 0, reason: "time" }, next: 0, diff: { added: [], removed: [] }, page: "" } as unknown as ActionResult
