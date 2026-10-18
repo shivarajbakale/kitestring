@@ -42,7 +42,7 @@ describe("capped", () => {
   it("a cap timeout carries the dialogs handled so far", async () => {
     const { capped } = await import("../background/pipeline")
     const ev = { type: "alert" as const, message: "Hi", handled: "accepted" as const }
-    const r = capped(3, (p) => {
+    const r = capped(33, (p) => {
       p.dialogs = [ev]
       return new Promise<ActionResult>(() => {})
     })
