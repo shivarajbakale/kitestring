@@ -7,3 +7,4 @@ test-results
 .superpowers/
 .memsearch/
 *.tsbuildinfo
+.worktrees/
