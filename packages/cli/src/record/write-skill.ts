@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
+import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
 import { basename, dirname, join } from "node:path"
 import { BATCH_MAX_STEPS, RECORD_NAME_RE, pathPattern, type Plan, type PlanParam, type PlanStep, type Recording } from "@kitestring/protocol"
 import { skillBackupPath } from "../init/init.js"
@@ -201,13 +201,28 @@ export function prepareSkill(home: string, rec: Recording, opts: WriteSkillOptio
  * `<home>/.agents/skills/kite-<name>/SKILL.md`, a `<home>/.claude/skills/kite-<name>` symlink to that folder (as `kite init`
  * links its skills), and the plan in `$KITE_HOME/memory`. Order: validate everything (`prepareSkill`; nothing written on
  * refusal), save the plan, then move an existing folder (or a foreign file at the link) to
- * `<home>/.agents/kite-backups/skills/` (only with `force`) and write the new one.
+ * `<home>/.agents/kite-backups/skills/` (only with `force`) and write the new one. If writing the skill fails, the plan
+ * file is put back as it was (removed, or the replaced plan restored) before the error is rethrown.
  */
 export function writeSkill(home: string, rec: Recording, opts: WriteSkillOptions): { skillPath: string; planSlug: string } {
   const plan = prepareSkill(home, rec, opts)
   const now = opts.now ?? new Date()
-  const planSlug = basename(savePlan(opts.kiteHome ?? defaultKiteHome(), plan), ".json")
+  const kh = opts.kiteHome ?? defaultKiteHome()
+  // what a forced save replaces, so a failed skill write can put it back
+  const prev = listPlans(kh, plan.origin).find((s) => s.plan.intent === plan.intent)
+  const prevFile = prev && join(kh, "memory", `${prev.id}.json`)
+  const prevText = prevFile && readFileSync(prevFile, "utf8")
+  const planFile = savePlan(kh, plan)
+  try {
+    return writeSkillFiles(home, rec, plan, basename(planFile, ".json"), now)
+  } catch (e) {
+    if (prevFile && prevText !== undefined) writeFileSync(prevFile, prevText, { mode: 0o600 })
+    else rmSync(planFile, { force: true })
+    throw e
+  }
+}
 
+function writeSkillFiles(home: string, rec: Recording, plan: Plan, planSlug: string, now: Date): { skillPath: string; planSlug: string } {
   const dir = skillDirFor(home, rec.name)
   const link = join(claudeSkillsDir(home), `kite-${rec.name}`)
   if (existsSync(dir) || isLink(dir)) moveAside(dir, skillBackupPath(home, `kite-${rec.name}`, now))

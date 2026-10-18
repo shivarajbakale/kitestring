@@ -142,6 +142,23 @@ describe("writeSkill", () => {
     expect(existsSync(join(home, ".agents", "kite-backups"))).toBe(false)
   })
 
+  it("a failed skill write leaves no new plan behind, and a forced one puts the old plan back", () => {
+    mkdirSync(join(home, ".agents"), { recursive: true })
+    writeFileSync(join(home, ".agents", "skills"), "x") // the skill folder cannot be created under a file
+    expect(() => writeSkill(home, REC, { force: false, kiteHome: kh })).toThrow()
+    expect(listPlans(kh)).toEqual([])
+
+    rmSync(join(home, ".agents", "skills"))
+    writeSkill(home, REC, { force: false, kiteHome: kh })
+    const file = join(kh, "memory", "127-0-0-1-4173", "ada-signup.json")
+    const before = readFileSync(file, "utf8")
+    rmSync(join(home, ".agents", "skills"), { recursive: true })
+    writeFileSync(join(home, ".agents", "skills"), "x")
+    const changed: Recording = { ...REC, steps: REC.steps.slice(0, 1) }
+    expect(() => writeSkill(home, changed, { force: true, kiteHome: kh })).toThrow()
+    expect(readFileSync(file, "utf8")).toBe(before)
+  })
+
   it("tells the agent an upload param is an absolute path", () => {
     const up: Recording = {
       ...REC,
@@ -222,6 +239,30 @@ describe("kite record", () => {
       "kite: warning: not recorded: date input 'Birthday' (set it by hand when replaying)\n" +
         "kite: warning: not recorded: color input 'Theme' (set it by hand when replaying)\n",
     )
+  })
+
+  it("stop strips control characters from page-derived names before printing them", async () => {
+    mkdirSync(kh, { recursive: true })
+    await startFake()
+    const rec = { ...REC, skipped: ["date input '\u001b[31mBirth\u0007day\u001b[0m'"] }
+    answers.push(rec, rec)
+    const t = await kite(["record", "stop"])
+    expect(t.code, t.err).toBe(0)
+    expect(t.err).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f]/)
+    expect(t.err).toContain("date input '[31mBirthday[0m'")
+  })
+
+  it("stop writes the skill before it ends the recording: a failed write leaves the recording in the browser", async () => {
+    mkdirSync(join(home, ".agents"), { recursive: true })
+    writeFileSync(join(home, ".agents", "skills"), "x") // the skill folder cannot be created
+    mkdirSync(kh, { recursive: true })
+    await startFake()
+    answers.push(REC)
+    const r = await kite(["record", "stop"])
+    expect(r.code).not.toBe(0)
+    expect(r.err).toMatch(/still recording/)
+    expect(received.map((m) => [m.method, m.params])).toEqual([["record.stop", { peek: true }]])
+    expect(listPlans(kh)).toEqual([])
   })
 
   it("start refuses a name that is not a slug before calling the browser", async () => {

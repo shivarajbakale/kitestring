@@ -295,10 +295,20 @@ export async function main(argv: string[]): Promise<number> {
       } catch (e) {
         throw new UsageError(`${(e as Error).message} (still recording)`)
       }
-      const rec = (await call("record.stop", {}, session)) as Recording
-      const r = writeSkill(homedir(), rec, { force })
+      // Write from the peek, and only then end the recording: a failed write leaves it in the browser to save again.
+      let r
+      try {
+        r = writeSkill(homedir(), peek, { force })
+      } catch (e) {
+        throw new Error(`${(e as Error).message} (still recording: fix that and run kite record stop again)`)
+      }
+      const rec = peek
+      const ended = (await call("record.stop", {}, session)) as Recording
+      const late = ended.steps.length - peek.steps.length
+      if (late > 0) process.stderr.write(`kite: warning: ${late} step${late === 1 ? "" : "s"} made while stopping ${late === 1 ? "was" : "were"} not saved\n`)
       for (const what of rec.skipped ?? []) {
-        process.stderr.write(`kite: warning: not recorded: ${what} (set it by hand when replaying)\n`)
+        // a field's name comes from the page: no terminal control characters
+        process.stderr.write(`kite: warning: not recorded: ${printable(what)} (set it by hand when replaying)\n`)
       }
       const names = paramsLine(rec)
       if (program.opts<Globals>().json) {
@@ -481,6 +491,9 @@ export async function main(argv: string[]): Promise<number> {
   }
   return exitCode
 }
+
+/** Page-derived text without control characters (an accessible name could carry terminal escapes). */
+const printable = (s: string): string => s.replace(/[\u0000-\u001f\u007f]/g, "")
 
 /** Param names of a recording, secrets starred. */
 function paramsLine(rec: Recording): string {
