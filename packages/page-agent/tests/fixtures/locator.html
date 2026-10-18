@@ -7,12 +7,14 @@
     <label>Password <input type="password" id="pw"></label>
     <label>Card <input type="text" autocomplete="cc-number" id="cc"></label>
     <button type="button" id="save">Save</button>
+    <button type="button" id="draft">Save draft</button>
   </form>
 </main>
 <script>
   const FORM = document.getElementById("root").innerHTML
   window.rerender = () => { document.getElementById("root").innerHTML = FORM }
   window.asLink = () => { document.getElementById("save").outerHTML = '<a href="#x" id="save">Save</a>' }
+  window.addSaveBefore = () => { const b = document.createElement("button"); b.type = "button"; b.id = "dup"; b.textContent = "Save"; document.getElementById("save").before(b) }
   window.rename = () => { document.getElementById("save").textContent = "Discard" }
 </script>
 </body></html>

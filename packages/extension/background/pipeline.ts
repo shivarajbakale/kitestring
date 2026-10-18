@@ -11,7 +11,7 @@ import {
 import { diffSnapshots, type CheckResult, type Closer, type FindResult } from "@kitestring/page-agent"
 import { callAgent, isRestrictedUrl } from "./agent-bridge"
 import { ensureAttached, isNotAttached, onEvent, send } from "./cdp"
-import { cacheKey, getHint, ready as cacheReady, remember } from "./cache"
+import { cacheKey, getHint, hit, ready as cacheReady, remember } from "./cache"
 import { assertNotPaused } from "./control"
 import { watchDialogs, type DialogPolicy, type DialogWatch } from "./dialogs"
 import { RestrictedPageError, RpcError } from "./errors"
@@ -457,7 +457,10 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     guard()
     if (f.kind === "found") {
       found = f
-      if (f.hinted) hooks.cached = true
+      if (f.hinted) {
+        hooks.cached = true
+        hit(key)
+      }
       // Never cache a secret field (password, card, one-time code); an upload caches the locator only.
       else if (key && f.locator && !f.secret) remember(key, f.locator)
       hooks.resolved = { role: f.role, name: f.name, ...(f.within ? { within: f.within } : {}) }

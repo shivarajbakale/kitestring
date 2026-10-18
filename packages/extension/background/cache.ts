@@ -71,23 +71,29 @@ function schedule(): void {
 export function flush(): Promise<void> {
   if (timer) clearTimeout(timer)
   timer = null
-  const snapshot = [...map]
   writes = writes
-    .then(() => chrome.storage.local.set({ [CACHE_KEY]: snapshot }))
+    .then(() => ready())
+    .then(() => chrome.storage.local.set({ [CACHE_KEY]: [...map] }))
     .catch((err: unknown) => console.warn("[kite] cache not persisted", err))
   return writes
 }
 
-/** The remembered locator for this key, counted as a use. Only a hint: the page agent must still verify it. */
+/** The remembered locator for this key. Only a hint: the page agent must still verify it. */
 export function getHint(key: string): Locator | undefined {
   const e = key ? map.get(key) : undefined
   if (!e) return undefined
+  const { hits: _h, lastUsed: _l, ...loc } = e
+  return loc
+}
+
+/** Counts a use: the hint was verified and the action went ahead with it. */
+export function hit(key: string): void {
+  const e = map.get(key)
+  if (!e) return
   e.hits++
   e.lastUsed = Date.now()
   touch(key, e)
   schedule()
-  const { hits: _h, lastUsed: _l, ...loc } = e
-  return loc
 }
 
 /** Stores (or overwrites) what FIND resolved for this key. */

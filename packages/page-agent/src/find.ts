@@ -9,10 +9,11 @@ export type FindIntent = "click" | "fill" | "select"
 export type FindResult =
   /**
    * `role`/`name`: the resolved element; `within`: the name of its nearest named scope (for text targets that re-find it);
-   * `locator`: where it was found, for the action cache; `hinted`: the caller's hint was used instead of searching;
+   * `locator`: where a text target was found, for the action cache (absent for ref targets and secret fields);
+   * `hinted`: the caller's hint pointed at the element the normal search ranked as the unique best match;
    * `secret`: a password / card / one-time-code field, which must not be cached.
    */
-  | { kind: "found"; ref: string; line: string; role: string; name: string; within?: string; locator: Locator; hinted: boolean; secret?: true }
+  | { kind: "found"; ref: string; line: string; role: string; name: string; within?: string; hinted: boolean; locator?: Locator; secret?: true }
   | { kind: "ambiguous"; candidates: Candidate[] }
   | { kind: "not_found" }
 
@@ -107,22 +108,6 @@ function isSecretField(el: Element): boolean {
   return (el.getAttribute("autocomplete") ?? "").toLowerCase().split(/\s+/).some((t) => t === "one-time-code" || t.startsWith("cc-"))
 }
 
-/** The hinted element, only if it still is what the target asks for; never a stale one. */
-function hinted(doc: Document, reg: RefRegistry, t: { text: string; within?: string; role?: string }, text: string, intent: FindIntent, hint: Locator): FindResult | null {
-  const el = resolveLocator(doc, reg, hint)
-  if (!el || !el.isConnected) return null
-  const role = roleOf(el)
-  if (!role || role !== hint.role || !INTERACTIVE_ROLES.has(role) || (t.role && role !== t.role)) return null
-  if (!intentOk(el, role, intent) || scoreElement(el, text) < 70) return null
-  if (t.within !== undefined) {
-    const w = norm(t.within)
-    let inScope = false
-    for (let p = el.parentElement; p && !inScope; p = p.parentElement) inScope = isScope(p) && scopeMatches(p, w)
-    if (!inScope) return null
-  }
-  return found(el, reg.refFor(el), reg, true)
-}
-
 export function find(doc: Document, reg: RefRegistry, target: Target, intent: FindIntent, hint?: Locator): FindResult {
   const ref = (target as { ref?: string }).ref
   if (typeof ref === "string") {
@@ -134,10 +119,6 @@ export function find(doc: Document, reg: RefRegistry, target: Target, intent: Fi
   const text = norm(t.text)
   if (!text) return { kind: "not_found" }
   reg.rescan()
-  if (hint) {
-    const h = hinted(doc, reg, t, text, intent, hint)
-    if (h) return h
-  }
 
   let scopes: Element[] | null = null
   if (t.within !== undefined) {
@@ -173,10 +154,16 @@ export function find(doc: Document, reg: RefRegistry, target: Target, intent: Fi
       candidates: group.map((c) => ({ ref: reg.refFor(c.el), line: lineFor(c.el, reg), score: c.score }))
     }
   }
-  return found(a.el, reg.refFor(a.el), reg)
+  // A hint never bypasses the search: it only counts when the search itself picked that element.
+  let wasHinted = false
+  if (hint) {
+    const he = resolveLocator(doc, reg, hint)
+    wasHinted = he === a.el && roleOf(a.el) === hint.role
+  }
+  return found(a.el, reg.refFor(a.el), reg, wasHinted, true)
 }
 
-function found(el: Element, ref: string, reg: RefRegistry, wasHinted = false): FindResult {
+function found(el: Element, ref: string, reg: RefRegistry, wasHinted = false, text = false): FindResult {
   const role = roleOf(el) ?? "generic"
   const res: Extract<FindResult, { kind: "found" }> = {
     kind: "found",
@@ -184,10 +171,10 @@ function found(el: Element, ref: string, reg: RefRegistry, wasHinted = false): F
     line: elementLine(el, role, reg),
     role,
     name: nameOf(el),
-    locator: describeLocator(el, reg),
     hinted: wasHinted,
   }
   if (isSecretField(el)) res.secret = true
+  else if (text) res.locator = describeLocator(el, reg)
   const within = scopeName(el)
   if (within) res.within = within
   return res

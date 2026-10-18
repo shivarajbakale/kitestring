@@ -37,22 +37,25 @@ describe("cache", () => {
   it("returns a hint without the usage counters and counts the hit", () => {
     cache.remember("k", loc(1))
     expect(cache.getHint("k")).toEqual(loc(1))
-    cache.getHint("k")
+    expect(cache.stats().hits).toBe(0) // fetching a hint is not a use
+    cache.hit("k")
+    cache.hit("k")
     expect(cache.getHint("missing")).toBeUndefined()
     expect(cache.stats()).toEqual({ entries: 1, hits: 2, sites: 1 })
   })
 
   it("overwriting keeps the hit count", () => {
     cache.remember("k", loc(1))
-    cache.getHint("k")
+    cache.hit("k")
     cache.remember("k", loc(2))
+    cache.hit("k")
     expect(cache.getHint("k")).toEqual(loc(2))
     expect(cache.stats().hits).toBe(2)
   })
 
   it("evicts the least recently used entry at 5_001", () => {
     for (let i = 0; i < 5_000; i++) cache.remember(`o\n/\n${i}\n\n`, loc(i))
-    cache.getHint("o\n/\n0\n\n") // 0 is now the most recently used; 1 is the oldest
+    cache.hit("o\n/\n0\n\n") // 0 is now the most recently used; 1 is the oldest
     cache.remember("o\n/\nnew\n\n", loc("new"))
     expect(cache.stats().entries).toBe(5_000)
     expect(cache.getHint("o\n/\n1\n\n")).toBeUndefined()
@@ -64,7 +67,7 @@ describe("cache", () => {
     cache.remember("a\n/\nx\n\n", loc(1))
     await vi.advanceTimersByTimeAsync(2_000)
     cache.remember("a\n/\ny\n\n", loc(2))
-    cache.getHint("a\n/\nx\n\n")
+    cache.hit("a\n/\nx\n\n")
     await vi.advanceTimersByTimeAsync(2_900)
     expect(set).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(200)
@@ -83,6 +86,19 @@ describe("cache", () => {
     await cache.ready()
     expect(cache.getHint("a\n/\nx\n\n")).toEqual(loc("new"))
     expect(cache.getHint("a\n/\nz\n\n")).toEqual(loc("z"))
+  })
+
+  it("a failed load never lets a flush overwrite the stored cache with a partial map", async () => {
+    store["kite.cache"] = [["a\n/\nold\n\n", { ...loc("old"), hits: 0, lastUsed: 1 }]]
+    const get = (chrome as unknown as { storage: { local: { get: ReturnType<typeof vi.fn> } } }).storage.local.get
+    get.mockRejectedValueOnce(new Error("storage busy"))
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    await expect(cache.ready()).rejects.toThrow("storage busy")
+    cache.remember("a\n/\nnew\n\n", loc("new"))
+    await vi.advanceTimersByTimeAsync(5_100)
+    // the flush re-reads the stored cache first, so the old entry survives next to the new one
+    expect(set).toHaveBeenCalledTimes(1)
+    expect((store["kite.cache"] as [string, unknown][]).map(([k]) => k).sort()).toEqual(["a\n/\nnew\n\n", "a\n/\nold\n\n"])
   })
 
   it("clear(site) removes only that origin and persists at once", async () => {

@@ -49,5 +49,5 @@ export function resolveLocator(doc: Document, reg: RefRegistry, loc: Locator): E
     // malformed path: fall through
   }
   const all = twins(doc, loc.role, loc.name, loc.landmarkPath.join("/"))
-  return all[loc.nth] ?? all[0] ?? null
+  return all[loc.nth] ?? null
 }
