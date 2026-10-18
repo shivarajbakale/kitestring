@@ -173,6 +173,11 @@ async function main(): Promise<void> {
 
   const table = render(cells)
   const stops = cells.filter((c) => c.stopped).map((c) => `- ${c.task}, mode ${c.mode}: the replay stopped at ${c.stopped}`)
+  for (const task of TASKS) {
+    const c3 = cells.find((c) => c.task === task.name && c.mode === 3 && !c.stopped)
+    const c4 = cells.find((c) => c.task === task.name && c.mode === 4 && !c.stopped)
+    if (c3 && c4 && c4.wallMs > c3.wallMs) process.stderr.write(`note: ${task.name}: warm cache (${c4.wallMs} ms) was not faster than cold (${c3.wallMs} ms)\n`)
+  }
   process.stdout.write(table + (stops.length ? "\n\n" + stops.join("\n") : "") + "\n")
   if (write) {
     const cpu = cpus()
@@ -197,6 +202,13 @@ async function main(): Promise<void> {
       "- Cached: steps the action cache served (modes 3-4; mode 3 starts cold, so only repeats within a run hit).",
       "- `multi-page-checkout` ends on the review page, one click short of the risky \"Place order\"; the agent makes that click itself.",
       "- Each repetition starts from a fresh page load and a cleared cache, except mode 4, which keeps the cache warmed by one untimed run.",
+      "",
+      "What the numbers show:",
+      "",
+      "- The action cache saves element search, not wall time. The fixed settle wait after each step (about 300 ms) dominates, so a warm",
+      "  cache (mode 4) is within noise of a cold one (mode 3) here. Mode 4 is not guaranteed to be faster.",
+      "- The real gain is the tool-call column. Each tool call is an agent turn (model time, tokens, latency) that this bench does not",
+      "  simulate: 16 calls become 1 on store-listing, 6 become 1 on multi-page-checkout.",
       "",
       "Reproduce: `pnpm build && pnpm bench --write`.",
       "",
