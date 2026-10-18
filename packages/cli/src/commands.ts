@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { Command, CommanderError } from "commander"
@@ -267,8 +267,6 @@ export async function main(argv: string[]): Promise<number> {
       const { checkSkillTarget } = await import("./record/write-skill.js")
       if (!RECORD_NAME_RE.test(o.name)) throw new UsageError(`--name must be a lowercase slug like ada-signup: ${o.name}`)
       const r = (await call("record.start", { name: o.name }, { session: sessionName() })) as { name: string; tab: number; url: string }
-      mkdirSync(kiteHome(), { recursive: true, mode: 0o700 })
-      writeFileSync(recordingFile(), JSON.stringify({ name: o.name }) + "\n", { mode: 0o600 })
       if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(r) + "\n")
       process.stdout.write(`recording ${r.name} in tab ${r.tab} (${r.url}): do the task in Chrome, then run kite record stop\n`)
       try {
@@ -280,29 +278,27 @@ export async function main(argv: string[]): Promise<number> {
   recordCmd
     .command("stop")
     .description("stop recording and write the skill (~/.agents/skills/kite-<name>) and its plan")
-    .option("--force", "replace an existing kite-<name> skill (the old folder is backed up)")
+    .option("--force", "replace an existing kite-<name> skill (the old folder is backed up) and a same-named plan's steps")
     .action(async (o: { force?: boolean }) => {
-      const { checkSkillTarget, writeSkill } = await import("./record/write-skill.js")
+      const { prepareSkill, writeSkill } = await import("./record/write-skill.js")
       const force = !!o.force
-      // Refuse before stopping, so a refusal loses nothing: the recording goes on until stopped with --force.
-      let started: string | undefined
+      const session = { session: sessionName() }
+      // Validate before consuming anything: on a refusal the recording goes on, so --force can still save it.
+      const peek = (await call("record.stop", { peek: true }, session)) as Recording
       try {
-        started = (JSON.parse(readFileSync(recordingFile(), "utf8")) as { name?: string }).name
-      } catch {
-        /* started elsewhere: writeSkill checks below */
+        prepareSkill(homedir(), peek, { force })
+      } catch (e) {
+        throw new UsageError(`${(e as Error).message} (still recording)`)
       }
-      if (started) {
-        try {
-          checkSkillTarget(homedir(), started, force)
-        } catch (e) {
-          throw new UsageError(`${(e as Error).message} (still recording)`)
-        }
-      }
-      const rec = (await call("record.stop", {}, { session: sessionName() })) as Recording
-      rmSync(recordingFile(), { force: true })
+      const rec = (await call("record.stop", {}, session)) as Recording
       const r = writeSkill(homedir(), rec, { force })
+      for (const what of rec.skipped ?? []) {
+        process.stderr.write(`kite: warning: not recorded: ${what} (set it by hand when replaying)\n`)
+      }
       const names = paramsLine(rec)
-      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify({ ...r, steps: rec.steps.length }) + "\n")
+      if (program.opts<Globals>().json) {
+        return void process.stdout.write(JSON.stringify({ ...r, steps: rec.steps.length, skipped: rec.skipped ?? [] }) + "\n")
+      }
       process.stdout.write(
         `saved skill kite-${rec.name}: ${r.skillPath}\nplan ${r.planSlug} (${rec.steps.length} step${rec.steps.length === 1 ? "" : "s"}${names ? `; params: ${names}` : ""})\n`,
       )
@@ -456,9 +452,6 @@ export async function main(argv: string[]): Promise<number> {
   }
   return exitCode
 }
-
-/** `$KITE_HOME/recording.json`: the name of the recording `kite record start` began (no steps, no values). */
-const recordingFile = (): string => join(kiteHome(), "recording.json")
 
 /** Param names of a recording, secrets starred. */
 function paramsLine(rec: Recording): string {

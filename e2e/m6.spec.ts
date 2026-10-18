@@ -248,8 +248,9 @@ test.describe("record a task once, replay it as a skill", () => {
     expect((await kite("fill", "Password", "hunter2-Secret")).code).toBe(0)
     expect((await kite("fill", "One-time code", "918273")).code).toBe(0)
     expect(await entries()).toBe(before)
-    // a plain field is cached, so the count above is a real check
+    // a plain field is cached, so the count above is a real check. One fill can store two keys (the query as typed and the
+    // resolved name + role + scope), so only "more than before" is asserted here.
     expect((await kite("fill", "Username", "ada")).code).toBe(0)
-    expect(await entries()).toBe(before + 1)
+    expect(await entries()).toBeGreaterThan(before)
   })
 })

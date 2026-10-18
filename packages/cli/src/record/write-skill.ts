@@ -4,7 +4,7 @@ import { BATCH_MAX_STEPS, RECORD_NAME_RE, pathPattern, type Plan, type PlanParam
 import { skillBackupPath } from "../init/init.js"
 import { agentsSkillsDir, claudeSkillsDir, linkState } from "../init/skills.js"
 import { kiteHome as defaultKiteHome } from "../paths.js"
-import { savePlan } from "../memory/store.js"
+import { listPlans, savePlan } from "../memory/store.js"
 
 const PARAM = /^\{\{[a-z0-9_]+\}\}$/
 const PLACEHOLDER = /\{\{([a-z0-9_]+)\}\}/g
@@ -99,6 +99,8 @@ function skillMarkdown(rec: Recording, plan: Plan, planSlug: string): string {
   const start = plan.origin + plan.pathPattern
   const description = `Replays ${summary(rec.steps)} on ${u.origin} with Kitestring. Use when the user asks to ${words} on ${u.host}.`
   const args = plan.params.map((p) => `${p.secret ? "--secret" : "--param"} ${p.name}=…`).join(" ")
+  /** Params that are upload files (replay takes absolute paths only). */
+  const uploads = [...new Set(rec.steps.flatMap((s) => (s.action === "upload" ? s.files.map((f) => f.slice(2, -2)) : [])))]
   const roleOnly = rec.steps.some((s) => "target" in s && typeof s.target === "object" && !("text" in s.target))
   const startLine = plan.pathPattern.includes("*")
     ? `Start on a page matching ${start} (each \`*\` is an id).`
@@ -136,6 +138,7 @@ function skillMarkdown(rec: Recording, plan: Plan, planSlug: string): string {
           ...plan.params.map((p) => `| \`${p.name}\` | ${p.secret ? "yes" : "no"} |`),
           "",
           "Ask the user for any value you do not know. Pass a secret with `--secret`, never `--param`, and never repeat it back.",
+          ...uploads.map((n) => `\`${n}\` is a file to upload: give its absolute path (e.g. \`/Users/me/icon.png\`).`),
         ]
       : ["None."]),
     "",
@@ -159,13 +162,13 @@ function skillMarkdown(rec: Recording, plan: Plan, planSlug: string): string {
 }
 
 /**
- * Turns a recording into a skill and a plan:
- * `<home>/.agents/skills/kite-<name>/SKILL.md`, a `<home>/.claude/skills/kite-<name>` symlink to that folder (as `kite init`
- * links its skills), and the plan in `$KITE_HOME/memory` (via `savePlan`). An existing folder (or a foreign file at the
- * link) is refused unless `force`, which first moves it to `<home>/.agents/kite-backups/skills/`. A recording with a literal
- * value anywhere a value goes is refused. Nothing is written when it refuses.
+ * Validates a recording for `writeSkill` and builds its plan, writing nothing. Throws when:
+ * - the name is not a slug, the URL does not parse, or nothing was recorded;
+ * - a value slot holds anything but a `{{param}}` (defense in depth: the page parameterizes);
+ * - without `force`: the skill folder (or a foreign file at the Claude link) exists, or a plan with the same intent is
+ *   already stored for the origin (saving would merge into it).
  */
-export function writeSkill(home: string, rec: Recording, opts: WriteSkillOptions): { skillPath: string; planSlug: string } {
+export function prepareSkill(home: string, rec: Recording, opts: WriteSkillOptions): Plan {
   checkSkillTarget(home, rec.name, opts.force)
   let u: URL
   try {
@@ -175,19 +178,35 @@ export function writeSkill(home: string, rec: Recording, opts: WriteSkillOptions
   }
   if (!rec.steps.length) throw new Error("nothing was recorded")
   assertNoValues(rec.steps)
-
-  const now = opts.now ?? new Date()
-  const plan: Plan = {
+  const intent = rec.name.replace(/-/g, " ")
+  const same = listPlans(opts.kiteHome ?? defaultKiteHome(), u.origin).find((s) => s.plan.intent === intent)
+  if (same && !opts.force) {
+    throw new Error(`plan ${same.id} ("${intent}") already exists: pass --force to replace its steps, or run kite memory forget ${same.id}`)
+  }
+  return {
     version: 1,
-    intent: rec.name.replace(/-/g, " "),
+    intent,
     origin: u.origin,
     pathPattern: pathPattern(rec.url),
     params: paramsOf(rec.steps, rec.secrets),
     batches: chunk(rec.steps, BATCH_MAX_STEPS),
-    createdAt: now.toISOString(),
+    createdAt: (opts.now ?? new Date()).toISOString(),
     runs: 0,
     lastOk: null,
   }
+}
+
+/**
+ * Turns a recording into a skill and a plan:
+ * `<home>/.agents/skills/kite-<name>/SKILL.md`, a `<home>/.claude/skills/kite-<name>` symlink to that folder (as `kite init`
+ * links its skills), and the plan in `$KITE_HOME/memory`. Order: validate everything (`prepareSkill`; nothing written on
+ * refusal), save the plan, then move an existing folder (or a foreign file at the link) to
+ * `<home>/.agents/kite-backups/skills/` (only with `force`) and write the new one.
+ */
+export function writeSkill(home: string, rec: Recording, opts: WriteSkillOptions): { skillPath: string; planSlug: string } {
+  const plan = prepareSkill(home, rec, opts)
+  const now = opts.now ?? new Date()
+  const planSlug = basename(savePlan(opts.kiteHome ?? defaultKiteHome(), plan), ".json")
 
   const dir = skillDirFor(home, rec.name)
   const link = join(claudeSkillsDir(home), `kite-${rec.name}`)
@@ -196,7 +215,6 @@ export function writeSkill(home: string, rec: Recording, opts: WriteSkillOptions
   if (state === "not-symlink") moveAside(link, skillBackupPath(home, `kite-${rec.name}.claude-link`, now))
   else if (state === "other-symlink") unlinkSync(link)
 
-  const planSlug = basename(savePlan(opts.kiteHome ?? defaultKiteHome(), plan), ".json")
   mkdirSync(dir, { recursive: true })
   const skillPath = join(dir, "SKILL.md")
   writeFileSync(skillPath, skillMarkdown(rec, plan, planSlug))

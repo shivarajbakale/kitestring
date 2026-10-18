@@ -9,11 +9,14 @@ export interface Recording {
   steps: PlanStep[]
   /** Names of params whose field was a password / cc-* / one-time-code. */
   secrets: string[]
+  /** Fields the person changed that are not recorded (e.g. `date input 'Birthday'`): names only, never values. */
+  skipped: string[]
 }
 
 /**
- * A typed value remembered across pages without its text: a 53-bit hash of the normalized value and its length.
- * Never made for a secret field. Lives in the extension's memory only (never on disk, never sent to the CLI).
+ * A typed value remembered across pages without its text: a 53-bit hash of the recording's salt + the normalized value,
+ * and the value's length. Never made for a secret field. Lives in the extension's memory only (never on disk, never sent
+ * to the CLI) and is dropped as soon as the recording stops.
  */
 export interface RecordEcho {
   h: number
@@ -26,11 +29,16 @@ export interface RecorderState {
   /** Param names already allocated (new ones are deduped with `_2`, `_3`...). */
   used: string[]
   echoes: RecordEcho[]
+  /** Random per recording: the echo hashes mean nothing outside it. */
+  salt: string
 }
 
 /** One recorded human action, sent from the page to the background. */
 export interface RecordedEvent {
-  step: PlanStep
+  /** Null when the change could not be recorded (see `skipped`). */
+  step: PlanStep | null
+  /** A field changed but not recorded, by kind and name (e.g. `date input 'Birthday'`); never its value. */
+  skipped?: string
   /** Params this step allocated. */
   params: PlanParam[]
   /** Echoes of the non-secret values this step typed (for later pages). */
@@ -62,14 +70,14 @@ function hash53(s: string): number {
   return 4294967296 * (2097151 & h2) + (h1 >>> 0)
 }
 
-/** The echo of `value` for `param`, or undefined when the value is too short to match. */
-export function echoEntry(value: string, param: string): RecordEcho | undefined {
+/** The echo of `value` for `param` under `salt`, or undefined when the value is too short to match. */
+export function echoEntry(value: string, param: string, salt: string): RecordEcho | undefined {
   const v = normEcho(value)
-  return v.length >= MIN_ECHO ? { h: hash53(v), n: v.length, param } : undefined
+  return v.length >= MIN_ECHO ? { h: hash53(salt + v), n: v.length, param } : undefined
 }
 
-/** The longest echo whose value occurs in `text` (normalized), else undefined. */
-export function findEcho(text: string, echoes: readonly RecordEcho[]): RecordEcho | undefined {
+/** The longest echo (made with `salt`) whose value occurs in `text` (normalized), else undefined. */
+export function findEcho(text: string, echoes: readonly RecordEcho[], salt: string): RecordEcho | undefined {
   if (!echoes.length) return undefined
   const t = normEcho(text).slice(0, ECHO_SCAN_MAX)
   const byLen = new Map<number, RecordEcho[]>()
@@ -77,7 +85,7 @@ export function findEcho(text: string, echoes: readonly RecordEcho[]): RecordEch
   for (const n of [...byLen.keys()].sort((a, b) => b - a)) {
     const group = byLen.get(n)!
     for (let i = 0; i + n <= t.length; i++) {
-      const h = hash53(t.slice(i, i + n))
+      const h = hash53(salt + t.slice(i, i + n))
       const e = group.find((g) => g.h === h)
       if (e) return e
     }

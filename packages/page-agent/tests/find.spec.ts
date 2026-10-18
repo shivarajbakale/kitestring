@@ -143,3 +143,13 @@ test("hasText is a case-folded substring of the visible text", async ({ fixture 
   })
   expect(r).toEqual([true, true, false])
 })
+
+test("a number input (spinbutton) is a fill target", async ({ fixture }) => {
+  const page = await fixture("find-number.html")
+  const r = await page.evaluate(() => {
+    const a = (window as unknown as { __kiteAgent: Agent }).__kiteAgent
+    const f = a.find({ text: "Quantity" }, "fill")
+    return { kind: f.kind, role: (f as { role?: string }).role, id: f.kind === "found" ? a.resolve(f.ref)?.id : null }
+  })
+  expect(r).toEqual({ kind: "found", role: "spinbutton", id: "q" })
+})

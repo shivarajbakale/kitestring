@@ -26,6 +26,7 @@ const REC: Recording = {
     { action: "click", target: { text: "Submit", role: "button", within: "Basic form" } },
   ],
   secrets: [],
+  skipped: [],
 }
 
 const LOGIN: Recording = {
@@ -37,6 +38,7 @@ const LOGIN: Recording = {
     { action: "click", target: { text: "Sign in", role: "button" }, expect: { url: "/home" } },
   ],
   secrets: ["password"],
+  skipped: [],
 }
 
 const skillDir = (name: string) => join(home, ".agents", "skills", `kite-${name}`)
@@ -118,6 +120,37 @@ describe("writeSkill", () => {
     expect(existsSync(skillDir("ada-signup"))).toBe(false)
   })
 
+  it("refuses to merge into a stored plan with the same intent unless forced, leaving everything as it was", () => {
+    writeSkill(home, REC, { force: false, kiteHome: kh })
+    rmSync(skillDir("ada-signup"), { recursive: true })
+    rmSync(join(home, ".claude", "skills", "kite-ada-signup"))
+    expect(() => writeSkill(home, REC, { force: false, kiteHome: kh })).toThrow(
+      /plan 127-0-0-1-4173\/ada-signup \("ada signup"\) already exists: pass --force .*kite memory forget/,
+    )
+    expect(existsSync(skillDir("ada-signup"))).toBe(false)
+    writeSkill(home, REC, { force: true, kiteHome: kh })
+    expect(listPlans(kh)).toHaveLength(1)
+  })
+
+  it("saves the plan before touching the old skill: a failed save leaves the old folder in place", () => {
+    writeSkill(home, REC, { force: false, kiteHome: kh })
+    writeFileSync(join(skillDir("ada-signup"), "notes.txt"), "mine")
+    const blocked = join(home, "not-a-dir")
+    writeFileSync(blocked, "x") // memory cannot be created under a file
+    expect(() => writeSkill(home, REC, { force: true, kiteHome: blocked })).toThrow()
+    expect(readFileSync(join(skillDir("ada-signup"), "notes.txt"), "utf8")).toBe("mine")
+    expect(existsSync(join(home, ".agents", "kite-backups"))).toBe(false)
+  })
+
+  it("tells the agent an upload param is an absolute path", () => {
+    const up: Recording = {
+      ...REC,
+      steps: [{ action: "upload", target: { text: "Package", role: "button" }, files: ["{{package}}"] }],
+    }
+    const md = readFileSync(writeSkill(home, up, { force: false, kiteHome: kh }).skillPath, "utf8")
+    expect(md).toContain("`package` is a file to upload: give its absolute path")
+  })
+
   it("rejects a name that is not a slug", () => {
     expect(() => writeSkill(home, { ...REC, name: "../x" }, { force: false, kiteHome: kh })).toThrow(/name/)
   })
@@ -169,13 +202,26 @@ describe("kite record", () => {
     expect(received[0]).toMatchObject({ method: "record.start", params: { name: "ada-signup" } })
     expect(s.out).toContain("kite record stop")
 
-    answers.push(REC)
+    answers.push(REC, REC) // the peek, then the stop
     const t = await kite(["record", "stop"])
     expect(t.code, t.err).toBe(0)
-    expect(received[1]).toMatchObject({ method: "record.stop" })
+    expect(received.slice(1).map((m) => m.params)).toEqual([{ peek: true }, {}])
     expect(t.out).toContain("kite-ada-signup")
     expect(existsSync(join(skillDir("ada-signup"), "SKILL.md"))).toBe(true)
     expect(listPlans(kh).map((p) => p.id)).toEqual(["127-0-0-1-4173/ada-signup"])
+  })
+
+  it("stop warns about each field it could not record, by name only", async () => {
+    mkdirSync(kh, { recursive: true })
+    await startFake()
+    const rec = { ...REC, skipped: ["date input 'Birthday'", "color input 'Theme'"] }
+    answers.push(rec, rec)
+    const t = await kite(["record", "stop"])
+    expect(t.code, t.err).toBe(0)
+    expect(t.err).toBe(
+      "kite: warning: not recorded: date input 'Birthday' (set it by hand when replaying)\n" +
+        "kite: warning: not recorded: color input 'Theme' (set it by hand when replaying)\n",
+    )
   })
 
   it("start refuses a name that is not a slug before calling the browser", async () => {
@@ -192,12 +238,13 @@ describe("kite record", () => {
     await startFake()
     answers.push({ name: "ada-signup", tab: 7, url: REC.url })
     expect((await kite(["record", "start", "--name", "ada-signup"])).code).toBe(0)
+    answers.push(REC)
     const r = await kite(["record", "stop"])
     expect(r.code).toBe(2)
-    expect(r.err).toMatch(/--force/)
-    // the recording was not stopped: nothing is lost
-    expect(received.map((m) => m.method)).toEqual(["record.start"])
-    answers.push(REC)
+    expect(r.err).toMatch(/--force.*still recording/)
+    // only peeked: the recording was not stopped, nothing is lost
+    expect(received.map((m) => [m.method, m.params])).toEqual([["record.start", { name: "ada-signup" }], ["record.stop", { peek: true }]])
+    answers.push(REC, REC)
     const f = await kite(["record", "stop", "--force"])
     expect(f.code, f.err).toBe(0)
     expect(readdirSync(join(home, ".agents", "kite-backups", "skills"))).toHaveLength(1)

@@ -24,8 +24,10 @@ const CLICK_ROLES = new Set([
 const CHOICE_ROLES = new Set(["option", "menuitemradio", "treeitem", "gridcell"])
 const CHOICE_BOX = "[role=listbox],[role=menu],[role=menubar],[role=tree],[role=grid],[role=treegrid],[role=combobox]"
 const TEXT_TYPES = new Set(["text", "email", "search", "tel", "url", "password", "number"])
-/** A submit this soon after a recorded click or Enter was caused by it (and is not recorded again). */
-const SUBMIT_AFTER_ACTION_MS = 1_000
+/** Inputs kite cannot set by typing: a change to one is reported by name in `skipped`, never recorded. */
+const UNRECORDED_TYPES = new Set(["date", "time", "datetime-local", "month", "week", "color", "range"])
+/** The submit button's implicit click this soon after a recorded Enter was caused by it (and is not recorded again). */
+const IMPLICIT_CLICK_MS = 1_000
 
 export interface Recorder {
   /** New state from the background (param names in use, echoes of earlier pages' values). */
@@ -45,26 +47,28 @@ const isSubmitOf = (el: Element, form: HTMLFormElement | null): boolean =>
 /**
  * Records the human's actions in this page as plan steps, parameterized here so that no value leaves the page:
  *
- * - click on an interactive role, a text field committed (change: blur or Enter), a select change, a file chosen, Enter in
- *   a text field, and a form submitted with no click or Enter before it (as a click on its submit button);
+ * - click on an interactive role, a text field committed (change: blur or Enter), a select change, a file chosen, and Enter
+ *   in a text field; a form submit is recorded as the click or Enter that caused it, and any other submit (a page that
+ *   submits itself) is dropped; a change to a date / time / color / range input is reported by kind and name only;
  * - only trusted events (a person, not page script);
  * - targets are `{text: name, role, within?}` from `nameOf` / `roleOf` / the nearest named scope;
  * - every fill/select value and upload file is a `{{param}}` named from its field (`paramName`, deduped with `_2`); a
- *   password / cc-* / one-time-code field's param is secret, and its value is not even hashed;
+ *   password / cc-* / one-time-code field's param is secret, and its value is not even hashed; a select's value is its
+ *   visible option text (never the hidden `value`);
  * - the no-value rules of `buildPlan`: a click target or scope whose text contains a typed value (this page's, or an
  *   earlier page's by `RecordEcho` hash) becomes that value's `{{param}}`; a click on an option-like role becomes a new
- *   `{{param}}`; a field whose name contains a value is stored by role only;
+ *   `{{param}}` and its text is remembered like a typed value; a field whose name contains a value is stored by role only;
  * - each event carries the params it allocated and hashed echoes of its non-secret values (for later pages).
  */
 export function startRecorder(win: Window, state: RecorderState, emit: (e: RecordedEvent) => void): Recorder {
   const doc = win.document
   const used = new Set(state.used)
   let remote: RecordEcho[] = [...state.echoes]
+  let salt = state.salt
   /** This page's values, secrets included, in comparison form. Never sent anywhere. */
   const local: { norm: string; param: string }[] = []
   /** The last value recorded per field, so a blur after Enter does not record it twice. Never sent. */
   const committed = new WeakMap<Element, string>()
-  let lastActAt = 0
   /** A click that may have opened a file chooser: it becomes the target of the upload that follows. */
   let opener: { el: Element; input: HTMLInputElement } | null = null
   /** The control a label click is about to click again. */
@@ -76,7 +80,7 @@ export function startRecorder(win: Window, state: RecorderState, emit: (e: Recor
     const n = normEcho(text)
     let best: { norm: string; param: string } | undefined
     for (const e of local) if (n.includes(e.norm) && (!best || e.norm.length > best.norm.length)) best = e
-    const far = findEcho(text, remote)
+    const far = findEcho(text, remote, salt)
     return far && (!best || far.n > best.norm.length) ? far : best
   }
   const echoed = (text: string): boolean => !!hit(text)
@@ -91,6 +95,14 @@ export function startRecorder(win: Window, state: RecorderState, emit: (e: Recor
   }
 
   const send = (step: PlanStep, params: PlanParam[] = [], echoes: RecordEcho[] = []): void => emit({ step, params, echoes })
+  /** Remembers a value (in-page) under `param`; its salted hash for later pages unless it is secret. */
+  const remember = (value: string, param: string, secret: boolean, into: RecordEcho[]): void => {
+    const norm = normEcho(value)
+    if (norm.length < MIN_ECHO) return
+    local.push({ norm, param })
+    const e = secret ? undefined : echoEntry(value, param, salt)
+    if (e) into.push(e)
+  }
 
   /** A field's target: by name, or by role only when its name contains a value (its own included). */
   const fieldTarget = (el: Element): { target: PlanTarget; label: string } => {
@@ -116,7 +128,7 @@ export function startRecorder(win: Window, state: RecorderState, emit: (e: Recor
     const params: PlanParam[] = []
     const name = newParam(label, secret, params)
     for (const m of mine) m.param = name
-    const echoes = secret ? [] : values.map((v) => echoEntry(v, name)).filter((e): e is RecordEcho => !!e)
+    const echoes = secret ? [] : values.map((v) => echoEntry(v, name, salt)).filter((e): e is RecordEcho => !!e)
     send(make(target, name), params, echoes)
   }
 
@@ -131,7 +143,8 @@ export function startRecorder(win: Window, state: RecorderState, emit: (e: Recor
     const key = opt ? `${opt.index}` : ""
     if (committed.get(el) === key) return
     committed.set(el, key)
-    const values = opt ? [opt.label || opt.text, opt.value] : []
+    // the visible text only: a hidden code ("dev", "new") would match unrelated labels later
+    const values = opt ? [opt.label || opt.text] : []
     recordField(el, el, values, (target, p) => ({ action: "select", target, value: `{{${p}}}` }) as PlanStep)
   }
 
@@ -144,7 +157,7 @@ export function startRecorder(win: Window, state: RecorderState, emit: (e: Recor
   }
 
   /** A click's target with value-echoing text and option picks turned into params; null for an unnamed element. */
-  const clickTarget = (el: Element, params: PlanParam[]): PlanTarget | null => {
+  const clickTarget = (el: Element, params: PlanParam[], echoes: RecordEcho[]): PlanTarget | null => {
     const name = nameOf(el)
     const role = roleOf(el)
     if (!name || !role) return null
@@ -156,7 +169,9 @@ export function startRecorder(win: Window, state: RecorderState, emit: (e: Recor
       const box = el.parentElement?.closest(CHOICE_BOX)
       const boxName = box ? nameOf(box) : ""
       const label = boxName && !echoed(boxName) ? boxName : within && !echoed(within) ? within : role
-      text = `{{${newParam(label, false, params)}}}`
+      const p = newParam(label, false, params)
+      text = `{{${p}}}`
+      remember(name, p, false, echoes) // the picked text is a value: never stored where it shows up later
     }
     const w = within ? hit(within) : undefined
     return { text, role, ...(within ? { within: w ? `{{${w.param}}}` : within } : {}) }
@@ -164,10 +179,10 @@ export function startRecorder(win: Window, state: RecorderState, emit: (e: Recor
 
   const recordClick = (el: Element): void => {
     const params: PlanParam[] = []
-    const target = clickTarget(el, params)
+    const echoes: RecordEcho[] = []
+    const target = clickTarget(el, params, echoes)
     if (!target) return
-    lastActAt = Date.now()
-    send({ action: "click", target } as PlanStep, params)
+    send({ action: "click", target } as PlanStep, params, echoes)
   }
 
   /** A held chooser-opening click that turned out not to open one (another event came first): record it as a click. */
@@ -210,7 +225,7 @@ export function startRecorder(win: Window, state: RecorderState, emit: (e: Recor
       }
     }
     if (!el) return
-    if (e.detail === 0 && enterIn && Date.now() - enterIn.at < SUBMIT_AFTER_ACTION_MS && isSubmitOf(el, enterIn.form)) {
+    if (e.detail === 0 && enterIn && Date.now() - enterIn.at < IMPLICIT_CLICK_MS && isSubmitOf(el, enterIn.form)) {
       enterIn = null
       return
     }
@@ -230,6 +245,10 @@ export function startRecorder(win: Window, state: RecorderState, emit: (e: Recor
     flushOpener()
     if (isTextField(t)) commitText(t)
     else if (t instanceof HTMLSelectElement) commitSelect(t)
+    else if (t instanceof HTMLInputElement && UNRECORDED_TYPES.has(t.type)) {
+      const name = nameOf(t)
+      emit({ step: null, params: [], echoes: [], skipped: `${t.type} input ${name && !echoed(name) ? `'${name}'` : "(unnamed)"}` })
+    }
   }
 
   const onCancel = (e: Event): void => {
@@ -242,19 +261,8 @@ export function startRecorder(win: Window, state: RecorderState, emit: (e: Recor
     if (!(t instanceof HTMLInputElement) || !isTextField(t)) return
     flushOpener()
     commitText(t)
-    lastActAt = Date.now()
-    enterIn = { form: t.form, at: lastActAt }
+    enterIn = { form: t.form, at: Date.now() }
     send({ action: "press", key: "Enter" })
-  }
-
-  const onSubmit = (e: SubmitEvent): void => {
-    if (!e.isTrusted || !(e.target instanceof HTMLFormElement)) return
-    if (Date.now() - lastActAt < SUBMIT_AFTER_ACTION_MS) return // the click or Enter that submitted it is recorded
-    // a submit event is trusted even when page script submitted the form: only one following a person's gesture counts
-    if (!(win.navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation?.isActive) return
-    flushOpener()
-    const button = e.submitter ?? e.target.querySelector("button[type=submit], button:not([type]), input[type=submit]")
-    if (button) recordClick(button)
   }
 
   const onPageHide = (): void => flushOpener()
@@ -264,7 +272,6 @@ export function startRecorder(win: Window, state: RecorderState, emit: (e: Recor
     ["change", onChange],
     ["cancel", onCancel],
     ["keydown", onKeyDown],
-    ["submit", onSubmit],
   ]
   for (const [type, fn] of listeners) doc.addEventListener(type, fn as EventListener, true)
   win.addEventListener("pagehide", onPageHide)
@@ -273,6 +280,7 @@ export function startRecorder(win: Window, state: RecorderState, emit: (e: Recor
     update(next) {
       for (const n of next.used) used.add(n)
       remote = [...next.echoes]
+      salt = next.salt
     },
     stop() {
       for (const [type, fn] of listeners) doc.removeEventListener(type, fn as EventListener, true)

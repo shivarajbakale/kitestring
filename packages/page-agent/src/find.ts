@@ -17,7 +17,7 @@ export type FindResult =
   | { kind: "ambiguous"; candidates: Candidate[] }
   | { kind: "not_found" }
 
-const FILL_ROLES = new Set(["textbox", "searchbox", "combobox"])
+const FILL_ROLES = new Set(["textbox", "searchbox", "combobox", "spinbutton"])
 const SELECT_ROLES = new Set(["combobox", "listbox"])
 const SCOPE_ROLES = new Set(["section", "region", "form", "fieldset", "dialog", "alertdialog"])
 const SCOPE_TAGS = new Set(["SECTION", "FORM", "FIELDSET", "DIALOG"])

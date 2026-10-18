@@ -10,7 +10,7 @@ const LOGIN = join(here, "..", "..", "..", "apps", "torture", "pages", "login.ht
 const RECORD = join(here, "fixtures", "record.html")
 
 interface Ev {
-  step: Record<string, unknown> & { action: string; target?: Record<string, string>; value?: string; files?: string[] }
+  step: (Record<string, unknown> & { action: string; target?: Record<string, string>; value?: string; files?: string[] }) | null
   params: { name: string; secret: boolean }[]
   echoes: { h: number; n: number; param: string }[]
 }
@@ -20,7 +20,7 @@ type Win = {
   __startRecorder(win: Window, state: unknown, emit: (e: Ev) => void): { stop(): void; update(s: unknown): void }
 }
 
-async function record(page: Page, file: string, state = { used: [] as string[], echoes: [] as unknown[] }): Promise<void> {
+async function record(page: Page, file: string, state = { used: [] as string[], echoes: [] as unknown[], salt: "test-salt" }): Promise<void> {
   await loadPage(page, file)
   await page.evaluate((st) => {
     const w = window as unknown as Win
@@ -29,7 +29,7 @@ async function record(page: Page, file: string, state = { used: [] as string[], 
   }, state)
 }
 const events = (page: Page): Promise<Ev[]> => page.evaluate(() => (window as unknown as Win).__events)
-const steps = async (page: Page) => (await events(page)).map((e) => e.step)
+const steps = async (page: Page) => (await events(page)).map((e) => e.step!)
 
 test.describe("recorder on the login page (Review Focus 4)", () => {
   test("password and one-time-code values never leave the page; every value is a param", async ({ page }) => {
@@ -68,6 +68,15 @@ test.describe("recorder on the login page (Review Focus 4)", () => {
     ])
   })
 
+  test("a submit with no recorded click or Enter just before it (the page submitting itself) is dropped", async ({ page }) => {
+    await record(page, LOGIN)
+    await page.getByLabel("Username").fill("ada")
+    await page.keyboard.press("Tab")
+    await page.evaluate(() => (document.getElementById("f") as HTMLFormElement).requestSubmit())
+    expect(await page.evaluate(() => (window as unknown as { __result: string }).__result)).toBe("signed-in:ada:missing")
+    expect((await steps(page)).map((s) => s.action)).toEqual(["fill"])
+  })
+
   test("stop removes every listener", async ({ page }) => {
     await record(page, LOGIN)
     await page.evaluate(() => (window as unknown as Win).__rec.stop())
@@ -101,6 +110,33 @@ test.describe("recorder parameters", () => {
       { action: "select", target: { text: "Category", role: "combobox", within: "Listing" }, value: "{{category}}" },
     ])
     expect(JSON.stringify(evs)).not.toMatch(/fun stuff|"fun"/i)
+    // only the visible option text is remembered, never the hidden value ("fun" would match unrelated labels)
+    expect(evs[0]!.echoes).toHaveLength(1)
+    expect(evs[0]!.echoes[0]!.n).toBe("fun stuff".length)
+  })
+
+  test("a picked option's text is remembered: clicking it again later stores its param, not the text", async ({ page }) => {
+    await record(page, RECORD)
+    await page.getByRole("option", { name: "French" }).click()
+    await page.getByRole("button", { name: "Remove French" }).click()
+    const evs = await events(page)
+    expect(evs.map((e) => e.step)).toEqual([
+      { action: "click", target: { text: "{{language}}", role: "option", within: "Listing" } },
+      { action: "click", target: { text: "{{language}}", role: "button", within: "Listing" } },
+    ])
+    expect(evs[0]!.echoes.map((e) => e.param)).toEqual(["language"])
+    expect(JSON.stringify(evs)).not.toMatch(/french/i)
+  })
+
+  test("a date input is not recorded; it is reported by kind and name, never by value", async ({ page }) => {
+    await record(page, RECORD)
+    await page.getByLabel("Birthday").focus()
+    await page.keyboard.type("01022026")
+    await page.getByLabel("Birthday").blur()
+    expect(await page.$eval("#d", (d) => (d as HTMLInputElement).value)).not.toBe("")
+    const evs = await events(page)
+    expect(evs.length).toBeGreaterThan(0)
+    for (const e of evs) expect(e).toEqual({ step: null, params: [], echoes: [], skipped: "date input 'Birthday'" })
   })
 
   test("clicks on text that echoes a typed value, and option clicks, are params", async ({ page }) => {
@@ -138,7 +174,7 @@ test.describe("recorder parameters", () => {
     const first = (await events(page))[0]!.echoes
     expect(first).toHaveLength(1)
     // page 2 (a fresh document): what the background hands a new page is the param names in use and those echoes
-    await record(page, RECORD, { used: ["store_title"], echoes: first })
+    await record(page, RECORD, { used: ["store_title"], echoes: first, salt: "test-salt" })
     await page.getByRole("button", { name: "Preview Kite Pro" }).click()
     await page.getByLabel("Store title").fill("other text")
     await page.getByRole("button", { name: "Unrelated" }).click()

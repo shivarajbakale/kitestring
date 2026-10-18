@@ -237,7 +237,7 @@ const handlers: Partial<Record<Method, Handler>> = {
     return recorder.startRecording(sessions.activeTab(s), name)
   },
 
-  "record.stop": async () => recorder.stopRecording(),
+  "record.stop": async (params) => (params.peek === true ? recorder.peekRecording() : recorder.stopRecording()),
 
   "act.scroll": async (params, s) => {
     const direction = params.direction
@@ -409,10 +409,10 @@ export async function route(raw: unknown): Promise<RpcResponse> {
     // Before any session is created: a paused request must leave no trace but its activity entry.
     if (!WHILE_PAUSED.has(req.method)) control.assertNotPaused()
     if (actsInTab(req.method)) {
+      // Loads the recording state for the tab lock's check; refuse early for the tab the call names or the active one.
       await recorder.ready()
-      if (recorder.isRecording(tabBefore)) {
-        throw new RpcError(ErrorCode.BAD_REQUEST, `tab ${tabBefore} is being recorded: agents wait until kite record stop`)
-      }
+      const target = req.method === "act.batch" && typeof req.params.tab === "number" ? req.params.tab : tabBefore
+      if (target !== null) recorder.assertNotRecorded(target)
     }
     const s = CREATES_SESSION.has(req.method)
       ? sessions.getOrCreateSession(req.session)

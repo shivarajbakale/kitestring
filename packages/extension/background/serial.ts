@@ -1,3 +1,5 @@
+import { assertNotRecorded } from "./recorder"
+
 /**
  * Per-tab FIFO lock: actions on one tab never interleave their input. Holders always run to the
  * end; queued waiters can leave early (their own cap expired, or the user paused).
@@ -60,6 +62,8 @@ export interface TabLock {
 /**
  * Runs `fn` once every earlier caller for `tabId` has finished. `signal` abandons the wait (not a
  * running `fn`). `fn` gets a handle to release early, e.g. when it is past its cap but stuck.
+ * Every agent action takes this lock, so it is where a tab the user is recording is refused
+ * (`TabRecordedError`, whichever way the action reached the tab).
  */
 export async function withTabLock<T>(
   tabId: number,
@@ -76,6 +80,7 @@ export async function withTabLock<T>(
     },
   }
   try {
+    assertNotRecorded(tabId)
     return await fn(lock)
   } finally {
     lock.release()

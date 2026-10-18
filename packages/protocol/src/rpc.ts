@@ -26,7 +26,7 @@ export const METHODS = [
   "cache.clear",
   /** `{name}`: record the human's actions in the session's active tab -> `{name, tab, url}`. */
   "record.start",
-  /** Ends the recording -> `Recording` (`{name, url, steps, secrets}`; no values). */
+  /** Ends the recording -> `Recording` (`{name, url, steps, secrets, skipped}`; no values). `{peek: true}` returns it without ending it. */
   "record.stop",
 ] as const
 
