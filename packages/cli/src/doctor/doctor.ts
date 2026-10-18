@@ -3,7 +3,7 @@ import { join } from "node:path"
 import { EXTENSION_ID, HOST_NAME, LEGACY_HOST_NAMES } from "@kitestring/protocol"
 import { KiteError, call } from "../client/rpc-client.js"
 import { tilde } from "../paths.js"
-import { hostsDir } from "../install/host-manifest.js"
+import { allowedOrigins, hostsDir } from "../install/host-manifest.js"
 import { SERVER_NAME, claudeGetArgv, type AgentId } from "../init/agents.js"
 import { detect } from "../init/detect.js"
 import { EXTENSION_BUILD, defaultExec, findOnPath, parseClaudeGet, type ExecResult } from "../init/init.js"
@@ -65,7 +65,7 @@ function checkManifest(o: DoctorOptions, dir: string, wrapper: string): Check {
     if (m.name !== HOST_NAME) problems.push(`name is ${JSON.stringify(m.name)}, expected ${HOST_NAME}`)
     if (m.path !== wrapper) problems.push(`path is ${JSON.stringify(m.path)}, expected ${wrapper}`)
     const origins = JSON.stringify(m.allowed_origins)
-    if (origins !== JSON.stringify([`chrome-extension://${EXTENSION_ID}/`])) problems.push(`allowed_origins is ${origins}, expected the Kitestring extension ${EXTENSION_ID}`)
+    if (origins !== JSON.stringify(allowedOrigins(EXTENSION_ID))) problems.push(`allowed_origins is ${origins}, expected the Kitestring extension ${EXTENSION_ID}`)
   } catch (e) {
     problems.push(`unreadable: ${msg(e)}`)
   }

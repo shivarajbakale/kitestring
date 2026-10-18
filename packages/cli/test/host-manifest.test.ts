@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, expect, it } from "vitest"
+import { KITE_STORE_EXTENSION_ID } from "@kitestring/protocol"
 import { installHost } from "../src/install/host-manifest.js"
 
 let dir: string
@@ -38,4 +39,22 @@ it("removes legacy com.bx.bridge manifest and reports it", () => {
   expect(existsSync(legacy)).toBe(false)
   expect(existsSync(r.manifestPath)).toBe(true)
   expect(installHost({ browser: "chrome", userDataDir: join(dir, "ud"), extensionId: "abc", kiteHome: join(dir, "home") }).removedLegacy).toEqual([])
+})
+
+it("allows the Web Store extension id too when one is set", () => {
+  const r = installHost({ browser: "chrome", userDataDir: join(dir, "ud"), extensionId: "abc", storeExtensionId: "storeid", kiteHome: join(dir, "home") })
+  expect(JSON.parse(readFileSync(r.manifestPath, "utf8")).allowed_origins).toEqual(["chrome-extension://abc/", "chrome-extension://storeid/"])
+})
+
+it("allows only the dev id when the store id is empty, and de-duplicates", () => {
+  const a = installHost({ browser: "chrome", userDataDir: join(dir, "ud"), extensionId: "abc", storeExtensionId: "", kiteHome: join(dir, "home") })
+  expect(JSON.parse(readFileSync(a.manifestPath, "utf8")).allowed_origins).toEqual(["chrome-extension://abc/"])
+  const b = installHost({ browser: "chrome", userDataDir: join(dir, "ud"), extensionId: "abc", storeExtensionId: "abc", kiteHome: join(dir, "home") })
+  expect(JSON.parse(readFileSync(b.manifestPath, "utf8")).allowed_origins).toEqual(["chrome-extension://abc/"])
+})
+
+it("defaults to the shipped store id constant, empty until the first upload", () => {
+  expect(KITE_STORE_EXTENSION_ID).toBe("")
+  const r = installHost({ browser: "chrome", userDataDir: join(dir, "ud"), extensionId: "abc", kiteHome: join(dir, "home") })
+  expect(JSON.parse(readFileSync(r.manifestPath, "utf8")).allowed_origins).toHaveLength(1)
 })
