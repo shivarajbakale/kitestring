@@ -42,6 +42,26 @@ describe("formatActivity", () => {
       ].join("\n"),
     )
   })
+  it("appends the dialogs an entry answered", async () => {
+    const { formatActivity } = await import("../src/client/format.js")
+    const ts = new Date(2026, 9, 18, 9, 5, 7).getTime()
+    const out = formatActivity([
+      {
+        id: 3, ts, session: "codex", tabId: 12, method: "act.click", target: '"Delete"', status: "done", ms: 9, summary: "✓ done +0/−0",
+        dialogs: [{ type: "confirm", message: "Really?", handled: "dismissed" }],
+      },
+      {
+        id: 2, ts, session: "codex", tabId: 12, method: "dialog", status: "done", ms: 0, summary: '! dialog alert "Hi" accepted',
+        dialogs: [{ type: "alert", message: "Hi", handled: "accepted" }],
+      },
+    ])
+    expect(out).toBe(
+      [
+        '09:05:07  codex  tab 12  act.click "Delete"  ✓ done +0/−0 ! dialog confirm "Really?" dismissed  (9 ms)',
+        '09:05:07  codex  tab 12  dialog  ! dialog alert "Hi" accepted  (0 ms)',
+      ].join("\n"),
+    )
+  })
   it("says so when empty", async () => {
     const { formatActivity } = await import("../src/client/format.js")
     expect(formatActivity([])).toBe("no activity yet")

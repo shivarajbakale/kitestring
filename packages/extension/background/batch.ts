@@ -337,6 +337,7 @@ export async function runBatch(
           ...(url ? { url } : {}),
           summary: resultSummary({ ok: false, status: ran.status, diff: res?.diff ?? EMPTY, page: "", ...(ran.detail ? { detail: ran.detail } : {}) }),
           ...(res ? { diff: res.diff, page: res.page } : {}),
+          ...(res?.dialogs?.length ? { dialogs: res.dialogs } : {}),
           batch: opts.batchId,
         })
       }

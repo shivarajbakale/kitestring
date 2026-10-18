@@ -44,6 +44,11 @@ export function summaryDetail(e: Pick<ActivityEntry, "method" | "status" | "summ
   return { text: s.slice(0, m.index).trim(), added: Number(m[1]), removed: Number(m[2]) }
 }
 
+/** `! dialog confirm "Really?" dismissed`, one per dialog the entry answered. */
+export function dialogLines(e: Pick<ActivityEntry, "dialogs">): string[] {
+  return (e.dialogs ?? []).map((d) => `! dialog ${d.type} "${d.message}" ${d.handled}`)
+}
+
 export type StatusTone = "ok" | "paused" | "fail"
 
 export function statusTone(status: ActivityEntry["status"]): StatusTone {

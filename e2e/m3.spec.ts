@@ -34,6 +34,23 @@ test.describe("alert guard", () => {
   })
 })
 
+test.describe("dialogs in the activity log", () => {
+  test("a dialog an action answered, and one the guard answered between actions, are both in kite activity", async ({ kite, context, torture }) => {
+    const url = `${torture}/alert-box`
+    await kite("tab", "new", url)
+    await kite("click", "Delete everything")
+    const page = context.pages().find((p) => p.url() === url)!
+    await page.evaluate(() => void setTimeout(() => confirm("Leave already?"), 0))
+    let act = ""
+    for (let i = 0; i < 20 && !act.includes("Leave already?"); i++) {
+      await new Promise((r) => setTimeout(r, 100))
+      act = out(await kite("activity"))
+    }
+    expect(act).toMatch(/act\.click "Delete everything" .*! dialog confirm "Really delete\?" dismissed/)
+    expect(act).toMatch(/ dialog {2}! dialog confirm "Leave already\?" dismissed/)
+  })
+})
+
 test.describe("tab watcher", () => {
   test("a target=_blank tab joins the session and is usable", async ({ kite, torture }) => {
     await kite("tab", "new", `${torture}/new-tab-link`)

@@ -1,6 +1,6 @@
 import type { ActivityEntry } from "@kitestring/protocol"
 import { describe, expect, it } from "vitest"
-import { BATCH_COLLAPSE_OVER, clockTime, describeAction, duration, groupBatches, statusTone, summaryDetail } from "../ui/activity-format"
+import { BATCH_COLLAPSE_OVER, clockTime, describeAction, dialogLines, duration, groupBatches, statusTone, summaryDetail } from "../ui/activity-format"
 
 const entry = (e: Partial<ActivityEntry>): ActivityEntry => ({
   id: 1,
@@ -94,5 +94,14 @@ describe("groupBatches", () => {
   })
   it("collapses over 5 steps", () => {
     expect(BATCH_COLLAPSE_OVER).toBe(5)
+  })
+})
+
+describe("dialogLines", () => {
+  it("one line per dialog, the way kite prints them", () => {
+    expect(dialogLines(entry({}))).toEqual([])
+    expect(
+      dialogLines(entry({ dialogs: [{ type: "confirm", message: "Really?", handled: "dismissed" }, { type: "alert", message: "Hi", handled: "accepted" }] })),
+    ).toEqual(['! dialog confirm "Really?" dismissed', '! dialog alert "Hi" accepted'])
   })
 })

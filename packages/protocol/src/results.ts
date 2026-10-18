@@ -70,6 +70,8 @@ export interface ActivityEntry {
   page?: string
   /** Id shared by all steps of one batch. */
   batch?: number
+  /** JS dialogs answered during the call (or, for method "dialog", the one answered between calls). */
+  dialogs?: DialogEvent[]
 }
 
 export interface ControlState {

@@ -20,13 +20,13 @@ function shouldAccept(type: DialogType, policy: DialogPolicy | undefined, naviga
   return policy === "accept"
 }
 
-function answer(tabId: number, params: Record<string, unknown>, events: DialogEvent[] | undefined, navigating: boolean, policy?: DialogPolicy): void {
+function answer(tabId: number, params: Record<string, unknown>, navigating: boolean, policy?: DialogPolicy): DialogEvent {
   const type = params.type as DialogType
   const accept = shouldAccept(type, policy, navigating)
-  events?.push({ type, message: String(params.message ?? ""), handled: accept ? "accepted" : "dismissed" })
   const reply: Record<string, unknown> = { accept }
   if (accept && type === "prompt") reply.promptText = ""
   void send(tabId, "Page.handleJavaScriptDialog", reply).catch(() => {})
+  return { type, message: String(params.message ?? ""), handled: accept ? "accepted" : "dismissed" }
 }
 
 /**
@@ -38,7 +38,7 @@ export function watchDialogs(tabId: number, opts: { policy?: DialogPolicy; navig
   watching.set(tabId, (watching.get(tabId) ?? 0) + 1)
   const off = onEvent(tabId, ({ method, params }) => {
     if (method !== "Page.javascriptDialogOpening") return
-    answer(tabId, params, events, opts.navigating?.() ?? false, opts.policy)
+    events.push(answer(tabId, params, opts.navigating?.() ?? false, opts.policy))
   })
   let stopped = false
   return {
@@ -57,15 +57,17 @@ export function watchDialogs(tabId: number, opts: { policy?: DialogPolicy; navig
 /**
  * Background-wide fallback so a dialog never wedges a tab between actions: alerts accepted,
  * everything else dismissed. Tabs with an active DialogWatch are skipped (that watch answers).
+ * `onAnswered` hears each dialog this guard answered (for the activity log).
  */
-export function installDialogGuard(): void {
+export function installDialogGuard(onAnswered?: (tabId: number, dialog: DialogEvent) => void): void {
   /** One subscription per tab: onAttach runs on every (re-)attach. */
   const guards = new Map<number, () => void>()
   onAttach((tabId) => {
     guards.get(tabId)?.()
     const off = onEvent(tabId, ({ method, params }) => {
       if (method !== "Page.javascriptDialogOpening" || watching.has(tabId)) return
-      answer(tabId, params, undefined, false)
+      const d = answer(tabId, params, false)
+      onAnswered?.(tabId, d)
     })
     guards.set(tabId, off)
   })

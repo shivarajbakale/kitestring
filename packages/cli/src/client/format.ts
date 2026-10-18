@@ -59,7 +59,9 @@ export function formatActivity(entries: ActivityEntry[]): string {
       const d = new Date(e.ts)
       const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
       const what = e.target ? `${e.method} ${e.target}` : e.method
-      return `${time}  ${e.session}  tab ${e.tabId ?? "-"}  ${what}  ${e.summary}  (${e.ms} ms)`
+      const dialogs = (e.dialogs ?? []).map((d) => `! dialog ${d.type} "${d.message}" ${d.handled}`).filter((l) => l !== e.summary)
+      const summary = [e.summary, ...dialogs].join(" ")
+      return `${time}  ${e.session}  tab ${e.tabId ?? "-"}  ${what}  ${summary}  (${e.ms} ms)`
     })
     .join("\n")
 }

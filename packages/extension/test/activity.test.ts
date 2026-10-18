@@ -82,4 +82,25 @@ describe("summaries", () => {
     record({ session: "default", tabId: null, method: "control.pause", status: "done", ms: 1, summary: controlSummary("control.pause", "lunch") })
     expect(list(1)[0]).toMatchObject({ method: "control.pause", status: "done", tabId: null, summary: "✓ paused: lunch" })
   })
+
+  it("redacts filled values in stored diffs and the page brief, keeping the rest of each line", async () => {
+    const activity = await import("../background/activity")
+    await activity.ready()
+    const e = activity.record({
+      ...entry(1),
+      diff: {
+        added: ['textbox "Email" value="ada@x.io" [@e00002]', 'textbox "Note" value="say \\"hi\\" there" [@e00003]', 'button "Save" [@e00004]'],
+        removed: ['textbox "Email" value="" [@e00002]'],
+      },
+      page: 'form: textbox "Card" value="4242 4242 4242 4242"',
+    })
+    expect(e.diff).toEqual({
+      added: ['textbox "Email" value=(redacted) [@e00002]', 'textbox "Note" value=(redacted) [@e00003]', 'button "Save" [@e00004]'],
+      removed: ['textbox "Email" value=(redacted) [@e00002]'],
+    })
+    expect(e.page).toBe('form: textbox "Card" value=(redacted)')
+    await activity.flush()
+    expect(JSON.stringify(store.activity)).not.toContain("ada@x.io")
+    expect(JSON.stringify(store.activity)).not.toContain("4242")
+  })
 })

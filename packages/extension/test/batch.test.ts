@@ -476,4 +476,13 @@ describe("runBatch", () => {
     expect(record.mock.calls[0]![0].target).toBe('"Avatar" ← a.png')
     expect(JSON.stringify(record.mock.calls)).not.toContain("/Users/me")
   })
+
+  it("a step's dialogs go into its activity entry", async () => {
+    const confirm = { type: "confirm" as const, message: "Sure?", handled: "accepted" as const }
+    state.script = [() => ok(), () => ok({ dialogs: [confirm] })]
+    const { p, record } = await run({ steps: [click("A"), click("B", { dialog: "accept" })] })
+    await p
+    expect(record.mock.calls[0]![0].dialogs).toBeUndefined()
+    expect(record.mock.calls[1]![0].dialogs).toEqual([confirm])
+  })
 })

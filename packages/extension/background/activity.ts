@@ -1,4 +1,4 @@
-import type { ActionResult, ActivityEntry, Diff } from "@kitestring/protocol"
+import type { ActionResult, ActivityEntry, DialogEvent, Diff } from "@kitestring/protocol"
 
 /** chrome.storage.session key holding the log, oldest first (read by the side panel). */
 export const ACTIVITY_KEY = "activity"
@@ -26,12 +26,21 @@ export function ready(): Promise<void> {
   return loaded
 }
 
-const capDiff = (d: Diff): Diff => ({ added: d.added.slice(0, DIFF_LINES), removed: d.removed.slice(0, DIFF_LINES) })
+/** A snapshot's ` value="…"` (quoted, with `\"` escapes) or bare ` value=…` annotation. */
+const VALUE_RE = / value=(?:"(?:[^"\\]|\\.)*"|[^\s"]\S*)/g
+
+/** What was typed into fields never reaches the stored log (the agent's own result keeps it). */
+export const redactValues = (line: string): string => line.replace(VALUE_RE, " value=(redacted)")
+
+const capDiff = (d: Diff): Diff => ({
+  added: d.added.slice(0, DIFF_LINES).map(redactValues),
+  removed: d.removed.slice(0, DIFF_LINES).map(redactValues),
+})
 
 export function record(entry: Omit<ActivityEntry, "id" | "ts">): ActivityEntry {
   const e: ActivityEntry = { ...entry, id: nextId++, ts: Date.now() }
   if (e.diff) e.diff = capDiff(e.diff)
-  if (e.page !== undefined) e.page = e.page.slice(0, PAGE_CHARS)
+  if (e.page !== undefined) e.page = redactValues(e.page).slice(0, PAGE_CHARS)
   entries.push(e)
   if (entries.length > ACTIVITY_LIMIT) entries.splice(0, entries.length - ACTIVITY_LIMIT)
   const snapshot = entries.slice()
@@ -61,6 +70,11 @@ export function resultSummary(r: ActionResult): string {
 export function errorSummary(code: string, message: string): string {
   const m = message.startsWith(`${code}: `) ? message.slice(code.length + 2) : message
   return `✗ ${code}: ${m}`
+}
+
+/** `! dialog confirm "Really?" dismissed`, as the CLI prints it. */
+export function dialogSummary(d: DialogEvent): string {
+  return `! dialog ${d.type} "${d.message}" ${d.handled}`
 }
 
 /** `✓ paused: lunch`, `✓ paused`, `✓ resumed`: the pause switch flipped over RPC (kite pause / resume). */

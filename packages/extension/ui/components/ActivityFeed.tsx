@@ -1,6 +1,6 @@
 import type { ActivityEntry } from "@kitestring/protocol"
 import { useId, useState } from "react"
-import { BATCH_COLLAPSE_OVER, clockTime, describeAction, duration, groupBatches, summaryDetail } from "../activity-format"
+import { BATCH_COLLAPSE_OVER, clockTime, describeAction, dialogLines, duration, groupBatches, summaryDetail } from "../activity-format"
 import type { GroupColor } from "../messages"
 import { ChevronIcon } from "./icons"
 import { SessionDot } from "./SessionDot"
@@ -15,7 +15,7 @@ interface RowProps {
 }
 
 const hasDiff = (e: ActivityEntry) => !!e.diff
-const hasDetails = (e: ActivityEntry) => !!e.url || hasDiff(e) || !!e.page
+const hasDetails = (e: ActivityEntry) => !!e.url || hasDiff(e) || !!e.page || !!e.dialogs?.length
 
 /**
  * Everything here originates from web pages or agents (targets, summaries, URLs, diff lines, the page
@@ -54,6 +54,18 @@ function Details({ entry, id }: { entry: ActivityEntry; id: string }) {
           ) : (
             <p className="ks-entry__none">Nothing on the page changed.</p>
           )}
+        </section>
+      ) : null}
+      {entry.dialogs?.length ? (
+        <section className="ks-dialogs" aria-label="Dialogs">
+          <h3 className="ks-entry__label">Dialogs</h3>
+          <ul className="ks-diff__lines">
+            {dialogLines(entry).map((l, i) => (
+              <li key={i} className="ks-diff__line">
+                <span>{l}</span>
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
       {entry.page ? (

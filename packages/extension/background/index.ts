@@ -2,14 +2,16 @@ import { initCapture } from "./capture"
 import { initCdp } from "./cdp"
 import { installDialogGuard } from "./dialogs"
 import { connectHost } from "./native-port"
-import { route } from "./rpc-router"
+import { recordGuardDialog, route } from "./rpc-router"
 import { loadSessions, watchTabs } from "./sessions"
 import { listenUi } from "./ui"
 
 // Listeners must be registered synchronously at service-worker start.
 watchTabs()
 initCdp()
-installDialogGuard()
+installDialogGuard((tabId, dialog) =>
+  void recordGuardDialog(tabId, dialog).catch((e: unknown) => console.warn("[kite] dialog not recorded", e)),
+)
 initCapture()
 listenUi()
 void loadSessions()

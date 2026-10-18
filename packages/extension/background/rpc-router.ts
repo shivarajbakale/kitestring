@@ -4,6 +4,7 @@ import {
   parseBatchParams,
   type ActionResult,
   type ActivityEntry,
+  type DialogEvent,
   type Method,
   type RpcResponse,
   type Target,
@@ -325,10 +326,27 @@ async function recordActivity(
     entry.summary = activity.resultSummary(r)
     entry.diff = r.diff
     entry.page = r.page
+    if (r.dialogs?.length) entry.dialogs = r.dialogs
     const url = r.navigation?.url ?? (await tabUrl(tabBefore))
     if (url) entry.url = url
   }
   activity.record(entry)
+}
+
+/** A dialog the background guard answered between calls: its own entry, under the tab's owner. */
+export async function recordGuardDialog(tabId: number, dialog: DialogEvent): Promise<void> {
+  await Promise.all([sessions.loadSessions(), activity.ready()])
+  const url = await tabUrl(tabId)
+  activity.record({
+    session: sessions.ownerOf(tabId)?.name ?? "-",
+    tabId,
+    method: "dialog",
+    status: "done",
+    ms: 0,
+    summary: activity.dialogSummary(dialog),
+    dialogs: [dialog],
+    ...(url ? { url } : {}),
+  })
 }
 
 function errorOf(e: unknown): { code: string; message: string } {

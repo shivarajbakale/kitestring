@@ -78,6 +78,11 @@ export function sessionNames(): string[] {
   return [...sessions.keys()]
 }
 
+/** The session that owns `tabId`, if any. */
+export function ownerOf(tabId: number): Session | undefined {
+  return [...sessions.values()].find((s) => s.tabs.has(tabId))
+}
+
 export function findSession(name: string): Session | undefined {
   return sessions.get(name)
 }

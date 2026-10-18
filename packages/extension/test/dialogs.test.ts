@@ -98,4 +98,17 @@ describe("installDialogGuard (R1)", () => {
     open("alert")
     expect(send).toHaveBeenCalledTimes(1)
   })
+
+  it("reports each dialog it answers (between actions), never one a watch answered", async () => {
+    const { installDialogGuard, watchDialogs } = await import("../background/dialogs")
+    const seen: unknown[] = []
+    installDialogGuard((tabId, d) => seen.push([tabId, d]))
+    attachHook!(11)
+    open("confirm", "Leave?")
+    expect(seen).toEqual([[11, { type: "confirm", message: "Leave?", handled: "dismissed" }]])
+    const w = watchDialogs(11, {})
+    open("alert", "Hi")
+    expect(seen).toHaveLength(1)
+    w.stop()
+  })
 })
