@@ -243,7 +243,7 @@ export async function runBatch(
 
     /** Domain guard, dialogs and expect, on a step that ran without halting. */
     const guards = async (step: Step, i: number, ran: Ran): Promise<{ reason: HaltReason; detail: string } | null> => {
-      const d = dialogHalt(ran.res?.dialogs, step, i)
+      const d = dialogHalt(ran.res?.dialogs, step)
       if (d) return { reason: "dialog", detail: d }
       const { url } = await tabInfo(tabId)
       const site = siteOf(url)

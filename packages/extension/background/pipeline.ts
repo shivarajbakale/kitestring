@@ -49,6 +49,8 @@ interface Progress {
   waiting: boolean
   /** Dialogs handled so far (shared with the run's DialogWatch), for the timeout answer. */
   dialogs?: DialogEvent[]
+  /** Popups closed so far (shared with the run), for the timeout answer. */
+  closedPopups?: string[]
 }
 
 class Expired extends Error {}
@@ -303,6 +305,8 @@ interface Run {
   p: Progress
   urlBefore: string
   dialogs: DialogWatch
+  /** Cookie walls / newsletter modals closed on the way: reported with every outcome. */
+  closedPopups: string[]
 }
 
 /** The element FIND resolved, as `beforeAct` sees it. */
@@ -329,6 +333,7 @@ async function early(r: Run, status: Status, extra: Partial<ActionResult>): Prom
   const page = await safeBrief(r.tabId)
   const res: ActionResult = { ok: false, status, diff: EMPTY, page, ...extra }
   if (r.dialogs.events.length) res.dialogs = [...r.dialogs.events]
+  if (r.closedPopups.length) res.closedPopups = [...r.closedPopups]
   return res
 }
 
@@ -349,6 +354,7 @@ async function finish(
     const res: ActionResult = { ok: true, status: "done", diff: EMPTY, page: "", detail: TAB_CLOSED_ITSELF }
     if (r.watch.newTabs.length) res.newTabs = [...r.watch.newTabs]
     if (r.dialogs.events.length) res.dialogs = [...r.dialogs.events]
+    if (r.closedPopups.length) res.closedPopups = [...r.closedPopups]
     return res
   }
 }
@@ -411,6 +417,7 @@ async function finishOpen(
   if (navigated) res.navigation = { url: urlAfter, title: tab.title ?? "" }
   if (newTabs.length) res.newTabs = newTabs
   if (r.dialogs.events.length) res.dialogs = [...r.dialogs.events]
+  if (r.closedPopups.length) res.closedPopups = [...r.closedPopups]
   return res
 }
 
@@ -471,7 +478,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   // CHECK (scrolls the element into view)
   let c = await callAgent<CheckResult>(tabId, "check", [found.ref])
   guard()
-  const closedPopups: string[] = []
+  const { closedPopups } = r
   if (c.kind === "blocked") {
     // A cookie wall or newsletter modal in the way: close it once, then check again.
     const closer = await callAgent<Closer | null>(tabId, "closerFor", [found.ref])
@@ -488,11 +495,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     }
   }
   if (c.kind === "blocked") {
-    return early(r, "blocked", {
-      detail: `covered by ${c.by}`,
-      blockedBy: c.by,
-      ...(closedPopups.length ? { closedPopups } : {}),
-    })
+    return early(r, "blocked", { detail: `covered by ${c.by}`, blockedBy: c.by })
   }
   if (c.kind === "disabled") {
     return early(r, "disabled", {
@@ -507,7 +510,6 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     hooks.refused = refused
     return early(r, "error", {
       detail: `refused: "${found.name}" looks ${refused === "risky" ? "risky (it may pay, send or delete something)" : refused}; run it on its own if intended`,
-      ...(closedPopups.length ? { closedPopups } : {}),
     })
   }
 
@@ -522,7 +524,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     const held = await setFiles(tabId, null, action.files, { x: c.x, y: c.y })
     guard()
     const names = action.files.map(baseName)
-    const res = withPopups(withUploaded(await finish(r, before, {}), action.files), closedPopups)
+    const res = withUploaded(await finish(r, before, {}), action.files)
     if (res.status === "done" && JSON.stringify(held) !== JSON.stringify(names)) {
       const { uploaded: _unverified, ...rest } = res
       return { ...rest, ok: false, status: "error", detail: `file input holds ${JSON.stringify(held)}, expected ${JSON.stringify(names)}` }
@@ -534,7 +536,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     guard()
     hooks.acted = true
     await input.click(tabId, c.x, c.y)
-    return withPopups(await finish(r, before, { click: { handled } }), closedPopups)
+    return finish(r, before, { click: { handled } })
   }
   if (action.kind === "fill") {
     const text = action.value ?? ""
@@ -545,13 +547,13 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     guard()
     if (text === "") await input.press(tabId, "Backspace")
     else await input.insertText(tabId, text)
-    return withPopups(await finish(r, before, { fill: { ref: found.ref, text } }), closedPopups)
+    return finish(r, before, { fill: { ref: found.ref, text } })
   }
   const value = action.value ?? ""
   const selected = await callAgent<boolean>(tabId, "setSelect", [found.ref, value])
   if (!selected) return early(r, "error", { detail: `no option ${JSON.stringify(value)} in ${found.line}` })
   hooks.acted = true
-  return withPopups(await finish(r, before, {}), closedPopups)
+  return finish(r, before, {})
 }
 
 const baseName = (path: string): string => path.split(/[\\/]/).pop() ?? path
@@ -559,10 +561,6 @@ const baseName = (path: string): string => path.split(/[\\/]/).pop() ?? path
 /** Names only: the result and the activity log never carry directories. */
 function withUploaded(res: ActionResult, files: string[]): ActionResult {
   return res.status === "done" ? { ...res, uploaded: files.map(baseName) } : res
-}
-
-function withPopups(res: ActionResult, closedPopups: string[]): ActionResult {
-  return closedPopups.length ? { ...res, closedPopups } : res
 }
 
 interface CapOpts {
@@ -607,6 +605,7 @@ async function cappedRun(tabId: number, body: (p: Progress) => Promise<ActionRes
           diff: p.diff,
           page,
           ...(p.dialogs?.length ? { dialogs: [...p.dialogs] } : {}),
+          ...(p.closedPopups?.length ? { closedPopups: [...p.closedPopups] } : {}),
         }),
       )
     }, Math.max(0, capMs))
@@ -682,11 +681,13 @@ async function begin(
   }
   const dialogs = watchDialogs(tabId, dialogOpts)
   p.dialogs = dialogs.events
+  const closedPopups: string[] = []
+  p.closedPopups = closedPopups
   try {
     const urlBefore = await tabUrl(tabId)
     const net = trackNetwork(tabId)
     try {
-      return await fn({ s, tabId, watch, net, p, urlBefore, dialogs })
+      return await fn({ s, tabId, watch, net, p, urlBefore, dialogs, closedPopups })
     } finally {
       net.stop()
     }
@@ -798,14 +799,24 @@ export async function runStep(
   if (action.kind === "press") input.keyDef(action.key) // BAD_REQUEST before touching the page
   if (action.kind === "goto" && isRestrictedUrl(action.url)) throw new RestrictedPageError(action.url)
   const hooks: Hooks = opts.beforeAct ? { beforeAct: opts.beforeAct } : {}
-  const { res, expired, tail } = await cappedRun(
-    tabId,
-    (p) =>
-      action.kind === "goto"
-        ? navigate(s, tabId, action.url, p, opts.dialog, hooks)
-        : begin(s, tabId, p, (r) => act(r, action, hooks), opts.dialog ? { policy: opts.dialog } : {}),
-    { capMs: opts.capMs, holdsLock: true },
-  )
+  let ran: Capped
+  try {
+    ran = await cappedRun(
+      tabId,
+      (p) =>
+        action.kind === "goto"
+          ? navigate(s, tabId, action.url, p, opts.dialog, hooks)
+          : begin(s, tabId, p, (r) => act(r, action, hooks), opts.dialog ? { policy: opts.dialog } : {}),
+      { capMs: opts.capMs, holdsLock: true },
+    )
+  } catch (e) {
+    // Before any input the caller classifies the error (restricted, paused, ...) and resends the step.
+    if (!hooks.acted) throw e
+    // After it, resending would repeat the input: an error outcome that acted.
+    const detail = e instanceof Error ? e.message : String(e)
+    return { ok: false, status: "error", detail, diff: EMPTY, page: await safeBrief(tabId), halt: "error", acted: true }
+  }
+  const { res, expired, tail } = ran
   opts.linger?.(tail)
   const out: StepOutcome = { ...res, acted: !!hooks.acted }
   if (hooks.resolved) out.resolved = hooks.resolved

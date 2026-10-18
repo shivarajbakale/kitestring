@@ -1,6 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+const FOUND = {
+  kind: "found",
+  ref: "@e00001",
+  line: 'button "Delete everything" [@e00001]',
+  role: "button",
+  name: "Delete everything",
+  within: "Danger zone",
+}
 const agent = vi.hoisted(() => ({
+  /** Overrides for single agent methods (reset after each test). */
+  extra: {} as Record<string, (args: unknown[]) => unknown>,
   find: (): unknown => ({
     kind: "found",
     ref: "@e00001",
@@ -14,7 +24,8 @@ const agent = vi.hoisted(() => ({
 vi.mock("@kitestring/page-agent", () => ({ diffSnapshots: () => ({ added: ["x"], removed: [] }) }))
 vi.mock("../background/agent-bridge", () => ({
   isRestrictedUrl: () => false,
-  callAgent: vi.fn(async (_tabId: number, method: string) => {
+  callAgent: vi.fn(async (_tabId: number, method: string, args: unknown[]) => {
+    if (agent.extra[method]) return agent.extra[method]!(args)
     switch (method) {
       case "find":
         return agent.find()
@@ -52,6 +63,7 @@ beforeEach(() => {
   }
 })
 afterEach(() => {
+  agent.extra = {}
   vi.clearAllMocks()
   vi.useRealTimers()
 })
@@ -123,5 +135,36 @@ describe("runStep", () => {
     expect(ended).toBe(false)
     await vi.advanceTimersByTimeAsync(200)
     expect(ended).toBe(true)
+  })
+
+  it("a popup closed on the way is reported even when the step then fails (disabled)", async () => {
+    agent.find = () => FOUND
+    const checks = [
+      { kind: "blocked", by: 'dialog "Cookies"' },
+      { kind: "ok", x: 1, y: 2 },
+      { kind: "disabled", errors: [] },
+    ]
+    agent.extra.check = () => checks.shift()
+    agent.extra.closerFor = () => ({ ref: "@e00009", line: 'button "Reject all" [@e00009]', kind: "cookie" })
+    const { runStep } = await import("../background/pipeline")
+    const r = await runStep(s, 1, { kind: "click", target: { text: "Delete everything" } }, { capMs: 15_000 })
+    expect(r).toMatchObject({ status: "disabled", acted: false, closedPopups: ['cookie "Reject all"'] })
+  })
+
+  it("an error thrown after the input went out is an error outcome that acted", async () => {
+    agent.find = () => FOUND
+    const input = await import("../background/input")
+    ;(input.click as any).mockRejectedValueOnce(new Error("Target closed"))
+    const { runStep } = await import("../background/pipeline")
+    const r = await runStep(s, 1, { kind: "click", target: { text: "Delete everything" } }, { capMs: 15_000 })
+    expect(r).toMatchObject({ ok: false, status: "error", detail: "Target closed", halt: "error", acted: true })
+  })
+
+  it("an error thrown before any input still throws (the batch classifies it)", async () => {
+    agent.find = () => {
+      throw new Error("agent gone")
+    }
+    const { runStep } = await import("../background/pipeline")
+    await expect(runStep(s, 1, { kind: "click", target: { text: "X" } }, { capMs: 15_000 })).rejects.toThrow("agent gone")
   })
 })

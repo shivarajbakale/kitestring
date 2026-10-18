@@ -16,11 +16,11 @@ export function haltFor(status: Status): HaltReason | null {
   return status === "done" || status === "no_effect" ? null : status
 }
 
-/** A dismissed confirm/prompt/beforeunload step `i` had no `dialog` policy for. */
-export function dialogHalt(dialogs: DialogEvent[] | undefined, step: Step, i: number): string | null {
+/** A dismissed confirm/prompt/beforeunload the step had no `dialog` policy for. */
+export function dialogHalt(dialogs: DialogEvent[] | undefined, step: Step): string | null {
   if (step.dialog) return null
   const d = dialogs?.find((e) => e.type !== "alert" && e.handled === "dismissed")
-  return d ? `${d.type} ${JSON.stringify(d.message)} was dismissed; resend step ${i} with dialog: "accept" to confirm` : null
+  return d ? `${d.type} ${JSON.stringify(d.message)} was dismissed; resend this step with dialog: "accept" to confirm` : null
 }
 
 const baseName = (path: string): string => path.split(/[\\/]/).pop() ?? path

@@ -311,7 +311,7 @@ describe("runBatch", () => {
     const r = await (await run({ steps: [click("A"), click("B"), click("C")] })).p
     expect(r.halted).toMatchObject({ index: 1, reason: "dialog" })
     expect(r.halted!.detail).toContain("Really?")
-    expect(r.halted!.detail).toContain('resend step 1 with dialog: "accept" to confirm')
+    expect(r.halted!.detail).toContain('resend this step with dialog: "accept" to confirm')
     expect(r.next).toBe(1) // the dismissed dialog cancelled the step's effect
     expect(r.dialogs).toEqual([alert, confirm])
   })

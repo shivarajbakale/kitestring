@@ -206,7 +206,7 @@ test.describe("batch", () => {
     ])
     expect(code).toBe(1)
     expect(res.halted).toMatchObject({ index: 1, reason: "dialog" })
-    expect(res.halted.detail).toContain('resend step 1 with dialog: "accept" to confirm')
+    expect(res.halted.detail).toContain('resend this step with dialog: "accept" to confirm')
     expect(res.next).toBe(1)
     expect(res.dialogs).toEqual([
       { type: "alert", message: "Hello", handled: "accepted" },
