@@ -39,6 +39,17 @@ describe("capped", () => {
     expect(await capped(1, async () => done)).toBe(done) // lock is free again
   })
 
+  it("a cap timeout carries the dialogs handled so far", async () => {
+    const { capped } = await import("../background/pipeline")
+    const ev = { type: "alert" as const, message: "Hi", handled: "accepted" as const }
+    const r = capped(3, (p) => {
+      p.dialogs = [ev]
+      return new Promise<ActionResult>(() => {})
+    })
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(await r).toMatchObject({ status: "timeout", dialogs: [ev] })
+  })
+
   it("R14: an RpcError TIMEOUT from the body becomes a timeout ActionResult", async () => {
     const { capped } = await import("../background/pipeline")
     const { RpcError } = await import("../background/errors")

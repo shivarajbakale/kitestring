@@ -59,10 +59,14 @@ export function watchDialogs(tabId: number, opts: { policy?: DialogPolicy; navig
  * everything else dismissed. Tabs with an active DialogWatch are skipped (that watch answers).
  */
 export function installDialogGuard(): void {
+  /** One subscription per tab: onAttach runs on every (re-)attach. */
+  const guards = new Map<number, () => void>()
   onAttach((tabId) => {
-    onEvent(tabId, ({ method, params }) => {
+    guards.get(tabId)?.()
+    const off = onEvent(tabId, ({ method, params }) => {
       if (method !== "Page.javascriptDialogOpening" || watching.has(tabId)) return
       answer(tabId, params, undefined, false)
     })
+    guards.set(tabId, off)
   })
 }

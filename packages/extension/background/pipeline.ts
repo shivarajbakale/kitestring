@@ -1,4 +1,4 @@
-import { ErrorCode, READY, type ActionResult, type Diff, type Status, type Target } from "@kitestring/protocol"
+import { ErrorCode, READY, type ActionResult, type DialogEvent, type Diff, type Status, type Target } from "@kitestring/protocol"
 import { diffSnapshots, type CheckResult, type FindResult } from "@kitestring/page-agent"
 import { callAgent, isRestrictedUrl } from "./agent-bridge"
 import { ensureAttached, isNotAttached, onEvent, send } from "./cdp"
@@ -34,6 +34,8 @@ interface Progress {
   expired: boolean
   /** Still queued behind another action on the same tab. */
   waiting: boolean
+  /** Dialogs handled so far (shared with the run's DialogWatch), for the timeout answer. */
+  dialogs?: DialogEvent[]
 }
 
 class Expired extends Error {}
@@ -449,6 +451,7 @@ export async function capped(tabId: number, body: (p: Progress) => Promise<Actio
           detail: `action did not finish within ${ACTION_CAP_MS} ms`,
           diff: p.diff,
           page,
+          ...(p.dialogs?.length ? { dialogs: [...p.dialogs] } : {}),
         }),
       )
     }, ACTION_CAP_MS)
@@ -502,6 +505,7 @@ async function begin(
     watch = await Watch.start(tabId)
   }
   const dialogs = watchDialogs(tabId, dialogOpts)
+  p.dialogs = dialogs.events
   try {
     const urlBefore = await tabUrl(tabId)
     const net = trackNetwork(tabId)

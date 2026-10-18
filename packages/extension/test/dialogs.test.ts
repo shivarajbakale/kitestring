@@ -88,4 +88,14 @@ describe("installDialogGuard (R1)", () => {
     expect(send).toHaveBeenCalledWith(7, "Page.handleJavaScriptDialog", { accept: true })
     w.stop()
   })
+
+  it("re-attaching the same tab does not stack handlers", async () => {
+    const { installDialogGuard } = await import("../background/dialogs")
+    installDialogGuard()
+    attachHook!(9)
+    attachHook!(9)
+    send.mockClear()
+    open("alert")
+    expect(send).toHaveBeenCalledTimes(1)
+  })
 })
