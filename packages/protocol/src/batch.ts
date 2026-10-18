@@ -77,6 +77,8 @@ export interface StepResult {
   cached?: boolean
   /** Internal: the pipeline's resolved target, used to write stored plans (refs are never stored). */
   resolved?: { role: string; name: string; within?: string }
+  /** Internal: the resolved field was a password / cc-* / one-time-code input (its value becomes a secret plan param). */
+  secret?: true
 }
 
 export interface BatchResult {
@@ -94,6 +96,8 @@ export interface BatchResult {
   candidates?: Candidate[]
   blockedBy?: string
   page: string
+  /** Internal: the tab's URL when the batch began (where a stored plan starts). */
+  startUrl?: string
 }
 
 export function clampBudget(ms?: number): number {

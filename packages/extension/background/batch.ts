@@ -131,6 +131,7 @@ export async function runBatch(
   let next: number | undefined
   let haltRes: ActionResult | undefined
   let navigated = false
+  let startUrl: string | undefined
   let lock: TabLock | undefined
   /** Until the last step has truly ended (an expired step may still unwind): keep the lock. */
   let linger: Promise<void> = Promise.resolve()
@@ -159,7 +160,8 @@ export async function runBatch(
   actOn(tabId)
   try {
     const before = await agentQuick("snapshot", [{ full: false }], "")
-    const start = siteOf((await tabInfo(tabId)).url)
+    startUrl = (await tabInfo(tabId)).url
+    const start = siteOf(startUrl)
     if (start) allowed.add(start)
 
     const findTarget = async (target: Target, intent: string, waitMs: number): Promise<boolean> => {
@@ -332,6 +334,7 @@ export async function runBatch(
         ms: Date.now() - t,
         ...(res?.cached ? { cached: true } : {}),
         ...(res?.resolved ? { resolved: res.resolved } : {}),
+        ...(res?.secret ? { secret: true as const } : {}),
       }
       steps.push(result)
       if (ran.status !== "skipped") {
@@ -374,6 +377,7 @@ export async function runBatch(
     if (closedPopups.length) out.closedPopups = closedPopups
     if (haltRes?.candidates) out.candidates = haltRes.candidates
     if (haltRes?.blockedBy) out.blockedBy = haltRes.blockedBy
+    if (startUrl) out.startUrl = startUrl
     return fitResult(out)
   } finally {
     const held = lock

@@ -121,6 +121,18 @@ describe("runBatch", () => {
     ])
   })
 
+  it("reports the start URL and which fields were secret (for the pending journal)", async () => {
+    state.script = [
+      () => ok({ resolved: { role: "textbox", name: "Password" }, secret: true } as any),
+      () => ok({ resolved: { role: "button", name: "B" } } as any),
+    ]
+    const { p } = await run({ steps: [{ action: "fill", target: { text: "Password" }, value: "pw" } as Step, click("B")] })
+    await vi.advanceTimersByTimeAsync(0)
+    const r = await p
+    expect(r.startUrl).toBe("https://www.shop.example/cart")
+    expect(r.steps.map((s) => s.secret)).toEqual([true, undefined])
+  })
+
   it("not_found on step 1 halts with next:1; step 2 never runs", async () => {
     state.script = [() => ok(), () => ok({ ok: false, status: "not_found", detail: 'no element matches "B"', acted: false } as any)]
     const { p } = await run({ steps: [click("A"), click("B"), click("C")] })

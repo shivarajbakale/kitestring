@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { Command, CommanderError } from "commander"
-import { EXTENSION_ID, parseTarget, type Method, type ScreenshotResult } from "@kitestring/protocol"
+import { EXTENSION_ID, parseTarget, type BatchResult, type Method, type ScreenshotResult, type Step } from "@kitestring/protocol"
 import { KiteError, call } from "./client/rpc-client.js"
 import { human } from "./client/human.js"
 import { installHost, legacyNotices } from "./install/host-manifest.js"
@@ -28,16 +28,20 @@ export async function main(argv: string[]): Promise<number> {
     .exitOverride()
     .configureOutput({ writeErr: () => {}, outputError: () => {} })
 
-  const run = async (method: Method, params: Record<string, unknown>): Promise<void> => {
+  const sessionName = (): string => program.opts<Globals>().session || process.env.KITE_SESSION || "default"
+  /** Calls, prints, sets the exit code, and hands back the result. */
+  const send = async (method: Method, params: Record<string, unknown>): Promise<unknown> => {
     const g = program.opts<Globals>()
-    const session = g.session || process.env.KITE_SESSION || "default"
+    const session = sessionName()
     const result = await call(method, params, { session })
     if (g.json) process.stdout.write(JSON.stringify(result) + "\n")
     else process.stdout.write(human(method, result) + "\n")
     if (result && typeof result === "object" && "status" in result && (result as any).status !== "done") exitCode = 1
     // A batch has no single status: it is ok or halted.
     if (method === "act.batch" && !(result as { ok?: boolean } | null)?.ok) exitCode = 1
+    return result
   }
+  const run = async (method: Method, params: Record<string, unknown>): Promise<void> => void (await send(method, params))
 
   program
     .command("mcp")
@@ -153,7 +157,68 @@ export async function main(argv: string[]): Promise<number> {
           }
         }
       }
-      await run("act.batch", params)
+      const result = (await send("act.batch", params)) as BatchResult
+      // Journal the agent's ok steps for `kite memory save` (no values). Memory never fails the batch.
+      if (Array.isArray(result?.steps)) {
+        const { appendPending } = await import("./memory/pending.js")
+        const note = appendPending(kiteHome(), sessionName(), result.startUrl ?? "", params.steps as Step[], result)
+        if (note) process.stderr.write(`kite: ${note}\n`)
+      }
+    })
+  program
+    .command("run <plan>")
+    .description("replay a saved plan with its parameters; stops at the first problem and leaves the page for you")
+    .option("--param <name=value>", "a parameter value (repeatable)", collect, [] as string[])
+    .option("--secret <name=value>", "a parameter value that is never printed (repeatable)", collect, [] as string[])
+    .option("--dry-run", "print the filled batches (secrets as ••••) and send nothing")
+    .action(async (id: string, o: { param: string[]; secret: string[]; dryRun?: boolean }) => {
+      const { planById } = await import("./memory/store.js")
+      const { runPlan } = await import("./memory/replay.js")
+      const { formatReplay } = await import("./client/format.js")
+      const json = !!program.opts<Globals>().json
+      let stored
+      try {
+        stored = planById(kiteHome(), id)
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      const values: Record<string, string> = {}
+      const secretNames = new Set<string>()
+      for (const [list, secret] of [[o.param, false], [o.secret, true]] as const) {
+        for (const kv of list) {
+          const m = /^([^=]+)=(.*)$/s.exec(kv)
+          if (!m) throw new UsageError(`expected name=value: ${kv}`)
+          if (Object.hasOwn(values, m[1]!)) throw new UsageError(`parameter given twice: ${m[1]}`)
+          values[m[1]!] = m[2]!
+          if (secret) secretNames.add(m[1]!)
+        }
+      }
+      const slug = stored.id.split("/")[1]!
+      const session = sessionName()
+      let r
+      try {
+        r = await runPlan(stored.plan, values, {
+          call: (method, params) => call(method, params, { session }),
+          out: (line) => void (json ? process.stderr : process.stdout).write(line + "\n"),
+          dryRun: !!o.dryRun,
+          secretNames,
+        })
+      } catch (e) {
+        if (e instanceof KiteError && e.code === "BAD_REQUEST" && /^unknown parameter/.test(e.message)) throw new UsageError(e.message)
+        throw e
+      }
+      if (json) process.stdout.write(JSON.stringify(r) + "\n")
+      if (r.missing) {
+        if (!json) process.stderr.write(`kite: ${formatReplay(slug, r)}\n`)
+        exitCode = 2
+        return
+      }
+      if (o.dryRun) {
+        if (!json) process.stdout.write(`dry run: ${r.batches} batch${r.batches === 1 ? "" : "es"}, nothing sent\n`)
+        return
+      }
+      if (!json) process.stdout.write(formatReplay(slug, r) + "\n")
+      if (!r.ok) exitCode = r.stoppedAt?.reason === "risky" ? 3 : 1
     })
   program.command("press <key>").action((key: string) => run("act.press", { key }))
   program
@@ -205,11 +270,35 @@ export async function main(argv: string[]): Promise<number> {
     }
   })
   memoryCmd.command("show <slug>").action(async (id: string) => {
-    const { listPlans } = await import("./memory/store.js")
-    const hits = listPlans(kiteHome()).filter((s) => (id.includes("/") ? s.id === id : s.id.endsWith(`/${id}`)))
-    if (hits.length !== 1) throw new UsageError(hits.length ? `ambiguous plan: ${id}` : `no such plan: ${id}`)
-    process.stdout.write(JSON.stringify(hits[0]!.plan, null, 2) + "\n")
+    const { planById } = await import("./memory/store.js")
+    let stored
+    try {
+      stored = planById(kiteHome(), id)
+    } catch (e) {
+      throw new UsageError((e as Error).message)
+    }
+    process.stdout.write(JSON.stringify(stored.plan, null, 2) + "\n")
   })
+  memoryCmd
+    .command("save <intent>")
+    .description("save this session's batches since the last save as a plan for <intent>")
+    .action(async (intent: string) => {
+      const { savePending } = await import("./memory/pending.js")
+      if (!intent.trim()) throw new UsageError("intent must not be empty")
+      const saved = savePending(kiteHome(), sessionName(), intent.trim())
+      if (!saved) throw new UsageError(`nothing to save: no batches journaled in session "${sessionName()}"`)
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify({ id: saved.id, ...saved.plan }) + "\n")
+      const names = saved.plan.params.map((x) => (x.secret ? `${x.name}*` : x.name)).join(", ")
+      const n = saved.plan.batches.length
+      process.stdout.write(`saved plan ${saved.id} (${n} batch${n === 1 ? "" : "es"}${names ? `; params: ${names}` : ""})\n`)
+    })
+  memoryCmd
+    .command("discard")
+    .description("drop this session's batches since the last save")
+    .action(async () => {
+      const { discardPending } = await import("./memory/pending.js")
+      process.stdout.write(discardPending(kiteHome(), sessionName()) ? "discarded pending steps\n" : "nothing pending\n")
+    })
   memoryCmd.command("forget <slug>").action(async (id: string) => {
     const { forgetPlan } = await import("./memory/store.js")
     let removed: boolean

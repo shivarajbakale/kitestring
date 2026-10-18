@@ -330,6 +330,8 @@ interface Hooks {
   resolved?: { role: string; name: string; within?: string }
   /** Set when the action cache's hint was the element (FIND did not search). */
   cached?: boolean
+  /** Set when FIND resolved a password / card / one-time-code field. */
+  secret?: boolean
 }
 
 async function early(r: Run, status: Status, extra: Partial<ActionResult>): Promise<ActionResult> {
@@ -462,8 +464,14 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
         hit(key)
       }
       // Never cache a secret field (password, card, one-time code); an upload caches the locator only.
-      else if (key && f.locator && !f.secret) remember(key, f.locator)
+      else if (key && f.locator && !f.secret) {
+        remember(key, f.locator)
+        // A stored plan replays this element by its resolved name/role/scope: let that find start from the hint too.
+        const asStored = cacheKey(r.urlBefore, { text: f.name, role: f.role, ...(f.within ? { within: f.within } : {}) })
+        if (asStored && asStored !== key) remember(asStored, f.locator)
+      }
       hooks.resolved = { role: f.role, name: f.name, ...(f.within ? { within: f.within } : {}) }
+      if (f.secret) hooks.secret = true
     } else if (f.kind === "ambiguous") {
       return early(r, "ambiguous", {
         detail: `${f.candidates.length} elements match ${targetText(action.target)}`,
@@ -810,6 +818,8 @@ export type StepAction = Action | { kind: "goto"; url: string }
 
 export interface StepOutcome extends ActionResult {
   resolved?: { role: string; name: string; within?: string }
+  /** The resolved field was secret (password / cc-* / one-time-code). */
+  secret?: true
   /** `risky` (beforeAct refused) or `time` (the step's cap expired). */
   halt?: HaltReason
   /** The step's own input went out (or the navigation started): resending it would repeat it. */
@@ -858,6 +868,7 @@ export async function runStep(
   const out: StepOutcome = { ...res, acted: !!hooks.acted }
   if (hooks.resolved) out.resolved = hooks.resolved
   if (hooks.cached) out.cached = true
+  if (hooks.secret) out.secret = true
   if (expired) out.halt = "time"
   else if (hooks.refused) out.halt = hooks.refused
   return out

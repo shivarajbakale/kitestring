@@ -1,4 +1,5 @@
 import type { ActionResult, ActivityEntry, BatchResult, ConsoleEntry, NetworkEntry } from "@kitestring/protocol"
+import type { ReplayResult } from "../memory/replay.js"
 
 export function formatResult(r: ActionResult): string {
   const lines: string[] = []
@@ -106,4 +107,19 @@ export function formatCacheStats(r: { entries: number; hits: number; sites: numb
 
 export function formatCacheClear(r: { cleared: number }): string {
   return `cleared ${r.cleared} cached element${r.cleared === 1 ? "" : "s"}`
+}
+
+/**
+ * `ran plan <slug> · 3 batches · 2.1 s · ✓`, or where the replay stopped (1-based; the JSON is 0-based) followed by the
+ * halted batch's own lines, so the agent sees the page it takes over.
+ */
+export function formatReplay(slug: string, r: ReplayResult): string {
+  if (r.missing?.length) return r.stoppedAt?.detail ?? `missing parameters: ${r.missing.join(", ")}`
+  const n = `${r.batches} batch${r.batches === 1 ? "" : "es"}`
+  if (r.ok) return `ran plan ${slug} · ${n} · ${(r.ms / 1000).toFixed(1)} s · ✓`
+  const at = r.stoppedAt!
+  const lines = [`stopped at batch ${at.batch + 1} step ${at.step + 1} (${at.reason}: ${at.stepText}) — page left there, take over`]
+  if (at.detail) lines.push(at.detail)
+  if (r.result) lines.push(formatBatch(r.result))
+  return lines.join("\n")
 }

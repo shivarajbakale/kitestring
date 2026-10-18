@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -61,7 +61,7 @@ async function connect(env: Record<string, string> = {}): Promise<{ stderr: () =
 }
 
 describe("kite mcp", () => {
-  it("lists all 17 tools with the server name", async () => {
+  it("lists all 20 tools with the server name", async () => {
     await connect()
     const { tools } = await client!.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual(
@@ -69,9 +69,10 @@ describe("kite mcp", () => {
         "browser_status", "browser_tabs", "browser_tab_new", "browser_tab_use", "browser_tab_close",
         "browser_goto", "browser_snapshot", "browser_click", "browser_fill", "browser_select",
         "browser_press", "browser_scroll", "browser_console", "browser_network", "browser_screenshot", "browser_upload", "browser_batch",
+        "browser_plan_find", "browser_plan_run", "browser_plan_save",
       ].sort(),
     )
-    expect(tools).toHaveLength(17)
+    expect(tools).toHaveLength(20)
     expect(client!.getServerVersion()?.name).toBe("kitestring")
     for (const t of tools) expect(t.description).toBeTruthy()
   })
@@ -246,5 +247,77 @@ describe("kite mcp", () => {
     const lines = out.split("\n").filter(Boolean)
     expect(lines.length).toBeGreaterThanOrEqual(2)
     for (const l of lines) expect(JSON.parse(l).jsonrpc).toBe("2.0")
+  })
+})
+
+describe("kite mcp plans", () => {
+  const text = (r: any) => r.content[0].text as string
+  it("browser_batch journals the agent's ok steps; browser_plan_save saves them; find and run use them", async () => {
+    canned = {
+      ok: true,
+      steps: [
+        { i: 0, action: "goto", status: "done", ms: 1 },
+        { i: 1, action: "fill", status: "done", ms: 1, resolved: { role: "textbox", name: "Full name" } },
+        { i: 2, action: "click", status: "done", ms: 1, resolved: { role: "button", name: "Continue to payment" } },
+      ],
+      diff: { added: [], removed: [] },
+      page: "P",
+      startUrl: "about:blank",
+    }
+    await startFake()
+    await connect()
+    const b: any = await client!.callTool({
+      name: "browser_batch",
+      arguments: {
+        steps: [
+          { action: "goto", url: "https://shop.example.com/checkout" },
+          { action: "fill", target: "Full name", value: "Ada Lovelace" },
+          { action: "click", target: "Continue to payment" },
+        ],
+      },
+    })
+    expect(b.isError).toBeFalsy()
+    const none: any = await client!.callTool({ name: "browser_plan_find", arguments: { intent: "fill the shipping form", url: "https://shop.example.com/x" } })
+    expect(text(none)).toBe("no plan")
+    const s: any = await client!.callTool({ name: "browser_plan_save", arguments: { intent: "fill the shipping form" } })
+    expect(s.isError, text(s)).toBeFalsy()
+    expect(text(s)).toContain("saved plan shop-example-com/fill-the-shipping-form")
+    expect(readFileSync(join(dir, "memory", "shop-example-com", "fill-the-shipping-form.json"), "utf8")).not.toContain("Ada")
+
+    const f: any = await client!.callTool({ name: "browser_plan_find", arguments: { intent: "fill shipping form", url: "https://shop.example.com/x" } })
+    expect(JSON.parse(text(f))).toMatchObject({ slug: "fill-the-shipping-form", intent: "fill the shipping form", params: [{ name: "full_name", secret: false }] })
+    const miss: any = await client!.callTool({ name: "browser_plan_find", arguments: { intent: "delete my account", url: "https://shop.example.com/x" } })
+    expect(text(miss)).toBe("no plan")
+
+    received = []
+    const run: any = await client!.callTool({ name: "browser_plan_run", arguments: { slug: "fill-the-shipping-form", params: { full_name: "Grace Hopper" } } })
+    expect(run.isError, text(run)).toBeFalsy()
+    expect(text(run)).toMatch(/^ran plan fill-the-shipping-form · 1 batch · /)
+    expect(received.map((m) => m.method)).toEqual(["act.batch"])
+    expect(received[0].session).toBe("agent")
+    expect(received[0].params.steps[1].value).toBe("Grace Hopper")
+
+    received = []
+    const missing: any = await client!.callTool({ name: "browser_plan_run", arguments: { slug: "fill-the-shipping-form", params: {} } })
+    expect(missing.isError).toBe(true)
+    expect(text(missing)).toContain("missing parameter: full_name")
+    expect(received).toEqual([])
+  })
+
+  it("browser_plan_find without url uses the active tab's site", async () => {
+    canned = { tabs: [{ id: 1, url: "https://other.example.com/", active: true }] }
+    await startFake()
+    await connect()
+    const r: any = await client!.callTool({ name: "browser_plan_find", arguments: { intent: "anything" } })
+    expect(r.isError).toBeFalsy()
+    expect(text(r)).toBe("no plan")
+    expect(received[0].method).toBe("tab.list")
+  })
+
+  it("browser_plan_save with nothing journaled says so", async () => {
+    await connect()
+    const r: any = await client!.callTool({ name: "browser_plan_save", arguments: { intent: "x" } })
+    expect(r.isError).toBe(true)
+    expect(text(r)).toContain("nothing to save")
   })
 })

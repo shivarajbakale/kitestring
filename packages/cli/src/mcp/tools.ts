@@ -1,8 +1,12 @@
-import { parseTarget, type Method, type ScreenshotResult } from "@kitestring/protocol"
+import { parseTarget, type BatchResult, type Method, type ScreenshotResult, type Step } from "@kitestring/protocol"
 import { homedir } from "node:os"
 import { z } from "zod"
 import { KiteError, call } from "../client/rpc-client.js"
 import { human } from "../client/human.js"
+import { formatReplay } from "../client/format.js"
+import { appendPending, savePending } from "../memory/pending.js"
+import { runPlan } from "../memory/replay.js"
+import { findPlan, listPlans, planById } from "../memory/store.js"
 import { kiteHome } from "../paths.js"
 import { resolveUploads } from "../upload-guard.js"
 
@@ -13,13 +17,24 @@ export interface ToolResult {
   isError?: boolean
 }
 
-interface ToolDef {
+/** A tool that is one extension call. */
+interface RpcTool {
   name: string
   description: string
   method: Method
   shape: z.ZodRawShape
   params: (a: any) => Record<string, unknown>
 }
+
+/** A tool Kitestring answers itself (site memory), possibly calling the extension. */
+interface LocalTool {
+  name: string
+  description: string
+  shape: z.ZodRawShape
+  run: (a: any, session: string) => Promise<string>
+}
+
+type ToolDef = RpcTool | LocalTool
 
 const target = z.string().describe("visible text of the element, or an @ref from the last snapshot")
 const within = z.string().optional().describe("name of a section/dialog the element is inside")
@@ -183,17 +198,98 @@ export const TOOLS: ToolDef[] = [
       ...batchBudget(),
     }),
   },
+  {
+    name: "browser_plan_find",
+    description:
+      "Before a multi-step task on a site, look for a plan saved from an earlier run of the same task. Returns {slug, intent, params, score} or \"no plan\". Run it with browser_plan_run.",
+    shape: {
+      intent: z.string().min(1).describe("the task in a few words, e.g. \"fill the shipping form\""),
+      url: z.string().optional().describe("the site the task is on (default: the active tab's)"),
+    },
+    run: async (a: { intent: string; url?: string }, session) => {
+      let url = a.url
+      if (!url) {
+        try {
+          const r = (await call("tab.list", {}, { session, timeoutMs: mcpTimeout() })) as { tabs?: { url?: string; active?: boolean }[] }
+          url = r.tabs?.find((t) => t.active)?.url
+        } catch {
+          /* no browser: search every site */
+        }
+      }
+      let origin: string | undefined
+      try {
+        origin = url ? new URL(url).origin : undefined
+      } catch {
+        throw new KiteError("BAD_REQUEST", `not a URL: ${url}`)
+      }
+      const origins = origin ? [origin] : [...new Set(listPlans(kiteHome()).map((s) => s.plan.origin))]
+      let best: ReturnType<typeof findPlan>
+      for (const o of origins) {
+        const hit = findPlan(kiteHome(), o, a.intent)
+        if (hit && (!best || hit.score > best.score)) best = hit
+      }
+      if (!best) return "no plan"
+      return JSON.stringify({ slug: best.slug, intent: best.plan.intent, params: best.plan.params, score: Math.round(best.score * 100) / 100 })
+    },
+  },
+  {
+    name: "browser_plan_run",
+    description:
+      "Replay a saved plan with its parameter values (every param, by name). Stops at the first problem and leaves the page there: take over from stoppedAt with browser_snapshot / browser_batch.",
+    shape: {
+      slug: z.string().min(1).describe("the plan's slug from browser_plan_find"),
+      params: z.record(z.string()).optional().describe("value for each of the plan's params, by name"),
+    },
+    run: async (a: { slug: string; params?: Record<string, string> }, session) => {
+      let stored
+      try {
+        stored = planById(kiteHome(), a.slug)
+      } catch (e) {
+        throw new KiteError("BAD_REQUEST", (e as Error).message)
+      }
+      const notes: string[] = []
+      const r = await runPlan(stored.plan, a.params ?? {}, {
+        call: (method, params) => call(method, params, { session, timeoutMs: mcpTimeout() }),
+        out: (line) => void notes.push(line),
+      })
+      const text = [...notes, formatReplay(stored.id.split("/")[1]!, r)].join("\n")
+      if (r.missing) throw new KiteError("BAD_REQUEST", text)
+      return text
+    },
+  },
+  {
+    name: "browser_plan_save",
+    description:
+      "After finishing a new multi-step task with browser_batch, save the batches you sent since the last save as a plan for this intent. Plans never hold the values you typed: they become params.",
+    shape: { intent: z.string().min(1).describe("the task in a few words, e.g. \"fill the shipping form\"") },
+    run: async (a: { intent: string }, session) => {
+      const saved = savePending(kiteHome(), session, a.intent.trim())
+      if (!saved) throw new KiteError("BAD_REQUEST", `nothing to save: no batches journaled in session "${session}"`)
+      const names = saved.plan.params.map((x) => (x.secret ? `${x.name}*` : x.name)).join(", ")
+      const n = saved.plan.batches.length
+      return `saved plan ${saved.id} (${n} batch${n === 1 ? "" : "es"}${names ? `; params: ${names} (* = secret)` : ""})`
+    },
+  },
 ]
 
 export const TOOL_NAMES: string[] = TOOLS.map((t) => t.name)
 
 export async function runTool(def: ToolDef, args: unknown, session: string): Promise<ToolResult> {
   try {
-    const result = await call(def.method, def.params(args ?? {}), { session, timeoutMs: mcpTimeout() })
+    if ("run" in def) return { content: [{ type: "text", text: await def.run(args ?? {}, session) }] }
+    const params = def.params(args ?? {})
+    const result = await call(def.method, params, { session, timeoutMs: mcpTimeout() })
     if (def.method === "page.screenshot") {
       return { content: [{ type: "image", data: (result as ScreenshotResult).data, mimeType: "image/png" }] }
     }
-    return { content: [{ type: "text", text: human(def.method, result) }] }
+    let text = human(def.method, result)
+    if (def.method === "act.batch" && Array.isArray((result as BatchResult | null)?.steps)) {
+      // Journal the agent's ok steps for browser_plan_save (no values). Memory never fails the batch.
+      const b = result as BatchResult
+      const note = appendPending(kiteHome(), session, b.startUrl ?? "", params.steps as Step[], b)
+      if (note) text += `\n${note}`
+    }
+    return { content: [{ type: "text", text }] }
   } catch (e) {
     // Some extension messages already start with their code ("PAUSED: …"): prefix it once.
     const text =

@@ -115,6 +115,15 @@ export function listPlans(home: string, origin?: string): Stored[] {
   return out.sort((a, b) => a.id.localeCompare(b.id))
 }
 
+/** The stored plan with id `<origin-slug>/<plan-slug>` or bare `<plan-slug>`; throws when none or several match. */
+export function planById(home: string, id: string): Stored {
+  const hits = listPlans(home).filter((s) => (id.includes("/") ? s.id === id : s.id.endsWith(`/${id}`)))
+  if (hits.length !== 1) {
+    throw new Error(hits.length ? `ambiguous plan ${id}: use one of ${hits.map((h) => h.id).join(", ")}` : `no such plan: ${id}`)
+  }
+  return hits[0]!
+}
+
 /** All stored plans, optionally only those of one origin (e.g. "https://example.com"). */
 export function loadPlans(home: string, origin?: string): Plan[] {
   return listPlans(home, origin).map((s) => s.plan)

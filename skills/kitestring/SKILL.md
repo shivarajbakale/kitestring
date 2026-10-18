@@ -27,6 +27,7 @@ Two equivalent surfaces. Use MCP tools if your harness has them, else the `kite`
 | Scroll | `browser_scroll` | `kite scroll down [px]` |
 | Console / network | `browser_console` / `browser_network` | `kite console --errors` / `kite network --failed` |
 | Picture | `browser_screenshot` | `kite screenshot` (`--full`, `--ref @ref`) |
+| Find / run / save a remembered task | `browser_plan_find` / `browser_plan_run` / `browser_plan_save` | `kite memory list` / `kite run <slug> --param k=v` / `kite memory save "<intent>"` |
 
 CLI: exit code 1 when status is not done; call errors print `kite: <message>` (exit 2 = not connected); `--json` gives raw results and error codes. If `kite` is not found, use the `browser_*` MCP tools and ask the human to run `kite doctor`. Keep one session name for the whole task: pass `--session <name>` on every call, or set `KITE_SESSION=<name>`. You only see and touch your session's tabs.
 
@@ -50,6 +51,15 @@ When you already know the next steps (a form, a multi-page flow), send them toge
 6. A batch also stops by design at: a different site than it started on (`domain`; add `allow_domains` if intended), a confirm/prompt dialog with no `dialog` policy (`dialog`), the human pausing (`paused`), and the time budget (`time`: resend from `next`).
 
 Risky clicks (pay, buy, place order, send, delete, publish, submit for review, transfer) halt with `risky` by design. Never override that inside a batch: do the step as a single `kite click` only after the fresh yes the safety rules below require. The batch's risk check covers clicks only, so never submit a risky form with a `press Enter` step either. Keep batches to one page flow (about 5 to 15 steps), not a whole session.
+
+## Remembered tasks
+
+Kitestring remembers your batches so a repeat task replays without you planning each step again. It never stores the values you typed: each one becomes a param you pass on every run.
+
+1. Before a multi-step task on a site, call `browser_plan_find` with the task in a few words (`kite memory list` on the CLI).
+2. Found one: run it with `browser_plan_run {slug, params}` (`kite run <slug> --param name=value`; `--secret name=value` keeps a value out of the output). Pass every param by name; a missing or unknown name is refused before anything runs.
+3. A replay stops at the first problem and leaves the page there: read `stopped at batch N step M (reason: step)` and take over from that step with snapshot and batches. `needs_agent` means a field whose name matched a typed value was not stored: you fill that one. `risky` stops it as in any batch (CLI exit 3).
+4. After finishing a new multi-step task with batches, call `browser_plan_save {intent}` (`kite memory save "<intent>"`). Only steps sent with `browser_batch` / `kite batch` are remembered, not single actions; `kite memory discard` drops them instead.
 
 Upload paths: relative paths resolve against the working directory of the `kite` CLI, or of the MCP server (for MCP that is the agent harness's working directory, not necessarily your project). Prefer absolute paths.
 
@@ -87,6 +97,7 @@ Upload paths: relative paths resolve against the working directory of the `kite`
 | batch `domain` | The tab landed on another site. If intended, resend from `next` with `allow_domains`; else stop and look. |
 | batch `dialog` | A confirm/prompt was dismissed, cancelling the step. Resend from `next` with `dialog: "accept"` on that step only if confirming is what the human wants. |
 | batch `expect` | The step ran but the page is not the one you expected. Snapshot; fix the flow; resend from `next` (that step ran already). |
+| replay `needs_agent` | The plan does not know that field's name. Snapshot, fill it yourself, continue the task from there. |
 | batch `time` | The budget ran out; the halted step may have partly run. Snapshot, then resend from `next`. |
 | `NOT_CONNECTED` | Run `kite doctor` and show the human the failing `fix:` lines (they may need to run `kite init` or load the extension). Then `kite status`. |
 | `NO_TAB` | `kite tab new <url>`. |

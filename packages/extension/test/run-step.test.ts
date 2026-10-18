@@ -92,6 +92,16 @@ describe("runStep action cache", () => {
     expect(second.resolved).toEqual({ role: "button", name: "Delete everything", within: "Danger zone" })
   })
 
+  it("also remembers the element under its resolved name, so a stored plan's replay is served from the cache", async () => {
+    const cache = await import("../background/cache")
+    cache.resetForTest()
+    const { runStep } = await import("../background/pipeline")
+    agent.extra.find = () => ({ ...FOUND, locator: LOC, hinted: false })
+    await runStep(s, 1, { kind: "click", target: { text: "delete" } }, { capMs: 15_000 })
+    expect(cache.getHint(key("delete"))).toEqual(LOC)
+    expect(cache.getHint(["https://a.example", "/", "delete everything", "button", "danger zone"].join("\n"))).toEqual(LOC)
+  })
+
   it("a rejected hint is overwritten by the fresh find", async () => {
     const cache = await import("../background/cache")
     cache.resetForTest()
@@ -101,6 +111,20 @@ describe("runStep action cache", () => {
     const r = await runStep(s, 1, { kind: "click", target: { text: "Delete everything" } }, { capMs: 15_000 })
     expect(r.cached).toBeUndefined()
     expect(cache.getHint(key("delete everything"))).toEqual(LOC)
+  })
+
+  it("reports a secret field as secret (and a plain one not)", async () => {
+    const cache = await import("../background/cache")
+    cache.resetForTest()
+    const { runStep } = await import("../background/pipeline")
+    agent.extra.find = () => ({ ...FOUND, role: "textbox", hinted: false, secret: true })
+    // (a click: this file's input mock has no typing; the flag comes from FIND either way)
+    const pw = await runStep(s, 1, { kind: "click", target: { text: "Password" } }, { capMs: 15_000 })
+    expect(pw.status).toBe("done")
+    expect(pw.secret).toBe(true)
+    agent.extra.find = () => ({ ...FOUND, hinted: false })
+    const plain = await runStep(s, 1, { kind: "click", target: { text: "Delete everything" } }, { capMs: 15_000 })
+    expect(plain.secret).toBeUndefined()
   })
 
   it("never caches a secret field or a ref target", async () => {
