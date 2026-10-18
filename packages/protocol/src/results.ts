@@ -22,6 +22,12 @@ export interface Candidate {
   score: number
 }
 
+export interface DialogEvent {
+  type: "alert" | "confirm" | "prompt" | "beforeunload"
+  message: string
+  handled: "accepted" | "dismissed"
+}
+
 export interface ActionResult {
   ok: boolean
   status: Status
@@ -32,6 +38,7 @@ export interface ActionResult {
   errors?: string[]
   candidates?: Candidate[]
   blockedBy?: string
+  dialogs?: DialogEvent[]
   page: string
 }
 
@@ -57,6 +64,8 @@ export interface ActivityEntry {
   diff?: Diff
   /** Page brief after the action, at most 2000 chars. */
   page?: string
+  /** Id shared by all steps of one batch. */
+  batch?: number
 }
 
 export interface ControlState {

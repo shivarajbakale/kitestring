@@ -16,6 +16,8 @@ export const METHODS = [
   "act.press",
   "act.select",
   "act.scroll",
+  "act.batch",
+  "act.upload",
   "control.pause",
   "control.resume",
   "control.state",
