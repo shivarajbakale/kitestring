@@ -397,6 +397,21 @@ describe("runBatch", () => {
     expect(r3.next).toBe(1)
   })
 
+  it("expect text: a page that does not answer is reported as such, not as missing text", async () => {
+    const { callAgent } = await import("../background/agent-bridge")
+    const original = (callAgent as any).getMockImplementation()
+    ;(callAgent as any).mockImplementation(async (tabId: number, method: string, args: unknown[]) =>
+      method === "hasText" ? new Promise(() => {}) : original(tabId, method, args),
+    )
+    try {
+      const { p } = await run({ steps: [click("A", { expect: { text: "Thank you" } })] })
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect((await p).halted).toMatchObject({ index: 0, reason: "expect", detail: expect.stringMatching(/could not read the page text/) })
+    } finally {
+      ;(callAgent as any).mockImplementation(original)
+    }
+  })
+
   it("step wait polls find until the target appears", async () => {
     let n = 0
     const { callAgent } = await import("../background/agent-bridge")

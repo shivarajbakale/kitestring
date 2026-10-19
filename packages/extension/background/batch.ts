@@ -269,8 +269,11 @@ export async function runBatch(
         return { reason: "domain", detail: `landed on ${site} (${url}), not one of ${[...allowed].join(", ")}; pass allow_domains to go on` }
       }
       const want = step.expect
-      if (want && "text" in want && !(await agentQuick("hasText", [want.text], false))) {
-        return { reason: "expect", detail: `expected text ${JSON.stringify(want.text)} is not on the page` }
+      if (want && "text" in want) {
+        // null: the page did not answer in time (a hidden or busy tab), which is not the same as the text missing.
+        const has = await agentQuick<boolean | null>("hasText", [want.text], null)
+        if (has === null) return { reason: "expect", detail: `could not read the page text to check for ${JSON.stringify(want.text)} (page did not answer in time)` }
+        if (!has) return { reason: "expect", detail: `expected text ${JSON.stringify(want.text)} is not on the page` }
       }
       if (want && "url" in want && !urlMatches(url, want.url)) {
         return { reason: "expect", detail: `expected url ${JSON.stringify(want.url)}, page is at ${url}` }
