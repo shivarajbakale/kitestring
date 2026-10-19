@@ -177,7 +177,7 @@ describe("watch", () => {
 
   it("first read keeps the text, then tells only about changes; ignored lines never count", async () => {
     const w = watch()
-    const { calls, call } = page(["No slots\nupdated 10:00", "No slots\nupdated 11:00", "No slots\n3 Nov 09:30 free\nupdated 12:00"])
+    const { calls, call } = page(["No slots\nupdated 10:00", "No slots\nupdated 11:00", "No slots\n1\n3 Nov 09:30 free\nupdated 12:00"])
     const first = await runSchedule(home, w, call, { sleep })
     expect(first).toMatchObject({ status: "done", summary: expect.stringMatching(/^first read: kept 1 lines/) })
     expect(calls[0]).toEqual({ method: "tab.new", params: { url: "https://visa.example.com/slots", background: true } })
@@ -189,7 +189,7 @@ describe("watch", () => {
     expect(calls.some((c) => c.method === "notify")).toBe(false)
     expect(calls.at(-1)).toMatchObject({ method: "tab.close", params: { id: 9 } })
     const changed = await runSchedule(home, w, call, { sleep })
-    expect(changed).toMatchObject({ status: "changed", summary: '+1 −0 lines: "3 Nov 09:30 free"' })
+    expect(changed).toMatchObject({ status: "changed", summary: '+2 −0 lines: "3 Nov 09:30 free"' })
     expect(calls.find((c) => c.method === "notify")?.params.title).toBe("visa-example-com-slots changed")
   })
 
@@ -200,7 +200,7 @@ describe("watch", () => {
     const call: SessionCall = async (method) => (method === "tab.new" ? { id: 9 } : method === "page.text" ? { text: texts[Math.min(n++, 2)] } : null)
     await runSchedule(home, w, call, { sleep })
     expect(readWatchText(home, w.id)).toBe("No slots")
-    expect(n).toBe(3)
+    expect(n).toBe(5) // Loading, No slots, No slots (agreed), then the first read's confirming pair
   })
 
   it("an error is told once, not on every run while it repeats", async () => {
@@ -223,5 +223,50 @@ describe("watch", () => {
     const w = watch()
     const { call } = page(["No slots"])
     expect(await runDue(home, call, false, 1000)).toEqual([w.id])
+  })
+
+  it("a second run of the same schedule is skipped while the first is on", async () => {
+    const w = watch()
+    let open!: () => void
+    const gate = new Promise<void>((r) => (open = r))
+    const call: SessionCall = async (method) => {
+      if (method === "tab.new") return await gate, { id: 9 }
+      return method === "page.text" ? { text: "No slots" } : null
+    }
+    const first = runSchedule(home, w, call, { sleep })
+    expect(await runSchedule(home, w, call, { sleep })).toMatchObject({ status: "skipped", summary: "another run of it is still going" })
+    open()
+    expect((await first).status).toBe("done")
+    expect((await runSchedule(home, w, call, { sleep })).status).toBe("done") // released
+  })
+
+  it("a change that a second read 5 s later does not show is no change, and stays out of the baseline", async () => {
+    const w = watch()
+    // run 1: baseline; run 2: "Assignees" missing in the first read only (drawn late); run 3: an issue really appears
+    const reads = [
+      ["Issues", "Assignees"], ["Issues", "Assignees"],
+      ["Issues"], ["Issues"], ["Issues", "Assignees"], ["Issues", "Assignees"],
+      ["Issues", "Assignees", "Kitestring watch test"], ["Issues", "Assignees", "Kitestring watch test"],
+    ]
+    let n = 0
+    const call: SessionCall = async (method) =>
+      method === "tab.new" ? { id: 9 } : method === "page.text" ? { text: reads[Math.min(n++, reads.length - 1)]!.join("\n") } : null
+    await runSchedule(home, w, call, { sleep })
+    n = 2
+    expect(await runSchedule(home, w, call, { sleep })).toMatchObject({ status: "done", summary: "no change" })
+    expect(readWatchText(home, w.id)).toBe("Issues\nAssignees")
+    n = 6
+    expect(await runSchedule(home, w, call, { sleep })).toMatchObject({ status: "changed", summary: '+1 −0 lines: "Kitestring watch test"' })
+  })
+
+  it("the first read takes in parts a second read 5 s later shows", async () => {
+    const w = watch()
+    const reads = [["Issues"], ["Issues"], ["Issues", "Assignees"], ["Issues", "Assignees"]]
+    let n = 0
+    const call: SessionCall = async (method) =>
+      method === "tab.new" ? { id: 9 } : method === "page.text" ? { text: reads[Math.min(n++, reads.length - 1)]!.join("\n") } : null
+    await runSchedule(home, w, call, { sleep })
+    expect(readWatchText(home, w.id)).toBe("Issues\nAssignees")
+    expect(await runSchedule(home, w, call, { sleep })).toMatchObject({ status: "done", summary: "no change" })
   })
 })

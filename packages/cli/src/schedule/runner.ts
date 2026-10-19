@@ -1,3 +1,5 @@
+import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import type { Method } from "@kitestring/protocol"
 import { KiteError } from "../client/rpc-client.js"
 import { runPlan } from "../memory/replay.js"
@@ -25,9 +27,39 @@ export interface RunOpts {
 
 const sleepMs = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
-/** Runs a schedule once now: replays its plan, or reads its watched page. */
-export function runSchedule(home: string, s: Schedule, call: SessionCall, opts: RunOpts = {}): Promise<ScheduleRun> {
-  return s.kind === "watch" ? runWatch(home, s, call, opts) : runPlanSchedule(home, s, call)
+/** A run lock older than this is from a process that died mid-run. */
+const STALE_LOCK_MS = 15 * 60_000
+
+/**
+ * One run of a schedule at a time, across processes (the host's timer and `kite schedule run`): two runs share the
+ * session, so one would read the other's tab. Returns the release, or null when another run holds it.
+ */
+function lockRun(home: string, id: string): (() => void) | null {
+  const dir = join(home, "locks")
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const file = join(dir, `schedule-${id}.lock`)
+  try {
+    if (Date.now() - statSync(file).mtimeMs > STALE_LOCK_MS) rmSync(file, { force: true })
+  } catch {
+    /* no lock */
+  }
+  try {
+    writeFileSync(file, String(process.pid), { flag: "wx", mode: 0o600 })
+  } catch {
+    return null
+  }
+  return () => rmSync(file, { force: true })
+}
+
+/** Runs a schedule once now: replays its plan, or reads its watched page. Skipped while another run of it is on. */
+export async function runSchedule(home: string, s: Schedule, call: SessionCall, opts: RunOpts = {}): Promise<ScheduleRun> {
+  const release = lockRun(home, s.id)
+  if (!release) return { at: new Date().toISOString(), status: "skipped", summary: "another run of it is still going" }
+  try {
+    return await (s.kind === "watch" ? runWatch(home, s, call, opts) : runPlanSchedule(home, s, call))
+  } finally {
+    release()
+  }
 }
 
 /**
@@ -86,7 +118,16 @@ async function settledText(read: () => Promise<string>, sleep: (ms: number) => P
   return last
 }
 
+/** A watch confirms a change with a second read this much later. */
+const CONFIRM_MS = 5_000
+
 const quote = (l: string) => JSON.stringify(l.length > 80 ? `${l.slice(0, 79)}…` : l)
+
+/** Up to three lines that say something (not counters or separators like "1", "(1)", "·"), quoted. */
+function examples(lines: string[]): string {
+  const telling = lines.filter((l) => /\p{L}{3}/u.test(l))
+  return (telling.length ? telling : lines).slice(0, 3).map(quote).join(", ")
+}
 
 /**
  * Reads the watched page in a background tab of its own session (reading works there; only input needs a visible
@@ -101,23 +142,40 @@ async function runWatch(home: string, s: WatchSchedule, call: SessionCall, opts:
   let run: ScheduleRun
   try {
     tabId = ((await call("tab.new", { url: s.url, background: true }, session)) as { id: number }).id
-    const text = await settledText(async () => ((await call("page.text", {}, session)) as { text: string }).text, opts.sleep ?? sleepMs)
-    const lines = watchLines(text, s.ignore)
+    const sleep = opts.sleep ?? sleepMs
+    const read = async () => watchLines(await settledText(async () => ((await call("page.text", {}, session)) as { text: string }).text, sleep), s.ignore)
+    let lines = await read()
     const before = readWatchText(home, s.id)
-    writeWatchText(home, s.id, lines.join("\n"))
     if (before === undefined) {
+      // A first read can miss parts drawn late: a second read 5 s later adds what it shows, so they are no change later.
+      await sleep(CONFIRM_MS)
+      const have = new Set(lines)
+      lines = [...lines, ...(await read()).filter((l) => !have.has(l))]
+      writeWatchText(home, s.id, lines.join("\n"))
       run = { at, status: "done", summary: `first read: kept ${lines.length} lines; you hear when they change` }
     } else {
       const was = new Set(before.split("\n").filter(Boolean))
-      const now = new Set(lines)
-      const added = lines.filter((l) => !was.has(l))
-      const removed = [...was].filter((l) => !now.has(l))
+      let added = lines.filter((l) => !was.has(l))
+      const first = new Set(lines)
+      let removed = [...was].filter((l) => !first.has(l))
+      if (added.length || removed.length) {
+        // Parts of busy pages draw late or come and go: only a change a second read 5 s later still shows counts.
+        await sleep(CONFIRM_MS)
+        const again = await read()
+        const seen = new Set(again)
+        added = added.filter((l) => seen.has(l))
+        removed = removed.filter((l) => !seen.has(l))
+        // The new baseline takes only confirmed changes: a line that flickered stays as it was, so it is no change next time.
+        const gone = new Set(removed)
+        lines = [...again.filter((l) => was.has(l) || added.includes(l)), ...[...was].filter((l) => !seen.has(l) && !gone.has(l))]
+      }
+      writeWatchText(home, s.id, lines.join("\n"))
       run =
         added.length || removed.length
           ? {
               at,
               status: "changed",
-              summary: `+${added.length} −${removed.length} lines${added.length ? `: ${quote(added[0]!)}` : `, gone: ${quote(removed[0]!)}`}`,
+              summary: `+${added.length} −${removed.length} lines${added.length ? `: ${examples(added)}` : `, gone: ${examples(removed)}`}`,
             }
           : { at, status: "done", summary: "no change" }
     }
