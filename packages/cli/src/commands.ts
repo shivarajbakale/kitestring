@@ -280,6 +280,80 @@ export async function main(argv: string[]): Promise<number> {
       }
       return run("cache.clear", o.site ? { site: o.site } : {})
     })
+  const scheduleCmd = program
+    .command("schedule")
+    .description("replay a saved plan on its own every so often, while Chrome runs (once you are away, in a window of its own; you get a notification)")
+  scheduleCmd
+    .command("add <plan>")
+    .description("schedule a saved plan (kite memory list); the first run is as soon as you are away")
+    .requiredOption("--every <interval>", "how often: 30m, 6h, 1d, 1w (at least 5m)")
+    .option("--param <name=value>", "a parameter value (repeatable)", collect, [] as string[])
+    .option("--name <slug>", "the schedule's name (default: the plan's)")
+    .action(async (id: string, o: { every: string; param: string[]; name?: string }) => {
+      const { planById } = await import("./memory/store.js")
+      const { addSchedule, formatEvery, parseEvery } = await import("./schedule/store.js")
+      let stored, everyMs
+      try {
+        stored = planById(kiteHome(), id)
+        everyMs = parseEvery(o.every)
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      const secret = stored.plan.params.filter((p) => p.secret).map((p) => p.name)
+      if (secret.length) throw new UsageError(`plan ${stored.id} takes secrets (${secret.join(", ")}): a schedule never stores one`)
+      const params: Record<string, string> = {}
+      for (const kv of o.param) {
+        const m = /^([^=]+)=(.*)$/s.exec(kv)
+        if (!m) throw new UsageError(`expected name=value: ${kv}`)
+        if (Object.hasOwn(params, m[1]!)) throw new UsageError(`parameter given twice: ${m[1]}`)
+        params[m[1]!] = m[2]!
+      }
+      const names = stored.plan.params.map((p) => p.name)
+      const unknown = Object.keys(params).filter((k) => !names.includes(k))
+      const missing = names.filter((n) => !Object.hasOwn(params, n))
+      if (unknown.length) throw new UsageError(`unknown parameter${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")} (plan takes: ${names.join(", ") || "none"})`)
+      if (missing.length) throw new UsageError(`missing parameter${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`)
+      let s
+      try {
+        s = addSchedule(kiteHome(), { ...(o.name ? { id: o.name } : {}), plan: stored.id, params, everyMs, nextAt: Date.now(), createdAt: new Date().toISOString() })
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(s) + "\n")
+      process.stdout.write(`scheduled ${s.id}: plan ${s.plan} every ${formatEvery(s.everyMs)}; first run once you are away from the computer for a minute, while Chrome runs\n`)
+    })
+  scheduleCmd
+    .command("list")
+    .description("schedules, their next run and how the last one went")
+    .action(async () => {
+      const { formatSchedules } = await import("./client/format.js")
+      const { loadSchedules } = await import("./schedule/store.js")
+      const list = loadSchedules(kiteHome())
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(list) + "\n")
+      process.stdout.write(formatSchedules(list) + "\n")
+    })
+  scheduleCmd
+    .command("remove <name>")
+    .description("stop and delete a schedule (the plan stays)")
+    .action(async (name: string) => {
+      const { removeSchedule } = await import("./schedule/store.js")
+      if (!removeSchedule(kiteHome(), name)) throw new UsageError(`no such schedule: ${name}`)
+      process.stdout.write(`removed ${name}\n`)
+    })
+  scheduleCmd
+    .command("run <name>")
+    .description("run a schedule now (its timer is unchanged)")
+    .action(async (name: string) => {
+      const { loadSchedules, updateSchedule } = await import("./schedule/store.js")
+      const { runSchedule } = await import("./schedule/runner.js")
+      const s = loadSchedules(kiteHome()).find((x) => x.id === name)
+      if (!s) throw new UsageError(`no such schedule: ${name}`)
+      const run = await runSchedule(kiteHome(), s, (method, params, session) => call(method, params, { session }))
+      updateSchedule(kiteHome(), s.id, { last: run })
+      if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(run) + "\n")
+      else process.stdout.write(`${run.status === "done" ? "✓" : "✗"} ${run.status}: ${run.summary}\n`)
+      if (run.status !== "done") exitCode = 1
+    })
   const recordCmd = program.command("record").description("record a task you do in Chrome once; replay it as a skill")
   recordCmd
     .command("start")

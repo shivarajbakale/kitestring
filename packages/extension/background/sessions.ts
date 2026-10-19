@@ -147,13 +147,18 @@ function waitForLoad(tabId: number, timeoutMs = LOAD_TIMEOUT_MS): Promise<void> 
   })
 }
 
-async function addToGroup(s: Session, tabId: number): Promise<void> {
+/** `ownWindow`: joining a group moves the tab into the group's window, so a tab opened in its own window starts a group there. */
+async function addToGroup(s: Session, tabId: number, ownWindow = false): Promise<void> {
   if (s.groupId !== null) {
     try {
+      if (ownWindow) {
+        const [tab, group] = await Promise.all([chrome.tabs.get(tabId), chrome.tabGroups.get(s.groupId)])
+        if (tab.windowId !== group.windowId) throw new Error("group in another window")
+      }
       await chrome.tabs.group({ groupId: s.groupId, tabIds: [tabId] })
       return
     } catch {
-      s.groupId = null // the group disappeared (e.g. the user closed all its tabs)
+      s.groupId = null // the group disappeared (e.g. the user closed all its tabs), or is in another window
     }
   }
   const groupId = await chrome.tabs.group({ tabIds: [tabId] })
@@ -167,15 +172,21 @@ const info = (t: chrome.tabs.Tab): TabInfo => ({ id: t.id!, url: t.url || t.pend
  * Opens the tab on about:blank, attaches the debugger (capture starts) and only then navigates, so the
  * first load's console and network traffic is captured. Falls back to opening the URL directly when the
  * debugger can't attach.
+ *
+ * `ownWindow`: open it in a new window in front (a scheduled run; closing its tab closes the window). Never behind
+ * the person's windows or in a background tab: Chrome stops drawing those, and mouse and wheel input never completes.
  */
-export async function newTab(s: Session, url?: string): Promise<TabInfo> {
+export async function newTab(s: Session, url?: string, opts: { ownWindow?: boolean } = {}): Promise<TabInfo> {
   const target = url && !isRestrictedUrl(url) ? url : undefined
-  const tab = await chrome.tabs.create({ url: target ? "about:blank" : (url ?? "about:blank"), active: true })
+  const first = target ? "about:blank" : (url ?? "about:blank")
+  const tab = opts.ownWindow
+    ? (await chrome.windows.create({ url: first, focused: true, width: 1280, height: 900 })).tabs![0]!
+    : await chrome.tabs.create({ url: first, active: true })
   const id = tab.id!
   s.tabs.add(id)
   s.activeTabId = id
   await persist()
-  await addToGroup(s, id)
+  await addToGroup(s, id, opts.ownWindow)
   await persist()
   let navigated = false
   if (target) {

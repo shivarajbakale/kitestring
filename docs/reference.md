@@ -138,6 +138,10 @@ kite goto https://example.org
 | `kite memory forget <slug>` | delete a plan |
 | `kite memory discard` | drop this session's unsaved journal |
 | `kite run <plan> [--param name=value]... [--secret name=value]... [--dry-run]` | replay a plan (`<site>/<slug>`, or a bare slug when unique) |
+| `kite schedule add <plan> --every <30m\|6h\|1d\|1w> [--param name=value]... [--name <slug>]` | replay a plan on its own every so often while Chrome runs; the first run is as soon as you are away (plans with secret params are refused) |
+| `kite schedule list` | schedules, their next run and how the last one went |
+| `kite schedule run <name>` | run a schedule now (its timer is unchanged) |
+| `kite schedule remove <name>` | delete a schedule (the plan stays) |
 | `kite record start --name <slug>` | record what you do by hand in this session's active tab |
 | `kite record stop [--force]` | stop and write the skill and its plan |
 | `kite cache stats` | entries, sites, hits |
@@ -273,6 +277,18 @@ worked), and `browser_plan_discard` drops the unsaved journal.
 Plans live in `$KITE_HOME/memory/<site>/<plan>.json` (directories 0700, files 0600) and hold the intent, the site, a
 path pattern, parameter names and the batches. A plan is found by site first, then by how much its intent overlaps
 the task. `kite memory forget <slug>` removes one; `kite memory discard` drops the unsaved journal.
+
+### Schedules
+
+A schedule replays a saved plan every 5 minutes or more, with no agent and no model calls. The native host runs it,
+so it only happens while Chrome (and the extension) runs: a run missed while Chrome was closed happens once at the
+next start, then the timer goes on from there. A due run waits until you have been away for a minute (no mouse or
+keyboard input; a locked screen does not count), or until it is an hour late, then opens the plan's page in a new
+window in front, in its own session (`schedule-<name>`). It has to be visible: Chrome stops drawing background tabs and
+covered windows, and clicks and scrolls sent to them never finish. Each run ends with a notification. A full run closes its
+window; a stop (a target gone, a risky click, a guard) leaves it where it stopped, and a click on the notification
+shows it. While Kitestring is paused, runs are skipped without a notification. Schedules live in
+`$KITE_HOME/schedules.json` (owner-only) with their param values; a plan with secret params cannot be scheduled.
 
 ### Action cache
 

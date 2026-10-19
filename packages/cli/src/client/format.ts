@@ -1,5 +1,6 @@
 import type { ActionResult, ActivityEntry, BatchResult, ConsoleEntry, NetworkEntry } from "@kitestring/protocol"
 import type { ReplayResult } from "../memory/replay.js"
+import { formatEvery, type Schedule } from "../schedule/store.js"
 
 export function formatResult(r: ActionResult): string {
   const lines: string[] = []
@@ -129,4 +130,21 @@ export function withoutStartUrl<T>(r: T): T {
   if (!r || typeof r !== "object" || !("startUrl" in r)) return r
   const { startUrl: _s, ...rest } = r as T & { startUrl?: string }
   return rest as T
+}
+
+/** `kite schedule list`: one line per schedule. */
+export function formatSchedules(list: Schedule[], now = Date.now()): string {
+  if (!list.length) return "no schedules (kite schedule add <plan> --every 1d)"
+  const ago = (ms: number) => {
+    const m = Math.round(Math.abs(ms) / 60_000)
+    return m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`
+  }
+  return list
+    .map((s) => {
+      const next = s.nextAt <= now ? "due (runs once you are away)" : `next in ${ago(s.nextAt - now)}`
+      const mark = { done: "✓", stopped: "✗", error: "✗", skipped: "–" } as const
+      const last = s.last ? `last ${mark[s.last.status]} ${s.last.status} ${ago(now - Date.parse(s.last.at))} ago: ${s.last.summary}` : "never run"
+      return `${s.id}  every ${formatEvery(s.everyMs)}  plan ${s.plan}  ${next}  ${last}`
+    })
+    .join("\n")
 }

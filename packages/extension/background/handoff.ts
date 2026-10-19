@@ -40,7 +40,8 @@ async function save(): Promise<void> {
   }
 }
 
-function iconUrl(): string {
+/** The extension's largest icon, for notifications. */
+export function iconUrl(): string {
   const icons = (chrome.runtime.getManifest().icons ?? {}) as Record<string, string>
   const largest = Object.keys(icons).sort((a, b) => Number(b) - Number(a))[0]
   return largest ? chrome.runtime.getURL(icons[largest]!) : ""

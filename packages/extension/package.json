@@ -35,7 +35,8 @@
       "nativeMessaging",
       "storage",
       "sidePanel",
-      "notifications"
+      "notifications",
+      "idle"
     ],
     "host_permissions": [
       "<all_urls>"

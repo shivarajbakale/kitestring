@@ -1,6 +1,8 @@
 import { appendFileSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
+import { call } from "../client/rpc-client.js"
 import { kiteHome, logPath, socketPath } from "../paths.js"
+import { startScheduler } from "../schedule/runner.js"
 import { startDaemon } from "./daemon.js"
 import { FrameDecoder, encodeFrame } from "./framing.js"
 
@@ -24,6 +26,8 @@ async function main(): Promise<void> {
     log,
   })
   log("host started")
+  // Saved plans on a timer: they run through this host's own socket, like any kite client.
+  startScheduler(kiteHome(), (method, params, session) => call(method, params, { session }), log)
 
   const decoder = new FrameDecoder((e) => log(`bad frame: ${e.message}`))
   process.stdin.on("data", (chunk: Buffer) => {

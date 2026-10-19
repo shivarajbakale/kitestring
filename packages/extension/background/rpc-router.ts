@@ -19,6 +19,7 @@ import * as capture from "./capture"
 import * as control from "./control"
 import { RestrictedPageError, RpcError } from "./errors"
 import * as handoff from "./handoff"
+import * as notify from "./notify"
 import { runBatch } from "./batch"
 import { goto, runAction } from "./pipeline"
 import * as recorder from "./recorder"
@@ -88,7 +89,13 @@ function limitParam(params: Record<string, unknown>): number {
 }
 
 const handlers: Partial<Record<Method, Handler>> = {
-  status: async () => ({ connected: true, sessions: sessions.sessionNames(), paused: control.isPaused() }),
+  status: async () => ({
+    connected: true,
+    sessions: sessions.sessionNames(),
+    paused: control.isPaused(),
+    // Scheduled runs wait for the person to be away: "idle" after a minute without input.
+    idle: await chrome.idle.queryState(60).catch(() => "active"),
+  }),
 
   "control.pause": async (params) => {
     const reason = params.reason
@@ -127,7 +134,7 @@ const handlers: Partial<Record<Method, Handler>> = {
   "tab.new": async (params, s) => {
     const url = params.url
     if (url !== undefined && typeof url !== "string") badRequest("params.url must be a string")
-    const t = await sessions.newTab(s, url)
+    const t = await sessions.newTab(s, url, { ownWindow: params.own_window === true })
     return { id: t.id, url: t.url }
   },
 
@@ -248,6 +255,15 @@ const handlers: Partial<Record<Method, Handler>> = {
     return handoff.ask(s.name, s.activeTabId ?? null, reason.slice(0, HANDOFF_REASON_MAX), Math.min(wait, HANDOFF_WAIT_MS))
   },
 
+  notify: async (params) => {
+    const title = stringParam(params, "title").slice(0, 80)
+    const message = stringParam(params, "message").slice(0, 300)
+    const tab = params.tab
+    if (tab !== undefined && (typeof tab !== "number" || !Number.isInteger(tab))) badRequest("params.tab must be an integer tab id")
+    notify.show(title, message, tab as number | undefined)
+    return null
+  },
+
   "record.stop": async (params) => (params.peek === true ? recorder.peekRecording() : recorder.stopRecording()),
 
   "act.scroll": async (params, s) => {
@@ -277,6 +293,8 @@ const WHILE_PAUSED: ReadonlySet<Method> = new Set([
   "record.stop",
   // Asking the person does not act; they may well have paused to take over.
   "human.ask",
+  // A scheduled run says it was skipped because of the pause.
+  "notify",
 ])
 
 /** Methods that act in the session's tab: refused while the human is recording it, so only their actions are recorded. */

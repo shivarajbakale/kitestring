@@ -33,6 +33,8 @@ export const METHODS = [
    * Opens a request (notification, badge, panel card) or keeps waiting on the open one -> `HandoffResult`.
    */
   "human.ask",
+  /** `{title, message, tab?}`: a one-way notification for the person; a click shows `tab` (a scheduled run's result). */
+  "notify",
 ] as const
 
 export type Method = (typeof METHODS)[number]
