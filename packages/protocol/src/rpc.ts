@@ -11,6 +11,8 @@ export const METHODS = [
   "page.console",
   "page.network",
   "page.screenshot",
+  /** `{max?}`: the active tab's visible text -> `{text}` (a watch compares it run to run). */
+  "page.text",
   "act.click",
   "act.fill",
   "act.press",
@@ -33,7 +35,7 @@ export const METHODS = [
    * Opens a request (notification, badge, panel card) or keeps waiting on the open one -> `HandoffResult`.
    */
   "human.ask",
-  /** `{title, message, tab?}`: a one-way notification for the person; a click shows `tab` (a scheduled run's result). */
+  /** `{title, message, tab?, url?}`: a one-way notification for the person; a click shows `tab` or opens `url` (a scheduled run's result). */
   "notify",
 ] as const
 

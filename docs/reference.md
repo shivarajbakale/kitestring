@@ -139,7 +139,8 @@ kite goto https://example.org
 | `kite memory discard` | drop this session's unsaved journal |
 | `kite run <plan> [--param name=value]... [--secret name=value]... [--dry-run]` | replay a plan (`<site>/<slug>`, or a bare slug when unique) |
 | `kite schedule add <plan> --every <30m\|6h\|1d\|1w> [--param name=value]... [--name <slug>]` | replay a plan on its own every so often while Chrome runs; the first run is as soon as you are away (plans with secret params are refused) |
-| `kite schedule list` | schedules, their next run and how the last one went |
+| `kite watch <url> --every <30m\|6h\|1d\|1w> [--ignore <regex>]... [--name <slug>]` | read a page on its own (logged-in pages too) and get a notification when its text changes; managed with `kite schedule list / run / remove` |
+| `kite schedule list` | schedules and watches, their next run and how the last one went |
 | `kite schedule run <name>` | run a schedule now (its timer is unchanged) |
 | `kite schedule remove <name>` | delete a schedule (the plan stays) |
 | `kite record start --name <slug>` | record what you do by hand in this session's active tab |
@@ -289,6 +290,18 @@ covered windows, and clicks and scrolls sent to them never finish. Each run ends
 window; a stop (a target gone, a risky click, a guard) leaves it where it stopped, and a click on the notification
 shows it. While Kitestring is paused, runs are skipped without a notification. Schedules live in
 `$KITE_HOME/schedules.json` (owner-only) with their param values; a plan with secret params cannot be scheduled.
+
+### Watches
+
+`kite watch <url> --every 1h` reads a page on a timer, in your own Chrome (so pages you are logged into work), and
+tells you when its visible text changes: a notification with how many lines came and went and the first new one; a
+click opens the page. A watch only reads, so it runs in a background tab of its own session (`schedule-<name>`) when
+due, without waiting for you to be away, and closes the tab after. The page is read until two reads 2 s apart agree,
+for content that loads late. The first read only keeps the text; no change means no notification; an error (the site
+is down, the browser did not answer) is told once, not again while it repeats. `--ignore <regex>` (repeatable,
+case-insensitive) leaves out lines that change on their own, like clocks and counters. The last text is kept in
+`$KITE_HOME/watches/<name>.txt` (owner-only) and deleted with the watch. A logged-out page counts as a change: you hear
+about it.
 
 ### Action cache
 

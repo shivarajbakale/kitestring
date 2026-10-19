@@ -315,12 +315,37 @@ export async function main(argv: string[]): Promise<number> {
       if (missing.length) throw new UsageError(`missing parameter${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`)
       let s
       try {
-        s = addSchedule(kiteHome(), { ...(o.name ? { id: o.name } : {}), plan: stored.id, params, everyMs, nextAt: Date.now(), createdAt: new Date().toISOString() })
+        s = addSchedule(kiteHome(), { ...(o.name ? { id: o.name } : {}), kind: "plan", plan: stored.id, params, everyMs, nextAt: Date.now(), createdAt: new Date().toISOString() })
       } catch (e) {
         throw new UsageError((e as Error).message)
       }
       if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(s) + "\n")
-      process.stdout.write(`scheduled ${s.id}: plan ${s.plan} every ${formatEvery(s.everyMs)}; first run once you are away from the computer for a minute, while Chrome runs\n`)
+      process.stdout.write(`scheduled ${s.id}: plan ${stored.id} every ${formatEvery(s.everyMs)}; first run once you are away from the computer for a minute, while Chrome runs\n`)
+    })
+  program
+    .command("watch <url>")
+    .description("read a page every so often while Chrome runs (logged-in pages too) and get a notification when its text changes")
+    .requiredOption("--every <interval>", "how often: 30m, 6h, 1d, 1w (at least 5m)")
+    .option("--ignore <regex>", "leave out lines matching this (case-insensitive; repeatable), e.g. clocks or counters", collect, [] as string[])
+    .option("--name <slug>", "the watch's name (default: from the URL)")
+    .action(async (url: string, o: { every: string; ignore: string[]; name?: string }) => {
+      const { addSchedule, formatEvery, parseEvery } = await import("./schedule/store.js")
+      if (!/^https?:\/\/[^\s]+$/.test(url)) throw new UsageError(`url must start with http:// or https://: ${url}`)
+      let everyMs
+      try {
+        everyMs = parseEvery(o.every)
+        for (const r of o.ignore) new RegExp(r, "i")
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      let s
+      try {
+        s = addSchedule(kiteHome(), { ...(o.name ? { id: o.name } : {}), kind: "watch", url, ...(o.ignore.length ? { ignore: o.ignore } : {}), everyMs, nextAt: Date.now(), createdAt: new Date().toISOString() })
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(s) + "\n")
+      process.stdout.write(`watching ${url} as ${s.id} every ${formatEvery(s.everyMs)}; the first read is within a minute (kite schedule list / remove ${s.id})\n`)
     })
   scheduleCmd
     .command("list")
@@ -351,8 +376,8 @@ export async function main(argv: string[]): Promise<number> {
       const run = await runSchedule(kiteHome(), s, (method, params, session) => call(method, params, { session }))
       updateSchedule(kiteHome(), s.id, { last: run })
       if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(run) + "\n")
-      else process.stdout.write(`${run.status === "done" ? "✓" : "✗"} ${run.status}: ${run.summary}\n`)
-      if (run.status !== "done") exitCode = 1
+      else process.stdout.write(`${run.status === "done" ? "✓" : run.status === "changed" ? "●" : "✗"} ${run.status}: ${run.summary}\n`)
+      if (run.status !== "done" && run.status !== "changed") exitCode = 1
     })
   const recordCmd = program.command("record").description("record a task you do in Chrome once; replay it as a skill")
   recordCmd

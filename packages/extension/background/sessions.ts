@@ -175,13 +175,14 @@ const info = (t: chrome.tabs.Tab): TabInfo => ({ id: t.id!, url: t.url || t.pend
  *
  * `ownWindow`: open it in a new window in front (a scheduled run; closing its tab closes the window). Never behind
  * the person's windows or in a background tab: Chrome stops drawing those, and mouse and wheel input never completes.
+ * `background`: open it without bringing it to the front, for reading only (a watch): reading works there, input does not.
  */
-export async function newTab(s: Session, url?: string, opts: { ownWindow?: boolean } = {}): Promise<TabInfo> {
+export async function newTab(s: Session, url?: string, opts: { ownWindow?: boolean; background?: boolean } = {}): Promise<TabInfo> {
   const target = url && !isRestrictedUrl(url) ? url : undefined
   const first = target ? "about:blank" : (url ?? "about:blank")
   const tab = opts.ownWindow
     ? (await chrome.windows.create({ url: first, focused: true, width: 1280, height: 900 })).tabs![0]!
-    : await chrome.tabs.create({ url: first, active: true })
+    : await chrome.tabs.create({ url: first, active: !opts.background })
   const id = tab.id!
   s.tabs.add(id)
   s.activeTabId = id

@@ -134,7 +134,7 @@ const handlers: Partial<Record<Method, Handler>> = {
   "tab.new": async (params, s) => {
     const url = params.url
     if (url !== undefined && typeof url !== "string") badRequest("params.url must be a string")
-    const t = await sessions.newTab(s, url, { ownWindow: params.own_window === true })
+    const t = await sessions.newTab(s, url, { ownWindow: params.own_window === true, background: params.background === true })
     return { id: t.id, url: t.url }
   },
 
@@ -159,6 +159,17 @@ const handlers: Partial<Record<Method, Handler>> = {
       ]),
       SNAPSHOT_CAP_MS,
       `TIMEOUT: snapshot did not finish within ${SNAPSHOT_CAP_MS} ms (page still loading?)`,
+    )
+    return { text }
+  },
+
+  "page.text": async (params, s) => {
+    const max = params.max ?? 100_000
+    if (typeof max !== "number" || !Number.isInteger(max) || max < 1 || max > 1_000_000) badRequest("params.max must be an integer from 1 to 1000000")
+    const text = await bounded(
+      callAgent<string>(sessions.activeTab(s), "text", [max]),
+      SNAPSHOT_CAP_MS,
+      `TIMEOUT: page text not read within ${SNAPSHOT_CAP_MS} ms (page still loading?)`,
     )
     return { text }
   },
@@ -260,7 +271,9 @@ const handlers: Partial<Record<Method, Handler>> = {
     const message = stringParam(params, "message").slice(0, 300)
     const tab = params.tab
     if (tab !== undefined && (typeof tab !== "number" || !Number.isInteger(tab))) badRequest("params.tab must be an integer tab id")
-    notify.show(title, message, tab as number | undefined)
+    const url = params.url
+    if (url !== undefined && (typeof url !== "string" || !/^https?:\/\//.test(url))) badRequest("params.url must be an http(s) URL")
+    notify.show(title, message, tab as number | undefined, url as string | undefined)
     return null
   },
 
@@ -303,7 +316,7 @@ const actsInTab = (m: Method): boolean => m.startsWith("act.") || m === "page.go
  * Methods that read the session's tab: refused while the human is recording it (R13), since a snapshot shows field values
  * and console / network entries can carry form posts. (A screenshot is also refused by the tab lock it takes.)
  */
-const READS_TAB = new Set<Method>(["page.snapshot", "page.console", "page.network", "page.screenshot"])
+const READS_TAB = new Set<Method>(["page.snapshot", "page.text", "page.console", "page.network", "page.screenshot"])
 
 /** Methods that change something: recorded in the activity log, successful or not. */
 function isRecorded(m: Method): boolean {

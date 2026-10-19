@@ -7,7 +7,7 @@ import { KiteError } from "../src/client/rpc-client.js"
 import { formatSchedules } from "../src/client/format.js"
 import { savePlan } from "../src/memory/store.js"
 import { runDue, runSchedule, type SessionCall } from "../src/schedule/runner.js"
-import { addSchedule, formatEvery, loadSchedules, parseEvery, removeSchedule, updateSchedule, type Schedule } from "../src/schedule/store.js"
+import { addSchedule, formatEvery, loadSchedules, parseEvery, readWatchText, removeSchedule, updateSchedule, type PlanSchedule, type Schedule } from "../src/schedule/store.js"
 
 let home: string
 beforeEach(() => void (home = mkdtempSync(join(tmpdir(), "kite-schedule-"))))
@@ -51,9 +51,9 @@ function fake(batch: BatchResult | Error = ok) {
   return { calls, call }
 }
 
-function schedule(over: Partial<Schedule> = {}): Schedule {
+function schedule(over: Partial<PlanSchedule> = {}): Schedule {
   savePlan(home, PLAN)
-  return addSchedule(home, { plan: "bills-example-com/download-invoices", params: { month: "September" }, everyMs: 86_400_000, nextAt: 0, createdAt: "now", ...over })
+  return addSchedule(home, { kind: "plan", plan: "bills-example-com/download-invoices", params: { month: "September" }, everyMs: 86_400_000, nextAt: 0, createdAt: "now", ...over })
 }
 
 describe("intervals", () => {
@@ -145,5 +145,83 @@ describe("runDue", () => {
     expect(await runDue(home, call, false, 1000 + 59 * 60_000)).toEqual([])
     expect(calls).toEqual([])
     expect(await runDue(home, call, false, 1000 + 60 * 60_000)).toEqual([s.id])
+  })
+})
+
+describe("watch", () => {
+  /** A fake extension whose page shows each text of `pages` in turn, one per run (a run reads until two reads agree). */
+  function page(pages: string[]) {
+    const calls: { method: string; params: any }[] = []
+    let run = -1
+    const call: SessionCall = async (method, params) => {
+      calls.push({ method, params })
+      if (method === "tab.new") return run++, { id: 9, url: (params as { url: string }).url }
+      if (method === "page.text") return { text: pages[Math.min(run, pages.length - 1)] }
+      return null
+    }
+    return { calls, call }
+  }
+  const sleep = async () => {}
+  const watch = () => addSchedule(home, { kind: "watch", url: "https://visa.example.com/slots", ignore: ["^updated "], everyMs: 3_600_000, nextAt: 0, createdAt: "now" })
+
+  it("is named after the page; keeps its text owner-only and drops it on remove", async () => {
+    const w = watch()
+    expect(w.id).toBe("visa-example-com-slots")
+    const { call } = page(["No slots\nupdated 10:00"])
+    await runSchedule(home, w, call, { sleep })
+    expect(readWatchText(home, w.id)).toBe("No slots")
+    expect(statSync(join(home, "watches", `${w.id}.txt`)).mode & 0o777).toBe(0o600)
+    removeSchedule(home, w.id)
+    expect(readWatchText(home, w.id)).toBeUndefined()
+  })
+
+  it("first read keeps the text, then tells only about changes; ignored lines never count", async () => {
+    const w = watch()
+    const { calls, call } = page(["No slots\nupdated 10:00", "No slots\nupdated 11:00", "No slots\n3 Nov 09:30 free\nupdated 12:00"])
+    const first = await runSchedule(home, w, call, { sleep })
+    expect(first).toMatchObject({ status: "done", summary: expect.stringMatching(/^first read: kept 1 lines/) })
+    expect(calls[0]).toEqual({ method: "tab.new", params: { url: "https://visa.example.com/slots", background: true } })
+    expect(calls.filter((c) => c.method === "notify")).toEqual([
+      { method: "notify", params: { title: "Watching visa-example-com-slots", message: first.summary, url: "https://visa.example.com/slots" } },
+    ])
+    calls.length = 0
+    expect(await runSchedule(home, w, call, { sleep })).toMatchObject({ status: "done", summary: "no change" })
+    expect(calls.some((c) => c.method === "notify")).toBe(false)
+    expect(calls.at(-1)).toMatchObject({ method: "tab.close", params: { id: 9 } })
+    const changed = await runSchedule(home, w, call, { sleep })
+    expect(changed).toMatchObject({ status: "changed", summary: '+1 −0 lines: "3 Nov 09:30 free"' })
+    expect(calls.find((c) => c.method === "notify")?.params.title).toBe("visa-example-com-slots changed")
+  })
+
+  it("rereads a page that is still loading until two reads agree", async () => {
+    const w = watch()
+    const texts = ["Loading", "No slots", "No slots"]
+    let n = 0
+    const call: SessionCall = async (method) => (method === "tab.new" ? { id: 9 } : method === "page.text" ? { text: texts[Math.min(n++, 2)] } : null)
+    await runSchedule(home, w, call, { sleep })
+    expect(readWatchText(home, w.id)).toBe("No slots")
+    expect(n).toBe(3)
+  })
+
+  it("an error is told once, not on every run while it repeats", async () => {
+    const w = watch()
+    const calls: string[] = []
+    const call: SessionCall = async (method) => {
+      calls.push(method)
+      if (method === "tab.new") throw new KiteError("TIMEOUT", "timed out waiting for the browser")
+      return null
+    }
+    const r1 = await runSchedule(home, w, call, { sleep })
+    expect(r1.status).toBe("error")
+    expect(calls).toEqual(["tab.new", "notify"])
+    calls.length = 0
+    await runSchedule(home, { ...w, last: r1 }, call, { sleep })
+    expect(calls).toEqual(["tab.new"])
+  })
+
+  it("runs when due even while the person is active", async () => {
+    const w = watch()
+    const { call } = page(["No slots"])
+    expect(await runDue(home, call, false, 1000)).toEqual([w.id])
   })
 })

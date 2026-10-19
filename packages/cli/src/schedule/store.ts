@@ -1,15 +1,30 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { slug } from "@kitestring/protocol"
 
-/** A saved plan replayed on its own every `everyMs`, by the native host while Chrome runs. */
-export interface Schedule {
-  /** Lowercase slug, unique; the replay's session is `schedule-<id>`. */
-  id: string
+/** Something the native host does on its own every `everyMs` while Chrome runs: replay a plan, or watch a page. */
+export type Schedule = PlanSchedule | WatchSchedule
+
+/** A saved plan replayed on its own. Schedules from before watches have no `kind`: they are plan schedules. */
+export interface PlanSchedule extends ScheduleBase {
+  kind?: "plan"
   /** The plan's id, `<site>/<slug>`. */
   plan: string
   /** Every plan param by name. Never a secret: plans with secret params cannot be scheduled. */
   params: Record<string, string>
+}
+
+/** A page read on its own; the person hears when its visible text changes. */
+export interface WatchSchedule extends ScheduleBase {
+  kind: "watch"
+  url: string
+  /** Lines matching any of these (JS regex source, case-insensitive) are left out: clocks, counters, ads. */
+  ignore?: string[]
+}
+
+interface ScheduleBase {
+  /** Lowercase slug, unique; the run's session is `schedule-<id>`. */
+  id: string
   everyMs: number
   /** Epoch ms of the next run; a run missed while Chrome was closed happens once at the next start. */
   nextAt: number
@@ -19,7 +34,8 @@ export interface Schedule {
 
 export interface ScheduleRun {
   at: string
-  status: "done" | "stopped" | "skipped" | "error"
+  /** `changed`: a watch saw new text (`done` for a watch: no change, or the first read). */
+  status: "done" | "changed" | "stopped" | "skipped" | "error"
   summary: string
 }
 
@@ -62,30 +78,65 @@ function saveSchedules(home: string, list: Schedule[]): void {
   renameSync(tmp, file(home))
 }
 
-export function addSchedule(home: string, s: Omit<Schedule, "id"> & { id?: string }): Schedule {
+type NewSchedule = (Omit<PlanSchedule, "id"> | Omit<WatchSchedule, "id">) & { id?: string }
+
+/** The name a schedule gets when none is given: the plan's slug, or the watched page's host and path. */
+function defaultName(s: NewSchedule): string {
+  if (s.kind !== "watch") return (s as Omit<PlanSchedule, "id">).plan.split("/").pop() ?? ""
+  try {
+    const u = new URL(s.url)
+    return `${u.host} ${u.pathname}`
+  } catch {
+    return s.url
+  }
+}
+
+export function addSchedule(home: string, s: NewSchedule): Schedule {
   const list = loadSchedules(home)
-  const base = slug(s.id ?? s.plan.split("/").pop() ?? "", "schedule")
+  const base = slug(s.id ?? defaultName(s), "schedule")
   if (s.id !== undefined && list.some((x) => x.id === base)) throw new Error(`a schedule named ${base} already exists`)
   let id = base
   for (let n = 2; list.some((x) => x.id === id); n++) id = `${base}-${n}`
-  const out: Schedule = { ...s, id }
+  const out = { ...s, id } as Schedule
   saveSchedules(home, [...list, out])
   return out
 }
 
+/** Removes the schedule and, for a watch, the page text it kept. */
 export function removeSchedule(home: string, id: string): boolean {
   const list = loadSchedules(home)
   const kept = list.filter((x) => x.id !== id)
   if (kept.length === list.length) return false
   saveSchedules(home, kept)
+  rmSync(watchTextFile(home, id), { force: true })
   return true
 }
 
+/** Where a watch keeps the page text of its last run (owner-only: it can be a logged-in page). */
+export const watchTextFile = (home: string, id: string): string => join(home, "watches", `${id}.txt`)
+
+export function readWatchText(home: string, id: string): string | undefined {
+  try {
+    return readFileSync(watchTextFile(home, id), "utf8")
+  } catch {
+    return undefined
+  }
+}
+
+export function writeWatchText(home: string, id: string, text: string): void {
+  const dir = join(home, "watches")
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  chmodSync(dir, 0o700)
+  const tmp = `${watchTextFile(home, id)}.${process.pid}.tmp`
+  writeFileSync(tmp, text, { mode: 0o600 })
+  renameSync(tmp, watchTextFile(home, id))
+}
+
 /** Patches one schedule on a fresh read (the other process may have edited the file); a removed one stays removed. */
-export function updateSchedule(home: string, id: string, patch: Partial<Omit<Schedule, "id">>): void {
+export function updateSchedule(home: string, id: string, patch: Partial<Pick<Schedule, "nextAt" | "last">>): void {
   const list = loadSchedules(home)
   const i = list.findIndex((x) => x.id === id)
   if (i < 0) return
-  list[i] = { ...list[i]!, ...patch }
+  list[i] = { ...list[i]!, ...patch } as Schedule
   saveSchedules(home, list)
 }

@@ -25,6 +25,8 @@ export interface PageAgent {
   brief(): string
   /** Case-folded substring test against the page's visible text (batch `expect: {text}`). */
   hasText(text: string): boolean
+  /** The page's visible text, at most `max` characters (a watch compares it run to run). */
+  text(max: number): string
   readValue(ref: string): string | null
   /** Picks the option whose value or visible text is `value`; its visible text, or null if there is none. */
   setSelect(ref: string, value: string): string | null
@@ -70,6 +72,7 @@ export function createAgent(win: Window): PageAgent {
     waitQuiet: () => waitQuiet(win),
     brief: () => brief(doc),
     hasText: (text) => fold(doc.body?.innerText ?? "").includes(fold(text)),
+    text: (max) => (doc.body?.innerText ?? "").slice(0, max),
     readValue: (ref) => {
       const el = reg.resolve(ref)
       if (!el) return null
