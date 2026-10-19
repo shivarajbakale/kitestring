@@ -28,6 +28,11 @@ export const METHODS = [
   "record.start",
   /** Ends the recording -> `Recording` (`{name, url, steps, secrets, skipped}`; no values). `{peek: true}` returns it without ending it. */
   "record.stop",
+  /**
+   * `{reason, wait_ms?}`: ask the person at the browser to do something only they can (captcha, 2FA, login).
+   * Opens a request (notification, badge, panel card) or keeps waiting on the open one -> `HandoffResult`.
+   */
+  "human.ask",
 ] as const
 
 export type Method = (typeof METHODS)[number]

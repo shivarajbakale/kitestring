@@ -11,3 +11,6 @@ export const IGNORED_RESOURCE_TYPES = ["WebSocket", "EventSource", "Ping"] as co
 export const EXTENSION_ID = "bdfegcbeenjmlbfogodoibdhfbonnicm"
 /** Extension id the Chrome Web Store assigns on the first upload; empty until then. The native host allows it in addition to EXTENSION_ID. */
 export const KITE_STORE_EXTENSION_ID = ""
+/** Longest one human.ask call waits: under the MCP tool bound, so the agent asks again instead of timing out. */
+export const HANDOFF_WAIT_MS = 40_000
+export const HANDOFF_REASON_MAX = 200

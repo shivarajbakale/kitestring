@@ -1,4 +1,4 @@
-import { parseTarget, type BatchResult, type Method, type ScreenshotResult, type Step } from "@kitestring/protocol"
+import { HANDOFF_REASON_MAX, HANDOFF_WAIT_MS, parseTarget, type BatchResult, type Method, type ScreenshotResult, type Step } from "@kitestring/protocol"
 import { homedir } from "node:os"
 import { z } from "zod"
 import { KiteError, call } from "../client/rpc-client.js"
@@ -92,6 +92,11 @@ function batchStepParams(s: z.infer<typeof batchStep>): Record<string, unknown> 
   return out
 }
 
+/** How long one browser_ask_human call waits: inside this call's own bound, with room for the reply. */
+function askWait(): number {
+  return Math.max(0, Math.min(HANDOFF_WAIT_MS, mcpTimeout() - 5_000))
+}
+
 function batchBudget(): { budget_ms?: number } {
   const n = Number(process.env.KITE_BATCH_BUDGET_MS)
   return Number.isInteger(n) && n > 0 ? { budget_ms: n } : {}
@@ -183,6 +188,14 @@ export const TOOLS: ToolDef[] = [
     method: "page.screenshot",
     shape: { full: z.boolean().optional(), ref: z.string().optional() },
     params: (a) => ({ full: !!a.full, ...(a.ref ? { ref: a.ref } : {}) }),
+  },
+  {
+    name: "browser_ask_human",
+    description:
+      "Ask the user to do something only a person should: solve a captcha, enter a 2FA code or a password, log in, approve a payment. They get a Chrome notification and the tab comes to the front. Waits up to 40 s per call: on \"waiting\" call again with the same reason; on \"done\" take a snapshot and continue; on \"declined\" stop and tell the user what is blocked.",
+    method: "human.ask",
+    shape: { reason: z.string().min(1).max(HANDOFF_REASON_MAX).describe("what the user should do, one short sentence, e.g. \"Solve the captcha on the login page\"") },
+    params: (a) => ({ reason: a.reason, wait_ms: askWait() }),
   },
   {
     name: "browser_batch",

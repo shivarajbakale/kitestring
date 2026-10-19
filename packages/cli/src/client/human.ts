@@ -1,4 +1,4 @@
-import type { ActionResult, ActivityEntry, BatchResult, ConsoleEntry, Method, NetworkEntry } from "@kitestring/protocol"
+import type { ActionResult, ActivityEntry, BatchResult, ConsoleEntry, HandoffResult, Method, NetworkEntry } from "@kitestring/protocol"
 import { formatActivity, formatCacheClear, formatCacheStats, formatBatch, formatConsole, formatNetwork, formatResult } from "./format.js"
 
 /** The text `kite` prints for a result; the MCP tools return the same text. */
@@ -33,7 +33,15 @@ export function human(method: Method, result: unknown): string {
       return formatCacheClear(r)
     case "act.batch":
       return formatBatch(r as BatchResult)
+    case "human.ask":
+      return formatHandoff(r as HandoffResult)
     default:
       return r && typeof r === "object" && "status" in r ? formatResult(r as ActionResult) : JSON.stringify(r)
   }
+}
+
+function formatHandoff(h: HandoffResult): string {
+  if (h.status === "done") return `done: the user finished "${h.reason}". Take a snapshot to see the page now.`
+  if (h.status === "declined") return `declined: the user could not do "${h.reason}". Stop and tell them what is blocked.`
+  return `waiting: the user has not finished "${h.reason}" yet. Ask again with the same reason to keep waiting.`
 }

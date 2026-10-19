@@ -2,6 +2,7 @@ import type { GroupColor, UiRequest, UiResponse, UiSession, UiState } from "../u
 import { isTrustedUiSender, parseUiRequest } from "../ui/messages"
 import * as activity from "./activity"
 import * as control from "./control"
+import * as handoff from "./handoff"
 import { isHostConnected } from "./native-port"
 import * as recorder from "./recorder"
 import * as sessions from "./sessions"
@@ -18,7 +19,7 @@ async function groupColor(s: sessions.Session): Promise<GroupColor> {
 }
 
 export async function uiState(): Promise<UiState> {
-  await Promise.all([sessions.loadSessions(), control.ready(), activity.ready(), recorder.ready()])
+  await Promise.all([sessions.loadSessions(), control.ready(), activity.ready(), recorder.ready(), handoff.ready()])
   const log = activity.list()
   const list: UiSession[] = []
   for (const name of sessions.sessionNames()) {
@@ -35,6 +36,7 @@ export async function uiState(): Promise<UiState> {
     ...(since ? { since } : {}),
     sessions: list,
     ...(recording ? { recording } : {}),
+    handoffs: handoff.pending().map(({ session, reason, since, tabId }) => ({ session, reason, since, tabId })),
   }
 }
 
@@ -73,6 +75,9 @@ async function handle(req: UiRequest): Promise<UiState> {
       break
     case "focusTab":
       await focusSession(req.session, req.tabId)
+      break
+    case "handoff":
+      await handoff.answer(req.session, req.outcome)
       break
     case "recordStop":
       await recorder.stopFromPanel()

@@ -2,6 +2,7 @@ import type { ActivityEntry } from "@kitestring/protocol"
 import { useMemo, useRef, useState } from "react"
 import { ActivityFeed } from "~ui/components/ActivityFeed"
 import { ConnectionPill } from "~ui/components/ConnectionPill"
+import { HandoffList } from "~ui/components/HandoffList"
 import { Lockup } from "~ui/components/Lockup"
 import { PauseControl } from "~ui/components/PauseControl"
 import { SessionFilter, type FilterOption } from "~ui/components/SessionFilter"
@@ -86,14 +87,23 @@ function SidePanel() {
         ) : null}
 
         {state ? (
-          <PauseControl
-            paused={state.paused}
-            reason={state.reason}
-            since={state.since}
-            agentTabs={state.sessions.reduce((n, s) => n + s.tabCount, 0)}
-            onPause={(reason) => act({ op: "pause", reason })}
-            onResume={() => act({ op: "resume" })}
-          />
+          <>
+            <HandoffList
+              handoffs={state.handoffs}
+              onShow={(h) =>
+                void act(h.tabId === null ? { op: "focusTab", session: h.session } : { op: "focusTab", session: h.session, tabId: h.tabId })
+              }
+              onAnswer={(h, outcome) => act({ op: "handoff", session: h.session, outcome })}
+            />
+            <PauseControl
+              paused={state.paused}
+              reason={state.reason}
+              since={state.since}
+              agentTabs={state.sessions.reduce((n, s) => n + s.tabCount, 0)}
+              onPause={(reason) => act({ op: "pause", reason })}
+              onResume={() => act({ op: "resume" })}
+            />
+          </>
         ) : null}
       </div>
 

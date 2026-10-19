@@ -35,6 +35,7 @@ the default is `agent`). It exposes 21 tools:
 | `browser_batch` | run a list of steps in one call (see [Batches](#batches)) |
 | `browser_console`, `browser_network` | recent console messages and network requests of the tab |
 | `browser_screenshot` | capture the tab (the viewport, the whole page, or one element by ref) |
+| `browser_ask_human` | ask the person at the browser to do something only they should (captcha, 2FA code, password, login); waits up to 40 s per call and answers `waiting`, `done` or `declined` |
 | `browser_plan_find`, `browser_plan_run`, `browser_plan_save`, `browser_plan_discard` | find, replay, save and drop remembered tasks: plans built from the agent's batches, with every typed value a parameter |
 
 ## The action pipeline
@@ -123,6 +124,7 @@ kite goto https://example.org
 | --- | --- |
 | `kite pause [reason]` | stop all agents from acting until resumed; the reason reaches the agents |
 | `kite resume` | let agents act again |
+| `kite ask <reason> [--timeout <s>]` | ask the person at the browser to do something (captcha, 2FA, login) and wait for Done or Can't do it; exit 0 done, 1 declined, 2 still waiting at the timeout (600 s by default) |
 | `kite activity [--limit <n>]` | recent agent actions, newest first (200 by default) |
 
 ### Memory, replay and recording
@@ -315,6 +317,12 @@ view of what agents are doing: every action, grouped by batch, with its diff.
 Paused:
 
 ![Popup, paused](ui/popup-paused-light.png)
+
+When an agent asks for the person (`browser_ask_human`, `kite ask`), Chrome shows a notification with **Done** and
+**Can’t do it**, the toolbar icon gets a `!` badge, the agent's tab comes to the front, and the popup and the side
+panel show a card with the same two answers. One request stays open per session; an answer given while the agent is
+not waiting is kept for its next call with the same reason. Turning off Chrome's notifications leaves the badge and the
+card.
 
 ## Safety model
 

@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { Command, CommanderError } from "commander"
-import { EXTENSION_ID, RECORD_NAME_RE, parseTarget, type BatchResult, type Method, type Recording, type ScreenshotResult, type Step } from "@kitestring/protocol"
+import { EXTENSION_ID, HANDOFF_WAIT_MS, RECORD_NAME_RE, parseTarget, type BatchResult, type HandoffResult, type Method, type Recording, type ScreenshotResult, type Step } from "@kitestring/protocol"
 import { KiteError, call } from "./client/rpc-client.js"
 import { human } from "./client/human.js"
 import { withoutStartUrl } from "./client/format.js"
@@ -244,6 +244,23 @@ export async function main(argv: string[]): Promise<number> {
     .description("stop all agents from acting until resumed")
     .action((reason?: string) => run("control.pause", reason ? { reason } : {}))
   program.command("resume").description("let agents act again").action(() => run("control.resume", {}))
+  program
+    .command("ask <reason>")
+    .description("ask the person at the browser to do something (captcha, 2FA, login) and wait for Done or Can't do it")
+    .option("--timeout <s>", "give up after this many seconds (still waiting: exit 2)", "600")
+    .action(async (reason: string, o: { timeout: string }) => {
+      if (!/^[1-9]\d*$/.test(o.timeout)) throw new UsageError(`--timeout must be a positive integer: ${o.timeout}`)
+      const deadline = Date.now() + Number(o.timeout) * 1000
+      let r: HandoffResult
+      for (;;) {
+        const left = deadline - Date.now()
+        r = (await call("human.ask", { reason, wait_ms: Math.max(0, Math.min(HANDOFF_WAIT_MS, left)) }, { session: sessionName() })) as HandoffResult
+        if (r.status !== "waiting" || left <= HANDOFF_WAIT_MS) break
+      }
+      if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(r) + "\n")
+      else process.stdout.write(human("human.ask", r) + "\n")
+      exitCode = r.status === "done" ? 0 : r.status === "declined" ? 1 : 2
+    })
   program
     .command("activity")
     .description("recent agent actions, newest first")

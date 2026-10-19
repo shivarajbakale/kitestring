@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react"
 import { uiCall, type UiRequest, type UiState } from "./messages"
 
 const POLL_MS = 2000
-/** chrome.storage.session keys the background writes when sessions, pause state or the activity log change. */
-const WATCHED = ["control", "activity", "kite.sessions", "kite.recording"]
+/** chrome.storage.session keys the background writes when sessions, pause state, requests or the activity log change. */
+const WATCHED = ["control", "activity", "kite.sessions", "kite.recording", "kite.handoff"]
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 

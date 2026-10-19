@@ -1,5 +1,7 @@
 import {
   ErrorCode,
+  HANDOFF_REASON_MAX,
+  HANDOFF_WAIT_MS,
   RECORD_NAME_RE,
   RpcRequest,
   parseBatchParams,
@@ -16,6 +18,7 @@ import * as cache from "./cache"
 import * as capture from "./capture"
 import * as control from "./control"
 import { RestrictedPageError, RpcError } from "./errors"
+import * as handoff from "./handoff"
 import { runBatch } from "./batch"
 import { goto, runAction } from "./pipeline"
 import * as recorder from "./recorder"
@@ -237,6 +240,14 @@ const handlers: Partial<Record<Method, Handler>> = {
     return recorder.startRecording(sessions.activeTab(s), name)
   },
 
+  "human.ask": async (params, s) => {
+    const reason = stringParam(params, "reason").trim()
+    if (!reason) badRequest("params.reason must not be empty")
+    const wait = params.wait_ms ?? HANDOFF_WAIT_MS
+    if (typeof wait !== "number" || !Number.isFinite(wait) || wait < 0) badRequest("params.wait_ms must be a non-negative number")
+    return handoff.ask(s.name, s.activeTabId ?? null, reason.slice(0, HANDOFF_REASON_MAX), Math.min(wait, HANDOFF_WAIT_MS))
+  },
+
   "record.stop": async (params) => (params.peek === true ? recorder.peekRecording() : recorder.stopRecording()),
 
   "act.scroll": async (params, s) => {
@@ -264,6 +275,8 @@ const WHILE_PAUSED: ReadonlySet<Method> = new Set([
   "cache.stats",
   "cache.clear",
   "record.stop",
+  // Asking the person does not act; they may well have paused to take over.
+  "human.ask",
 ])
 
 /** Methods that act in the session's tab: refused while the human is recording it, so only their actions are recorded. */

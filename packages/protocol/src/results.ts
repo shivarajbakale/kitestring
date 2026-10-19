@@ -95,6 +95,25 @@ export interface ControlState {
   since?: number
 }
 
+/** A request for the person at the browser, as kept in chrome.storage.session `kite.handoff`. */
+export interface Handoff {
+  session: string
+  /** The session's active tab when the agent asked; null when it had none. */
+  tabId: number | null
+  reason: string
+  /** Epoch ms when the agent first asked. */
+  since: number
+  /** Set when the person answered before the agent's next human.ask picked it up. */
+  outcome?: "done" | "declined"
+}
+
+/** human.ask: `waiting` until the person clicks Done or Can't do it. */
+export interface HandoffResult {
+  status: "done" | "declined" | "waiting"
+  reason: string
+  since: number
+}
+
 export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug"
 
 export interface ConsoleEntry {

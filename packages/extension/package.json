@@ -34,7 +34,8 @@
       "scripting",
       "nativeMessaging",
       "storage",
-      "sidePanel"
+      "sidePanel",
+      "notifications"
     ],
     "host_permissions": [
       "<all_urls>"
