@@ -54,4 +54,39 @@ describe("InflightRequests", () => {
     t.onEvent(...childNav("L9"), 2)
     expect(t.size).toBe(1)
   })
+
+  it("ignores telemetry beacons that fire every few hundred ms (GitHub)", () => {
+    const t = new InflightRequests(0)
+    for (const url of [
+      "https://collector.github.com/github/collect",
+      "https://api.github.com/_private/browser/rum?ddforward=x",
+      "https://api.github.com/_private/browser/errors",
+      "https://browser-intake-datadoghq.eu/api/v2/rum",
+    ])
+      t.onEvent("Network.requestWillBeSent", { requestId: url, loaderId: "L1", request: { url } })
+    expect(t.size).toBe(0)
+  })
+
+  it("a request in flight 5 s stops counting; the last one going starts the quiet period", () => {
+    const t = new InflightRequests(0)
+    t.onEvent(...sent("poll", "L1"), 1000)
+    t.onEvent(...sent("api", "L1"), 4000)
+    t.prune(5999)
+    expect(t.size).toBe(2)
+    t.prune(6000) // poll is 5 s old
+    expect(t.size).toBe(1)
+    t.onEvent(...finished("poll"), 6100) // its late end changes nothing
+    expect(t.size).toBe(1)
+    t.prune(9000)
+    expect(t.size).toBe(0)
+    expect(t.quietSince).toBe(9000)
+  })
+
+  it("a redirect keeps the request's first send time", () => {
+    const t = new InflightRequests(0)
+    t.onEvent(...sent("r", "L1"), 1000)
+    t.onEvent(...sent("r", "L1"), 5500) // redirect hop reuses the id
+    t.prune(6000)
+    expect(t.size).toBe(0)
+  })
 })

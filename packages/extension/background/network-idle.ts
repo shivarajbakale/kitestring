@@ -18,6 +18,7 @@ export function trackNetwork(tabId: number): NetworkTracker {
         const start = Date.now()
         const tick = () => {
           const now = Date.now()
+          inflight.prune(now)
           if (inflight.size === 0 && now - inflight.quietSince >= quietMs) return finish(true)
           if (now - start >= timeoutMs) return finish(false)
         }
