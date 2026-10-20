@@ -40,6 +40,7 @@ vi.mock("../background/agent-bridge", () => ({
 }))
 vi.mock("../background/cdp", () => ({
   ensureAttached: vi.fn(async () => {}),
+  hold: () => () => {},
   isNotAttached: () => false,
   onEvent: vi.fn(() => () => {}),
   onAttach: vi.fn(),

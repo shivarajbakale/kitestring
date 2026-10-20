@@ -11,7 +11,7 @@ import {
 } from "@kitestring/protocol"
 import { diffSnapshots, type CheckResult, type Closer, type FindResult } from "@kitestring/page-agent"
 import { callAgent, isRestrictedUrl } from "./agent-bridge"
-import { ensureAttached, isNotAttached, onEvent, send } from "./cdp"
+import { ensureAttached, hold, isNotAttached, onEvent, send } from "./cdp"
 import { cacheKey, getHint, hit, ready as cacheReady, remember } from "./cache"
 import { assertNotPaused } from "./control"
 import { watchDialogs, type DialogPolicy, type DialogWatch } from "./dialogs"
@@ -714,9 +714,11 @@ async function begin(
   dialogOpts: DialogOpts = {},
 ): Promise<ActionResult> {
   const ended = agentActing(tabId)
+  const release = hold(tabId)
   try {
     return await beginActing(s, tabId, p, fn, dialogOpts)
   } finally {
+    release()
     ended()
   }
 }
