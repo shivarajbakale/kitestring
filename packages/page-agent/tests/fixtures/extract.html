@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Shop</title></head>
+<body>
+<nav><ul><li><a href="/a">Home</a></li><li><a href="/b">Deals</a></li><li><a href="/c">Help</a></li><li><a href="/d">Account</a></li></ul></nav>
+<main>
+  <h1>Results</h1>
+  <div id="results">
+    <div class="card product"><a href="/p/1"><img src="/i/1.jpg"><h3>Blue kettle</h3></a><span class="price">₹1,299</span><span class="rating">4.5</span></div>
+    <div class="card product"><a href="/p/2"><img src="/i/2.jpg"><h3>Red toaster</h3></a><span class="price">₹2,450</span><span class="rating">4.1</span></div>
+    <div class="card product"><a href="/p/3"><img src="/i/3.jpg"><h3>Steel mug</h3></a><span class="price">₹399</span></div>
+    <div class="card product"><a href="/p/4"><img src="/i/4.jpg"><h3>Glass jar</h3></a><span class="price">₹250</span><span class="rating">3.9</span></div>
+    <div class="card product" style="display:none"><a href="/p/5"><h3>Hidden</h3></a><span class="price">₹1</span></div>
+  </div>
+  <table aria-label="Orders">
+    <thead><tr><th>Order</th><th>Date</th><th>Total</th></tr></thead>
+    <tbody>
+      <tr><td><a href="/o/100">#100</a></td><td>2026-10-01</td><td>₹1,299</td></tr>
+      <tr><td><a href="/o/101">#101</a></td><td>2026-10-05</td><td>₹399</td></tr>
+    </tbody>
+  </table>
+  <button id="next" onclick="next()">Next</button>
+</main>
+<script>
+function next() {
+  const r = document.getElementById("results")
+  r.innerHTML = ['Wool scarf', 'Cotton cap', 'Silk tie'].map((t, i) =>
+    `<div class="card product"><a href="/p/${10 + i}"><h3>${t}</h3></a><span class="price">₹${100 + i}</span></div>`).join("")
+}
+</script>
+</body></html>

@@ -23,7 +23,7 @@ uploads, memory, recording, and the build notes. For problems, see [troubleshoot
 ## MCP tools
 
 `kite mcp` serves MCP over stdio. The session name comes from `KITE_SESSION` (`kite init` sets one per agent;
-the default is `agent`). It exposes 21 tools:
+the default is `agent`). It exposes 23 tools:
 
 | Tool | What it does |
 | --- | --- |
@@ -34,6 +34,7 @@ the default is `agent`). It exposes 21 tools:
 | `browser_click`, `browser_fill`, `browser_select`, `browser_press`, `browser_scroll`, `browser_upload` | act on the page; each returns a diff of what changed |
 | `browser_batch` | run a list of steps in one call (see [Batches](#batches)) |
 | `browser_console`, `browser_network` | recent console messages and network requests of the tab |
+| `browser_extract` | read the page's biggest table or repeated list (or the one holding `near` text, or `selector`'s items) as rows; `next` pages through (a button's text or `scroll`); `save` writes every row to a .csv, .json or .jsonl file. See [Extracting data](#extracting-data) |
 | `browser_screenshot` | capture the tab (the viewport, the whole page, or one element by ref) |
 | `browser_ask_human` | ask the person at the browser to do something only they should (captcha, 2FA code, password, login); waits up to 40 s per call and answers `waiting`, `done` or `declined` |
 | `browser_plan_find`, `browser_plan_run`, `browser_plan_save`, `browser_plan_discard` | find, replay, save and drop remembered tasks: plans built from the agent's batches, with every typed value a parameter |
@@ -90,6 +91,7 @@ line to add.
 | `kite tab close [id]` | close a tab (the active one without an id) |
 | `kite goto <url>` | navigate the active tab |
 | `kite snapshot [--full] [--scope <ref>]` | the visible page as a compact tree with refs; `--full` for everything, `--scope` to limit it to one ref |
+| `kite extract [--near <text>] [--selector <css>] [--pick <n>] [--next <target>\|scroll] [--pages <n>] [--max <n>] [-o <file>]` | the page's table or repeated list as CSV on stdout (the summary and other candidates on stderr), or saved to a .csv/.json/.jsonl file |
 | `kite screenshot [--full] [--ref <ref>] [-o <file>]` | PNG of the active tab; prints the file path (default `$KITE_HOME/shots/<timestamp>.png`) |
 | `kite console [--errors] [--limit <n>] [--clear]` | console messages and uncaught errors (newest 50 by default) |
 | `kite network [--failed] [--filter <s>] [--limit <n>] [--clear]` | network requests; `--failed` keeps status ≥ 400 and requests with no response |
@@ -140,7 +142,8 @@ kite goto https://example.org
 | `kite run <plan> [--param name=value]... [--secret name=value]... [--dry-run]` | replay a plan (`<site>/<slug>`, or a bare slug when unique) |
 | `kite schedule add <plan> --every <30m\|6h\|1d\|1w> [--param name=value]... [--name <slug>]` | replay a plan on its own every so often while Chrome runs; the first run is as soon as you are away (plans with secret params are refused) |
 | `kite watch <url> --every <30m\|6h\|1d\|1w> [--ignore <regex>]... [--name <slug>]` | read a page on its own (logged-in pages too) and get a notification when its text changes; managed with `kite schedule list / run / remove` |
-| `kite schedule list` | schedules and watches, their next run and how the last one went |
+| `kite export <url> --every <interval> [--near <text>] [--selector <css>] [--next <text>\|scroll] [--pages <n>] [--max <n>] [--format csv\|json\|jsonl] [--name <slug>]` | save a page's table or list to `$KITE_HOME/exports/<name>/` on its own and hear how many rows are new; managed with `kite schedule list / run / remove` |
+| `kite schedule list` | schedules, watches and exports, their next run and how the last one went |
 | `kite schedule run <name>` | run a schedule now (its timer is unchanged) |
 | `kite schedule remove <name>` | delete a schedule (the plan stays) |
 | `kite record start --name <slug>` | record what you do by hand in this session's active tab |
@@ -303,6 +306,15 @@ case-insensitive) leaves out lines that change on their own, like clocks and cou
 `$KITE_HOME/watches/<name>.txt` (owner-only) and deleted with the watch. A logged-out page counts as a change: you hear
 about it.
 
+### Exports
+
+`kite export <url> --every 1d` saves a page's table or repeated list (see [Extracting data](#extracting-data)) to a new
+file each run, `$KITE_HOME/exports/<name>/<time>.csv` (owner-only; `--format json` or `jsonl` for others), and notifies
+you with the row count and how many rows are new since the last run. A one-page export only reads, so it runs in a
+background tab when due, like a watch; with `--next` it clicks or scrolls, so it waits until you are away and opens a
+window in front, like a plan. The rows are read once they settle (two reads 2 s apart count the same). Removing the
+export keeps its files.
+
 ### Action cache
 
 The extension remembers where it found each element (by site, page shape and the text you asked for). The next find
@@ -316,6 +328,27 @@ kite cache stats                       # entries, sites, hits
 kite cache clear                       # everything
 kite cache clear --site https://example.com
 ```
+
+## Extracting data
+
+`browser_extract` and `kite extract` read repeated data off the active page without snapshots: a `<table>` (or ARIA
+table/grid), its header cells becoming columns and each row's first link a `link` column; or a list of elements that
+share their tag and classes (product cards, search results, issue rows), whose text parts, links (`link`) and images
+(`image`) line up into columns by where they sit in each item, named from their class, `aria-label`, `itemprop` or
+`data-testid`. Hidden items are left out. The biggest candidate wins (navigation, headers and footers count less);
+`near` takes the tightest one holding a text, `selector` names the items, and `pick` one of the other candidates the
+reply lists.
+
+With `next`, it clicks that button (or, with `scroll`, scrolls 2000 px) and reads the same table or list again by its
+key, up to `pages` (5 by default, 50 at most), stopping early when the next button is missing, a page brings no new
+rows (it waits up to 4 s for them), or `max` rows (500 by default, 5000 at most) are in. Rows already read are not
+repeated, which suits infinite lists that keep their old items. The MCP tool stops paging in time to answer inside its
+call bound, returns the rows as CSV (the first ones when they pass 30,000 characters), and with `save` writes them all.
+CSV cells starting with `=`, `+`, `-` or `@` (not numbers) get a leading `'` so spreadsheets do not run them as formulas.
+
+It reads only what the page shows you, in your own logged-in Chrome: fine for your own orders, statements, invoices and
+admin lists; collecting other people's data, or pages a site's terms forbid automating, is on you. Busy paging on
+large consumer sites can get your own account flagged.
 
 ## Recording a task
 

@@ -68,7 +68,7 @@ async function connect(env: Record<string, string> = {}): Promise<{ stderr: () =
 }
 
 describe("kite mcp", () => {
-  it("lists all 22 tools with the server name", async () => {
+  it("lists all 23 tools with the server name", async () => {
     await connect()
     const { tools } = await client!.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual(
@@ -76,11 +76,11 @@ describe("kite mcp", () => {
         "browser_status", "browser_tabs", "browser_tab_new", "browser_tab_use", "browser_tab_close",
         "browser_goto", "browser_snapshot", "browser_click", "browser_fill", "browser_select",
         "browser_press", "browser_scroll", "browser_console", "browser_network", "browser_screenshot", "browser_upload", "browser_batch",
-        "browser_ask_human",
+        "browser_ask_human", "browser_extract",
         "browser_plan_find", "browser_plan_run", "browser_plan_save", "browser_plan_discard",
       ].sort(),
     )
-    expect(tools).toHaveLength(22)
+    expect(tools).toHaveLength(23)
     expect(client!.getServerVersion()?.name).toBe("kitestring")
     for (const t of tools) expect(t.description).toBeTruthy()
   })

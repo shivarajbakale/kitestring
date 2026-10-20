@@ -6,6 +6,7 @@ import { EXTENSION_ID, HANDOFF_WAIT_MS, RECORD_NAME_RE, parseTarget, type BatchR
 import { KiteError, call } from "./client/rpc-client.js"
 import { human } from "./client/human.js"
 import { withoutStartUrl } from "./client/format.js"
+import { DEFAULT_MAX_ROWS, MAX_PAGES, MAX_ROWS, extractPages, extractSummary, formatOf, saveRows, toCsv } from "./client/extract.js"
 import { installHost, legacyNotices } from "./install/host-manifest.js"
 import { kiteHome } from "./paths.js"
 import { resolveUploads } from "./upload-guard.js"
@@ -111,6 +112,49 @@ export async function main(argv: string[]): Promise<number> {
       writeFileSync(file, Buffer.from(r.data, "base64"))
       if (g.json) process.stdout.write(JSON.stringify({ path: file, mime: r.mime, width: r.width, height: r.height }) + "\n")
       else process.stdout.write(file + "\n")
+    })
+  program
+    .command("extract")
+    .description("print the active page's table or repeated list as CSV (or save it), optionally paging with --next")
+    .option("--near <text>", "the table or list holding this text (e.g. a value in one row)")
+    .option("--selector <css>", "CSS selector of the items, one row each")
+    .option("--pick <n>", "another candidate, by the index listed on stderr")
+    .option("--next <target>", 'visible text or @ref of the next-page button, or "scroll" for infinite lists')
+    .option("--pages <n>", "at most this many pages with --next", "5")
+    .option("--max <n>", "at most this many rows", String(DEFAULT_MAX_ROWS))
+    .option("-o, --output <file>", "write the rows to this .csv, .json or .jsonl file instead of printing CSV")
+    .action(async (o: { near?: string; selector?: string; pick?: string; next?: string; pages: string; max: string; output?: string }) => {
+      const int = (name: string, v: string, lo: number, hi: number): number => {
+        if (!/^\d+$/.test(v) || Number(v) < lo || Number(v) > hi) throw new UsageError(`--${name} must be an integer from ${lo} to ${hi}: ${v}`)
+        return Number(v)
+      }
+      if (o.output) {
+        try {
+          formatOf(o.output)
+        } catch (e) {
+          throw new UsageError((e as Error).message)
+        }
+      }
+      const session = sessionName()
+      const x = await extractPages((method, params) => call(method, params, { session }), {
+        ...(o.near ? { near: o.near } : {}),
+        ...(o.selector ? { selector: o.selector } : {}),
+        ...(o.pick !== undefined ? { pick: int("pick", o.pick, 0, 50) } : {}),
+        ...(o.next ? { next: o.next } : {}),
+        pages: int("pages", o.pages, 1, MAX_PAGES),
+        max: int("max", o.max, 1, MAX_ROWS),
+      })
+      const g = program.opts<Globals>()
+      if (o.output) {
+        const path = saveRows(x, o.output, process.cwd())
+        if (g.json) process.stdout.write(JSON.stringify({ path, rows: x.rows.length, columns: x.columns, pages: x.pages, ...(x.stopped ? { stopped: x.stopped } : {}) }) + "\n")
+        else process.stdout.write(`${extractSummary(x)}\nsaved ${path}\n`)
+        return
+      }
+      if (g.json) return void process.stdout.write(JSON.stringify(x) + "\n")
+      process.stderr.write(extractSummary(x) + "\n")
+      if (x.others.length) process.stderr.write(`other candidates (--pick): ${x.others.map((c) => `${c.index} ${c.source}`).join("; ")}\n`)
+      process.stdout.write(toCsv(x.columns, x.rows))
     })
   program
     .command("click <target>")
@@ -346,6 +390,56 @@ export async function main(argv: string[]): Promise<number> {
       }
       if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(s) + "\n")
       process.stdout.write(`watching ${url} as ${s.id} every ${formatEvery(s.everyMs)}; the first read is within a minute (kite schedule list / remove ${s.id})\n`)
+    })
+  program
+    .command("export <url>")
+    .description("save a page's table or list to a file every so often while Chrome runs (logged-in pages too); you hear how many rows are new")
+    .requiredOption("--every <interval>", "how often: 30m, 6h, 1d, 1w (at least 5m)")
+    .option("--near <text>", "the table or list holding this text")
+    .option("--selector <css>", "CSS selector of the items, one row each")
+    .option("--next <target>", 'page with this button (visible text), or "scroll"; such runs wait until you are away')
+    .option("--pages <n>", "at most this many pages with --next", "5")
+    .option("--max <n>", "at most this many rows", String(DEFAULT_MAX_ROWS))
+    .option("--format <format>", "csv, json or jsonl", "csv")
+    .option("--name <slug>", "the export's name (default: from the URL)")
+    .action(async (url: string, o: { every: string; near?: string; selector?: string; next?: string; pages: string; max: string; format: string; name?: string }) => {
+      const { addSchedule, exportDir, formatEvery, parseEvery } = await import("./schedule/store.js")
+      if (!/^https?:\/\/[^\s]+$/.test(url)) throw new UsageError(`url must start with http:// or https://: ${url}`)
+      if (o.format !== "csv" && o.format !== "json" && o.format !== "jsonl") throw new UsageError(`--format must be csv, json or jsonl: ${o.format}`)
+      if (o.next?.startsWith("@")) throw new UsageError("--next must be the button's visible text (an @ref does not last until the next run)")
+      const int = (name: string, v: string, hi: number): number => {
+        if (!/^[1-9]\d*$/.test(v) || Number(v) > hi) throw new UsageError(`--${name} must be an integer from 1 to ${hi}: ${v}`)
+        return Number(v)
+      }
+      const pages = int("pages", o.pages, MAX_PAGES)
+      const max = int("max", o.max, MAX_ROWS)
+      let everyMs
+      try {
+        everyMs = parseEvery(o.every)
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      let s
+      try {
+        s = addSchedule(kiteHome(), {
+          ...(o.name ? { id: o.name } : {}),
+          kind: "export",
+          url,
+          ...(o.near ? { near: o.near } : {}),
+          ...(o.selector ? { selector: o.selector } : {}),
+          ...(o.next ? { next: o.next, pages } : {}),
+          ...(max !== DEFAULT_MAX_ROWS ? { max } : {}),
+          format: o.format,
+          everyMs,
+          nextAt: Date.now(),
+          createdAt: new Date().toISOString(),
+        })
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(s) + "\n")
+      const first = o.next ? "the first run is once you are away from the computer for a minute" : "the first run is within a minute"
+      process.stdout.write(`exporting ${url} as ${s.id} every ${formatEvery(s.everyMs)} to ${exportDir(kiteHome(), s.id)}; ${first} (kite schedule list / remove ${s.id})\n`)
     })
   scheduleCmd
     .command("list")

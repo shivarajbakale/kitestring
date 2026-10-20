@@ -11,6 +11,7 @@ import { fileInputFor, fileNames, watchFileInput } from "./files.js"
 import { pressTarget } from "./submit.js"
 import { elementLine } from "./snapshot.js"
 import { roleOf } from "./roles.js"
+import { extract, type ExtractOpts, type ExtractResult } from "./extract.js"
 
 export interface PageAgent {
   snapshot(opts?: SnapshotOpts): string
@@ -27,6 +28,8 @@ export interface PageAgent {
   hasText(text: string): boolean
   /** The page's visible text, at most `max` characters (a watch compares it run to run). */
   text(max: number): string
+  /** Rows of the page's best (or chosen) table or repeated list (browser_extract). */
+  extract(opts?: ExtractOpts): ExtractResult
   readValue(ref: string): string | null
   /** Picks the option whose value or visible text is `value`; its visible text, or null if there is none. */
   setSelect(ref: string, value: string): string | null
@@ -73,6 +76,7 @@ export function createAgent(win: Window): PageAgent {
     brief: () => brief(doc),
     hasText: (text) => fold(doc.body?.innerText ?? "").includes(fold(text)),
     text: (max) => (doc.body?.innerText ?? "").slice(0, max),
+    extract: (opts) => extract(doc, opts),
     readValue: (ref) => {
       const el = reg.resolve(ref)
       if (!el) return null
@@ -130,6 +134,7 @@ export function createAgent(win: Window): PageAgent {
 export { RefRegistry } from "./refs.js"
 export { norm } from "./normalize.js"
 export type { SnapshotOpts } from "./snapshot.js"
+export type { ExtractOpts, ExtractResult, ExtractCandidate } from "./extract.js"
 export { find } from "./find.js"
 export type { FindResult, FindIntent } from "./find.js"
 export { check } from "./check.js"

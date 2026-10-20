@@ -13,6 +13,8 @@ export const METHODS = [
   "page.screenshot",
   /** `{max?}`: the active tab's visible text -> `{text}` (a watch compares it run to run). */
   "page.text",
+  /** `{near?, selector?, key?, pick?, max?}`: the active tab's best (or chosen) table or repeated list -> `ExtractResult`. */
+  "page.extract",
   "act.click",
   "act.fill",
   "act.press",

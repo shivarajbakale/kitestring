@@ -8,6 +8,7 @@ import {
   type ActionResult,
   type ActivityEntry,
   type DialogEvent,
+  type ExtractResult,
   type Method,
   type RpcResponse,
   type Target,
@@ -174,6 +175,33 @@ const handlers: Partial<Record<Method, Handler>> = {
     return { text }
   },
 
+  "page.extract": async (params, s) => {
+    const opts: Record<string, unknown> = {}
+    for (const k of ["near", "selector", "key"] as const) {
+      if (params[k] === undefined) continue
+      if (typeof params[k] !== "string" || !params[k]) badRequest(`params.${k} must be a non-empty string`)
+      opts[k] = params[k]
+    }
+    for (const [k, hi] of [["pick", 50], ["max", 5_000]] as const) {
+      const v = params[k]
+      if (v === undefined) continue
+      if (typeof v !== "number" || !Number.isInteger(v) || v < (k === "pick" ? 0 : 1) || v > hi) badRequest(`params.${k} must be an integer up to ${hi}`)
+      opts[k] = v
+    }
+    try {
+      return await bounded(
+        callAgent<ExtractResult>(sessions.activeTab(s), "extract", [opts]),
+        SNAPSHOT_CAP_MS,
+        `TIMEOUT: page data not read within ${SNAPSHOT_CAP_MS} ms (page still loading?)`,
+      )
+    } catch (e) {
+      // The page has no such data, or the selector is wrong: the caller's to fix, not a failure of Kitestring.
+      const m = e instanceof Error ? e.message : ""
+      if (/^(no table|no visible element|not a valid CSS selector|the table or list|pick \d)/.test(m)) badRequest(m)
+      throw e
+    }
+  },
+
   "page.console": async (params, s) => {
     const level = params.level
     if (level !== undefined && level !== "error" && level !== "warn" && level !== "all") {
@@ -316,7 +344,7 @@ const actsInTab = (m: Method): boolean => m.startsWith("act.") || m === "page.go
  * Methods that read the session's tab: refused while the human is recording it (R13), since a snapshot shows field values
  * and console / network entries can carry form posts. (A screenshot is also refused by the tab lock it takes.)
  */
-const READS_TAB = new Set<Method>(["page.snapshot", "page.text", "page.console", "page.network", "page.screenshot"])
+const READS_TAB = new Set<Method>(["page.snapshot", "page.text", "page.extract", "page.console", "page.network", "page.screenshot"])
 
 /** Methods that change something: recorded in the activity log, successful or not. */
 function isRecorded(m: Method): boolean {

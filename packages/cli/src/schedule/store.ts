@@ -2,8 +2,8 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, wri
 import { join } from "node:path"
 import { slug } from "@kitestring/protocol"
 
-/** Something the native host does on its own every `everyMs` while Chrome runs: replay a plan, or watch a page. */
-export type Schedule = PlanSchedule | WatchSchedule
+/** Something the native host does on its own every `everyMs` while Chrome runs: replay a plan, watch a page, or save its rows. */
+export type Schedule = PlanSchedule | WatchSchedule | ExportSchedule
 
 /** A saved plan replayed on its own. Schedules from before watches have no `kind`: they are plan schedules. */
 export interface PlanSchedule extends ScheduleBase {
@@ -22,6 +22,19 @@ export interface WatchSchedule extends ScheduleBase {
   ignore?: string[]
 }
 
+/** A page's table or repeated list saved to a file each run (`kite export`); the person hears how many rows are new. */
+export interface ExportSchedule extends ScheduleBase {
+  kind: "export"
+  url: string
+  near?: string
+  selector?: string
+  /** Paging (next button text, or "scroll") needs input: such a run waits for the person to be away, like a plan. */
+  next?: string
+  pages?: number
+  max?: number
+  format: "csv" | "json" | "jsonl"
+}
+
 interface ScheduleBase {
   /** Lowercase slug, unique; the run's session is `schedule-<id>`. */
   id: string
@@ -38,6 +51,9 @@ export interface ScheduleRun {
   status: "done" | "changed" | "stopped" | "skipped" | "error"
   summary: string
 }
+
+/** Runs that click or scroll need a window in front (Chrome only draws visible ones), so they wait for the person to be away. */
+export const needsWindow = (s: Schedule): boolean => s.kind === undefined || s.kind === "plan" || (s.kind === "export" && s.next !== undefined)
 
 export const MIN_EVERY_MS = 5 * 60_000
 const UNITS: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 7 * 86_400_000 }
@@ -78,11 +94,11 @@ function saveSchedules(home: string, list: Schedule[]): void {
   renameSync(tmp, file(home))
 }
 
-type NewSchedule = (Omit<PlanSchedule, "id"> | Omit<WatchSchedule, "id">) & { id?: string }
+type NewSchedule = (Omit<PlanSchedule, "id"> | Omit<WatchSchedule, "id"> | Omit<ExportSchedule, "id">) & { id?: string }
 
-/** The name a schedule gets when none is given: the plan's slug, or the watched page's host and path. */
+/** The name a schedule gets when none is given: the plan's slug, or the page's host and path. */
 function defaultName(s: NewSchedule): string {
-  if (s.kind !== "watch") return (s as Omit<PlanSchedule, "id">).plan.split("/").pop() ?? ""
+  if (s.kind !== "watch" && s.kind !== "export") return (s as Omit<PlanSchedule, "id">).plan.split("/").pop() ?? ""
   try {
     const u = new URL(s.url)
     return `${u.host} ${u.pathname}`
@@ -102,7 +118,7 @@ export function addSchedule(home: string, s: NewSchedule): Schedule {
   return out
 }
 
-/** Removes the schedule and, for a watch, the page text it kept. */
+/** Removes the schedule and, for a watch, the page text it kept (an export's files stay: they are the person's). */
 export function removeSchedule(home: string, id: string): boolean {
   const list = loadSchedules(home)
   const kept = list.filter((x) => x.id !== id)
@@ -114,6 +130,9 @@ export function removeSchedule(home: string, id: string): boolean {
 
 /** Where a watch keeps the page text of its last run (owner-only: it can be a logged-in page). */
 export const watchTextFile = (home: string, id: string): string => join(home, "watches", `${id}.txt`)
+
+/** Where an export writes its files: `<id>/<time>.<format>`, and `<id>/.last-rows.json` to count new rows. */
+export const exportDir = (home: string, id: string): string => join(home, "exports", id)
 
 export function readWatchText(home: string, id: string): string | undefined {
   try {

@@ -4,6 +4,7 @@ import { z } from "zod"
 import { KiteError, call } from "../client/rpc-client.js"
 import { human } from "../client/human.js"
 import { formatReplay } from "../client/format.js"
+import { DEFAULT_MAX_ROWS, MAX_PAGES, MAX_ROWS, extractPages, extractSummary, formatOf, saveRows, toCsv } from "../client/extract.js"
 import { appendPending, discardPending, recordReplayStop, savePending } from "../memory/pending.js"
 import { runPlan } from "../memory/replay.js"
 import { findAnyPlan, planById } from "../memory/store.js"
@@ -96,6 +97,9 @@ function batchStepParams(s: z.infer<typeof batchStep>): Record<string, unknown> 
 function askWait(): number {
   return Math.max(0, Math.min(HANDOFF_WAIT_MS, mcpTimeout() - 5_000))
 }
+
+/** Rows shown in a browser_extract reply: all of them up to this much CSV, else the first ones and a note to save. */
+const EXTRACT_REPLY_CHARS = 30_000
 
 function batchBudget(): { budget_ms?: number } {
   const n = Number(process.env.KITE_BATCH_BUDGET_MS)
@@ -211,6 +215,44 @@ export const TOOLS: ToolDef[] = [
       ...(a.allow_domains ? { allow_domains: a.allow_domains } : {}),
       ...batchBudget(),
     }),
+  },
+  {
+    name: "browser_extract",
+    description:
+      "Read a table or repeated list of the active page (search results, orders, product cards, issue rows) as rows with columns, without snapshots. Picks the biggest one; pass near (text in one row) to choose another. With next (the Next button's text or @ref, or \"scroll\" for infinite lists) it pages and gathers rows. Pass save (a .csv/.json/.jsonl path) to write every row to a file. Only read what the user asked for; respect the site's terms.",
+    shape: {
+      near: z.string().min(1).optional().describe("text that appears in one of the wanted rows, e.g. an order number"),
+      selector: z.string().min(1).optional().describe("CSS selector of the items, one row each (when the automatic choice is wrong)"),
+      pick: z.number().int().min(0).max(50).optional().describe("index of another candidate listed in the reply"),
+      next: z.string().min(1).optional().describe("visible text or @ref of the next-page button/link, or \"scroll\""),
+      pages: z.number().int().min(1).max(MAX_PAGES).optional().describe("at most this many pages with next (default 5)"),
+      max: z.number().int().min(1).max(MAX_ROWS).optional().describe(`at most this many rows (default ${DEFAULT_MAX_ROWS})`),
+      save: z.string().min(1).optional().describe("file to write the rows to (.csv, .json or .jsonl), relative to the working directory"),
+    },
+    run: async (a: { near?: string; selector?: string; pick?: number; next?: string; pages?: number; max?: number; save?: string }, session) => {
+      if (a.save) formatOf(a.save)
+      const x = await extractPages((method, params) => call(method, params, { session, timeoutMs: mcpTimeout() }), {
+        ...a,
+        // Paging stops in time to answer inside this call's bound.
+        budgetMs: Math.max(5_000, mcpTimeout() - 15_000),
+      })
+      const lines = [extractSummary(x)]
+      if (a.save) lines.push(`saved ${saveRows(x, a.save, process.cwd())}`)
+      if (x.others.length) lines.push(`other candidates (pick): ${x.others.map((c) => `${c.index} ${c.source}`).join("; ")}`)
+      let shown = x.rows
+      let csv = toCsv(x.columns, shown)
+      while (csv.length > EXTRACT_REPLY_CHARS && shown.length > 1) {
+        shown = shown.slice(0, Math.floor(shown.length / 2))
+        csv = toCsv(x.columns, shown)
+      }
+      if (shown.length < x.rows.length) lines.push(`first ${shown.length} of ${x.rows.length} rows${a.save ? "" : " (pass save to get them all)"}:`)
+      else if (a.save && x.rows.length > 5) {
+        shown = x.rows.slice(0, 5)
+        csv = toCsv(x.columns, shown)
+        lines.push("first 5 rows:")
+      }
+      return `${lines.join("\n")}\n${csv}`
+    },
   },
   {
     name: "browser_plan_find",

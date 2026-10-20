@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, statSync } from "node:fs"
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
@@ -268,5 +268,64 @@ describe("watch", () => {
     await runSchedule(home, w, call, { sleep })
     expect(readWatchText(home, w.id)).toBe("Issues\nAssignees")
     expect(await runSchedule(home, w, call, { sleep })).toMatchObject({ status: "done", summary: "no change" })
+  })
+})
+
+describe("export", () => {
+  /** A fake extension whose page lists `runs[i]` on run i (page.extract answers the same rows until the next tab.new). */
+  function rows(runs: Record<string, string>[][]) {
+    const calls: { method: string; params: any }[] = []
+    let run = -1
+    const call: SessionCall = async (method, params) => {
+      calls.push({ method, params })
+      if (method === "tab.new") return run++, { id: 7 }
+      if (method === "page.extract") {
+        const r = runs[Math.min(run, runs.length - 1)]!
+        return { key: "list:ul>li", source: `list of ${r.length} li`, columns: ["t"], rows: r, total: r.length, others: [] }
+      }
+      if (method === "act.click") return { ok: false, status: "not_found" }
+      return null
+    }
+    return { calls, call }
+  }
+  const sleep = async () => {}
+  const add = (over: object = {}) =>
+    addSchedule(home, { kind: "export", url: "https://shop.example.com/orders", format: "csv", everyMs: 86_400_000, nextAt: 0, createdAt: "now", ...over } as never)
+
+  it("saves the rows owner-only in a background tab and tells how many are new", async () => {
+    const e = add()
+    expect(e.id).toBe("shop-example-com-orders")
+    const { calls, call } = rows([[{ t: "a" }, { t: "b" }], [{ t: "a" }, { t: "b" }, { t: "c" }], [{ t: "a" }, { t: "b" }, { t: "c" }]])
+    const first = await runSchedule(home, e, call, { sleep })
+    expect(first.status).toBe("done")
+    expect(first.summary).toMatch(/^2 rows saved to .*exports\/shop-example-com-orders\/.*\.csv$/)
+    expect(calls[0]).toEqual({ method: "tab.new", params: { url: "https://shop.example.com/orders", background: true } })
+    const file = first.summary.split(" saved to ")[1]!
+    expect(readFileSync(file, "utf8")).toBe("t\na\nb\n")
+    expect(statSync(file).mode & 0o777).toBe(0o600)
+    expect(calls.find((c) => c.method === "notify")?.params.title).toBe("shop-example-com-orders: 2 rows")
+    await new Promise((r) => setTimeout(r, 1100)) // a new file name each run (second precision)
+    const second = await runSchedule(home, e, call, { sleep })
+    expect(second).toMatchObject({ status: "changed", summary: expect.stringMatching(/^3 rows \(1 new\) saved to /) })
+    expect(calls.at(-2)).toMatchObject({ method: "tab.close", params: { id: 7 } })
+    await new Promise((r) => setTimeout(r, 1100))
+    expect((await runSchedule(home, e, call, { sleep })).summary).toMatch(/^3 rows \(0 new\)/)
+    expect(readdirSync(join(home, "exports", e.id)).filter((f) => f.endsWith(".csv"))).toHaveLength(3)
+  })
+
+  it("paging needs a window in front: such an export waits for the person to be away", async () => {
+    const e = add({ next: "Next", pages: 3 })
+    const { calls, call } = rows([[{ t: "a" }]])
+    expect(await runDue(home, call, false, 1000)).toEqual([])
+    expect(await runDue(home, call, true, 1000)).toEqual([e.id])
+    expect(calls[0]).toEqual({ method: "tab.new", params: { url: "https://shop.example.com/orders", own_window: true } })
+    expect(loadSchedules(home)[0]!.last?.summary).toMatch(/no next page/)
+  })
+
+  it("a one-page export runs while the person is active; formatSchedules says export", async () => {
+    const e = add()
+    expect(formatSchedules([e], 1)).toContain("export https://shop.example.com/orders  due  never run")
+    const { call } = rows([[{ t: "a" }]])
+    expect(await runDue(home, call, false, 1000)).toEqual([e.id])
   })
 })
