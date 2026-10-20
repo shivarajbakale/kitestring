@@ -27,6 +27,12 @@ export async function startTorture(port = 4173): Promise<{ url: string; close():
       res.writeHead(204).end()
       return
     }
+    const delay = /^\/delay\/(\d{1,5})$/.exec(path)
+    if (delay) {
+      // A slow response (an app bundle still downloading): the page is not idle until it ends.
+      setTimeout(() => res.writeHead(200, { "content-type": "text/plain", "cache-control": "no-store" }).end("ok"), Number(delay[1]))
+      return
+    }
     const status = /^\/status\/([1-5][0-9]{2})$/.exec(path)
     if (status) {
       res.writeHead(Number(status[1]), { "content-type": "text/plain" }).end(`status ${status[1]}`)

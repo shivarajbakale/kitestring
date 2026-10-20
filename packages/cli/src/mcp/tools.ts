@@ -108,9 +108,11 @@ const SCRIPT_MARGIN_MS = 5_000
 
 const SCRIPT_DESCRIPTION = [
   "Run JavaScript that drives the active tab, for a task you can write as code: several actions, loops over rows or pages, branches on what the page shows, reading values out.",
-  "One call replaces many tool calls. Actions do not wait for the page to go idle: each waits up to 3 s for its target to appear, so after a step that changes the page, wait for what you need next (waitFor, or the expect option).",
-  "Helpers (all async, await them): goto(url), click(target, opts), fill(target, value, opts), select(target, value, opts), press(key, opts), scroll('up'|'down', px?), upload(target, files, opts),",
-  "waitFor({text}|{url}, {timeout?}), snapshot({full?, scope?}) -> text, text({max?}) -> visible text, extract({near?, selector?, max?}) -> {columns, rows}, evaluate(fn, arg?) -> value (fn runs in the page),",
+  "One call replaces many tool calls. Actions do not wait for the page to go idle: each waits up to 3 s for its target to appear, so after a step that changes the page, wait for what you need next (waitFor, or the expect option). Scope text waits with within: page-wide text is often already on the page elsewhere.",
+  "A click checks that it landed: one that never reached its element (re-rendered under the pointer) is sent again, one before the app handles clicks waits for it; it is never sent twice when it may have done something.",
+  "Helpers (all async, await them): goto(url, {waitUntil?: 'load'|'domcontentloaded'|'idle'}), click(target, opts), fill(target, value, opts), select(target, value, opts), press(key, opts), scroll('up'|'down', px?), upload(target, files, opts),",
+  "waitFor(cond, {timeout?}) where cond is {selector, state?: 'visible'|'hidden'|'attached'|'detached'}, {target, within?, role?}, {text, within?, gone?} (text may be /regex/), {count: {selector, min}}, {url}, {fn, arg?} (fn runs in the page; its truthy value is returned) or {idle: true};",
+  "snapshot({full?, scope?}) -> text, text({max?}) -> visible text, extract({near?, selector?, max?}) -> {columns, rows}, evaluate(fn, arg?) -> value (fn runs in the page),",
   "tabs(), newTab(url), useTab(id), closeTab(id?), sleep(ms), console.log(...).",
   "target is visible text or an @ref from a snapshot taken in the same page state. opts: within, role, wait (ms), if_present, expect ({text}|{url}), dialog ('accept'|'dismiss').",
   "A failed action throws (err.code NOT_FOUND, AMBIGUOUS, BLOCKED, DISABLED, EXPECT, ...; err.candidates on AMBIGUOUS); catch it to branch. The script has no files, network or require: only these helpers.",

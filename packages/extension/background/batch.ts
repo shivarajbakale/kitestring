@@ -229,7 +229,7 @@ export async function runBatch(
         return { status: "done", acted: true }
       }
       let action: StepAction
-      if (step.action === "goto") action = { kind: "goto", url: step.url }
+      if (step.action === "goto") action = { kind: "goto", url: step.url, ...(step.wait_until ? { waitUntil: step.wait_until } : {}) }
       else if (step.action === "press") action = { kind: "press", key: step.key }
       else if (step.action === "scroll") action = { kind: "scroll", direction: step.direction, ...(step.px ? { px: step.px } : {}) }
       else {

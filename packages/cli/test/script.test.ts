@@ -115,4 +115,35 @@ describe("runScript", () => {
     const r = await runScript(`await snapshot()`, f.opts)
     expect(r.error).toBe('NO_TAB: session "s" has no active tab')
   })
+
+  it("waitFor sends the condition to page.wait, a function as its source, and returns its value", async () => {
+    const f = fake((m) => (m === "page.wait" ? { ms: 12, value: 5 } : ok))
+    const r = await runScript(
+      `const a = await waitFor({ count: { selector: "article", min: 5 } }, { timeout: 3000 })
+       const b = await waitFor({ fn: (n) => document.querySelectorAll("article").length >= n && 5, arg: 5 })
+       return [a, b]`,
+      f.opts,
+    )
+    expect(JSON.parse(r.value!)).toEqual([5, 5])
+    expect(f.sent[0]).toEqual({ method: "page.wait", params: { cond: { count: { selector: "article", min: 5 } }, timeout_ms: 3000 } })
+    const cond = f.sent[1]!.params.cond as { fn: string; arg: number }
+    expect(cond.arg).toBe(5)
+    expect(cond.fn).toMatch(/^\(n\) => document\.querySelectorAll\("article"\)\.length >= n && 5$/)
+    // never past the script's own deadline
+    expect(f.sent[1]!.params.timeout_ms).toBeLessThanOrEqual(10_000)
+  })
+
+  it("waitFor rejects a missing condition or a bad timeout before calling the browser", async () => {
+    const f = fake()
+    expect((await runScript(`await waitFor()`, f.opts)).error).toMatch(/^BAD_REQUEST: waitFor needs a condition/)
+    expect((await runScript(`await waitFor({ text: "a" }, { timeout: -1 })`, f.opts)).error).toMatch(/^BAD_REQUEST: waitFor timeout/)
+    expect(f.sent).toEqual([])
+  })
+
+  it("goto passes waitUntil as the step's wait_until", async () => {
+    const f = fake()
+    await runScript(`await goto("https://x.example/", { waitUntil: "domcontentloaded" })`, f.opts)
+    expect(f.sent[0]!.params.steps).toEqual([{ action: "goto", url: "https://x.example/", wait_until: "domcontentloaded" }])
+    expect((await runScript(`await goto("https://x.example/", { waitUntil: "soon" })`, f.opts)).error).toMatch(/^BAD_REQUEST: goto waitUntil/)
+  })
 })

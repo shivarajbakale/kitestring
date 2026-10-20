@@ -42,7 +42,8 @@ export interface StepBase {
 
 export type Step = StepBase &
   (
-    | { action: "goto"; url: string }
+    /** `wait_until`, for a step that does not wait for idle: "load" (default), "domcontentloaded" or "idle". */
+    | { action: "goto"; url: string; wait_until?: "load" | "domcontentloaded" | "idle" }
     | { action: "click"; target: string | Target }
     | { action: "fill"; target: string | Target; value: string }
     | { action: "select"; target: string | Target; value: string }
@@ -145,7 +146,12 @@ const base = {
 const req = (what: string) => ({ required_error: `required for ${what}` })
 
 const StepSchema = z.discriminatedUnion("action", [
-  z.object({ ...base, action: z.literal("goto"), url: z.string(req("goto")).min(1) }),
+  z.object({
+    ...base,
+    action: z.literal("goto"),
+    url: z.string(req("goto")).min(1),
+    wait_until: z.enum(["load", "domcontentloaded", "idle"]).optional(),
+  }),
   z.object({ ...base, action: z.literal("click"), target: TargetIn }),
   z.object({ ...base, action: z.literal("fill"), target: TargetIn, value: z.string(req("fill")) }),
   z.object({ ...base, action: z.literal("select"), target: TargetIn, value: z.string(req("select")) }),

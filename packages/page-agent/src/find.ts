@@ -96,6 +96,12 @@ function ownHeading(el: Element): Element | null {
   return null
 }
 
+/** Every scope (landmark, dialog, section...) `within` names, outermost and innermost alike. */
+export function scopesNamed(doc: Document, within: string): Element[] {
+  const w = norm(within)
+  return Array.from(doc.querySelectorAll("*")).filter((e) => isScope(e) && scopeMatches(e, w))
+}
+
 function scopeMatches(el: Element, within: string): boolean {
   if (norm(nameOf(el)) === within) return true
   const h = ownHeading(el)
@@ -125,8 +131,7 @@ export function find(doc: Document, reg: RefRegistry, target: Target, intent: Fi
   // ones first and fall back to the next tier out only when the target is not in them at all.
   let tiers: (Element[] | null)[] = [null]
   if (t.within !== undefined) {
-    const w = norm(t.within)
-    let left = Array.from(doc.querySelectorAll("*")).filter((e) => isScope(e) && scopeMatches(e, w))
+    let left = scopesNamed(doc, t.within)
     if (!left.length) return { kind: "not_found" }
     tiers = []
     while (left.length) {

@@ -24,6 +24,7 @@ import * as notify from "./notify"
 import { runBatch } from "./batch"
 import { ensureAttached, hold, send } from "./cdp"
 import { goto, runAction } from "./pipeline"
+import { parseCondition, waitInTab } from "./wait"
 import * as recorder from "./recorder"
 import { rejectWaiters } from "./serial"
 import * as sessions from "./sessions"
@@ -40,6 +41,9 @@ let nextBatchId = Date.now()
 const SNAPSHOT_CAP_MS = 15_000
 /** page.eval: a synchronous run is terminated after this; an awaited promise is abandoned at SNAPSHOT_CAP_MS. */
 const EVAL_RUN_MS = 10_000
+/** page.wait: default and longest wait. */
+const WAIT_DEFAULT_MS = 10_000
+const WAIT_MAX_MS = 120_000
 /** page.eval: longest expression, and largest JSON value returned. */
 const EVAL_EXPRESSION_MAX = 100_000
 const EVAL_VALUE_MAX_BYTES = 900_000
@@ -241,6 +245,13 @@ const handlers: Partial<Record<Method, Handler>> = {
     }
   },
 
+  "page.wait": async (params, s) => {
+    const cond = parseCondition(params.cond)
+    const ms = params.timeout_ms ?? WAIT_DEFAULT_MS
+    if (typeof ms !== "number" || !Number.isInteger(ms) || ms < 0 || ms > WAIT_MAX_MS) badRequest(`params.timeout_ms must be an integer from 0 to ${WAIT_MAX_MS}`)
+    return waitInTab(sessions.activeTab(s), cond, ms)
+  },
+
   "page.console": async (params, s) => {
     const level = params.level
     if (level !== undefined && level !== "error" && level !== "warn" && level !== "all") {
@@ -383,7 +394,7 @@ const actsInTab = (m: Method): boolean => m.startsWith("act.") || m === "page.go
  * Methods that read the session's tab: refused while the human is recording it (R13), since a snapshot shows field values
  * and console / network entries can carry form posts. (A screenshot is also refused by the tab lock it takes.)
  */
-const READS_TAB = new Set<Method>(["page.snapshot", "page.text", "page.extract", "page.eval", "page.console", "page.network", "page.screenshot"])
+const READS_TAB = new Set<Method>(["page.snapshot", "page.text", "page.extract", "page.eval", "page.wait", "page.console", "page.network", "page.screenshot"])
 
 /** Methods that change something: recorded in the activity log, successful or not. */
 function isRecorded(m: Method): boolean {

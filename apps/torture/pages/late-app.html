@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>late-app</title></head><body>
+<main><h1>Late app</h1><button id="save">Save</button><p id="status">Loading</p></main>
+<script>
+// The button is server-rendered; its click handler arrives with the app "bundle" (a 1.2 s request), the way a
+// framework hydrates. A click before then reaches the button and does nothing.
+window.__result = undefined
+let n = 0
+fetch("/delay/1200").then(() => {
+  document.getElementById("save").addEventListener("click", () => {
+    n++
+    window.__result = "saved:" + n
+    document.getElementById("status").textContent = "Saved"
+  })
+})
+</script>
+</body></html>

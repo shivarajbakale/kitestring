@@ -26,7 +26,8 @@ export function sandboxMain(): void {
     press: (key: string, opts?: object) => call("press", key, opts),
     scroll: (direction: string, px?: number) => call("scroll", direction, px),
     upload: (target: string, files: string[], opts?: object) => call("upload", target, files, opts),
-    waitFor: (cond: object, opts?: object) => call("waitFor", cond, opts),
+    // A function can't cross the IPC channel: send its source.
+    waitFor: (cond: any, opts?: object) => call("waitFor", typeof cond?.fn === "function" ? { ...cond, fn: cond.fn.toString() } : cond, opts),
     snapshot: (opts?: object) => call("snapshot", opts),
     text: (opts?: object) => call("text", opts),
     extract: (opts?: object) => call("extract", opts),

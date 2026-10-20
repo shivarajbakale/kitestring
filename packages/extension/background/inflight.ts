@@ -12,6 +12,8 @@ export class InflightRequests {
   private inflight = new Map<string, { loaderId: string; at: number }>()
   /** When the count last dropped to zero. */
   quietSince: number
+  /** Counted requests sent so far (a click that starts one had an effect). */
+  sent = 0
 
   constructor(now = Date.now()) {
     this.quietSince = now
@@ -28,6 +30,7 @@ export class InflightRequests {
       if ((type && IGNORED_TYPES.has(type)) || ANALYTICS_HOST_RE.test(url)) return
       // Redirects reuse the id: a map keeps it idempotent.
       const id = params.requestId as string
+      if (!this.inflight.has(id)) this.sent++
       this.inflight.set(id, { loaderId: (params.loaderId as string | undefined) ?? "", at: this.inflight.get(id)?.at ?? now })
     } else if (method === "Network.loadingFinished" || method === "Network.loadingFailed") {
       if (this.inflight.delete(params.requestId as string) && this.inflight.size === 0) this.quietSince = now

@@ -17,6 +17,11 @@ export const METHODS = [
   "page.extract",
   /** `{expression}`: evaluate JavaScript in the active tab's page (promises awaited) -> `{value}` (JSON; undefined when not serializable). */
   "page.eval",
+  /**
+   * `{cond, timeout_ms?}`: wait until a condition holds in the active tab (selector / target / text / count / url / fn /
+   * idle; see the extension's wait.ts) -> `{ms, value?}`, or TIMEOUT naming what was last seen.
+   */
+  "page.wait",
   "act.click",
   "act.fill",
   "act.press",

@@ -29,6 +29,11 @@ export interface ScriptResult {
   ms: number
 }
 
+/** waitFor's default and longest wait (the script's own deadline also bounds it). */
+const WAIT_DEFAULT_MS = 10_000
+const WAIT_MAX_MS = 120_000
+const WAIT_UNTIL = ["load", "domcontentloaded", "idle"] as const
+
 /** Step options a helper passes through to its batch step. */
 const STEP_OPTS = ["within", "role", "wait", "if_present", "expect", "dialog"] as const
 
@@ -99,7 +104,13 @@ export async function runScript(code: string, opts: ScriptOpts): Promise<ScriptR
   }
 
   const ops: Record<string, (...a: any[]) => Promise<unknown>> = {
-    goto: (url, o) => step({ action: "goto", url: str(url, "goto url") }, o),
+    goto: (url, o) => {
+      const { waitUntil, ...rest } = (o ?? {}) as { waitUntil?: unknown }
+      if (waitUntil !== undefined && !(WAIT_UNTIL as readonly unknown[]).includes(waitUntil)) {
+        throw new KiteError("BAD_REQUEST", `goto waitUntil must be ${WAIT_UNTIL.join(", ")}`)
+      }
+      return step({ action: "goto", url: str(url, "goto url"), ...(waitUntil !== undefined ? { wait_until: waitUntil } : {}) }, rest)
+    },
     click: (target, o) => step({ action: "click", target: str(target, "click target") }, o),
     fill: (target, value, o) => step({ action: "fill", target: str(target, "fill target"), value: String(value ?? "") }, o),
     select: (target, value, o) => step({ action: "select", target: str(target, "select target"), value: String(value ?? "") }, o),
@@ -112,15 +123,18 @@ export async function runScript(code: string, opts: ScriptOpts): Promise<ScriptR
       if (!Array.isArray(files) || !files.length) throw new KiteError("BAD_REQUEST", "upload files must be a non-empty array of paths")
       return step({ action: "upload", target: str(target, "upload target"), files: opts.resolveFiles(files.map(String)) }, o)
     },
-    waitFor: (cond, o) => {
-      const c = cond as { text?: unknown; url?: unknown } | undefined
-      const expect = typeof c?.text === "string" ? { text: c.text } : typeof c?.url === "string" ? { url: c.url } : undefined
-      if (!expect) throw new KiteError("BAD_REQUEST", "waitFor needs {text} or {url}")
-      const timeout = (o as { timeout?: unknown } | undefined)?.timeout
-      if (timeout !== undefined && (typeof timeout !== "number" || timeout < 0 || timeout > 10_000)) {
-        throw new KiteError("BAD_REQUEST", "waitFor timeout must be 0..10000 ms")
+    waitFor: async (cond, o) => {
+      if (!cond || typeof cond !== "object" || Array.isArray(cond)) {
+        throw new KiteError("BAD_REQUEST", "waitFor needs a condition: {selector}, {target}, {text}, {count}, {url}, {fn} or {idle: true}")
       }
-      return step({ action: "wait", ms: 0, expect, wait: timeout ?? 5_000 }, undefined)
+      const timeout = (o as { timeout?: unknown } | undefined)?.timeout ?? WAIT_DEFAULT_MS
+      if (typeof timeout !== "number" || !Number.isInteger(timeout) || timeout < 0 || timeout > WAIT_MAX_MS) {
+        throw new KiteError("BAD_REQUEST", `waitFor timeout must be a whole number of ms, 0..${WAIT_MAX_MS}`)
+      }
+      // Never past the script's own deadline (minus time to answer).
+      const ms = Math.max(0, Math.min(timeout, remaining() - CALL_MARGIN_MS))
+      const r = (await callFor("page.wait", { cond, timeout_ms: ms })) as { ms: number; value?: unknown }
+      return r.value !== undefined ? r.value : true
     },
     snapshot: async (o) => {
       const { full, scope } = (o ?? {}) as { full?: unknown; scope?: unknown }

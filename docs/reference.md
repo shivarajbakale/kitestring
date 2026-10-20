@@ -241,9 +241,10 @@ for (let page = 1; page <= 3; page++) {
 return rows.filter((r) => r.Status === "Delayed")
 ```
 
-The code is the body of an async function. Its helpers: `goto(url)`, `click(target, opts)`, `fill(target, value,
-opts)`, `select(target, value, opts)`, `press(key, opts)`, `scroll("up"|"down", px?)`, `upload(target, files, opts)`,
-`waitFor({text}|{url}, {timeout?})`, `snapshot({full?, scope?})`, `text({max?})`, `extract({near?, selector?, max?})`,
+The code is the body of an async function. Its helpers: `goto(url, {waitUntil?})`, `click(target, opts)`,
+`fill(target, value, opts)`, `select(target, value, opts)`, `press(key, opts)`, `scroll("up"|"down", px?)`,
+`upload(target, files, opts)`, `waitFor(cond, {timeout?})` (see below), `snapshot({full?, scope?})`, `text({max?})`,
+`extract({near?, selector?, max?})`,
 `evaluate(fn, arg?)` (runs `fn` in the page and returns its JSON value), `tabs()`, `newTab(url)`, `useTab(id)`,
 `closeTab(id?)`, `sleep(ms)` and `console.log`. `opts` are a batch step's `within`, `role`, `wait`, `if_present`,
 `expect` and `dialog`.
@@ -253,6 +254,45 @@ for the page to go idle, so the script says what it waits for. Guards apply as i
 that does not work throws an error whose `code` is the halt reason in capitals (`NOT_FOUND`, `AMBIGUOUS`, `EXPECT`,
 `RISKY`, ...; `candidates` on `AMBIGUOUS`); a script can catch it. The reply is the script's console output, its return
 value (`→ ...`) or error, and the number of browser calls. Steps a script runs are not remembered as plans.
+
+`goto` waits for the page's `load` event; `waitUntil: "domcontentloaded"` returns sooner and `"idle"` waits for the
+network and the DOM to go quiet as well.
+
+`waitFor(cond, {timeout})` resolves as soon as the condition holds (the page agent re-checks on every DOM change, so
+there is no polling delay) and throws `TIMEOUT` naming what it last saw (`3 of 5 "article"`, `the page is at ...`).
+The default timeout is 10 s, at most 120 s and never past the script's deadline. A wait carries on across a
+navigation. Conditions:
+
+| `cond` | Holds when |
+| --- | --- |
+| `{selector, state}` | a CSS selector is `visible` (default), `hidden`, `attached` or `detached` |
+| `{target, within?, role?}` | an element an action could target (visible text or `@ref`) is there |
+| `{text, within?, gone?}` | the visible text (of the `within` section if given) contains `text`, or a `/regex/`; `gone` waits for it to disappear |
+| `{count: {selector, min}}` | at least `min` elements match (an infinite feed, a lazy list) |
+| `{url}` | the URL contains `url`, or matches a `/regex/` |
+| `{fn, arg?}` | `fn(arg)`, run in the page, returns something truthy; `waitFor` returns that value |
+| `{idle: true}` | the network and the DOM are quiet |
+
+Scope text waits with `within`: page-wide text is often already somewhere else on the page (a sidebar, a header).
+CSS selectors do not reach into shadow roots; `target` and `text` do. A bad selector or regex, or a `fn` that throws,
+fails at once.
+
+### How a fast click makes sure it landed
+
+A click that does not wait for the page to go idle (in a script, or a `wait_idle` batch step) checks right before the
+input that its element is still attached, has not moved across two frames and is not covered, then listens for
+the press and looks 300 ms for an effect. It is sent again only when that cannot repeat anything:
+
+- The press reached no control (the element was removed or re-rendered under the pointer) and nothing lasting
+  happened (no navigation, request, new tab or dialog): found again and sent again, at most twice more. An identical
+  element re-rendered in its place (same role and name) counts as the element itself.
+- The press reached the element, nothing happened, and nothing on the page handles clicks there yet (an app still
+  starting): it waits up to 5 s for a click handler to appear, then clicks once more. None by then is `no_effect`.
+
+A press that reached a different control stops with an error naming it. A click that reached a handled element and
+changed nothing visible is `done`: it may have changed state the page does not show, so it is never repeated. A
+fast step in a hidden tab (minimized, covered or background window: Chrome delivers no input there) fails at once
+saying so.
 
 The code runs in a child Node process under the permission model: no files, subprocesses, workers or environment
 (and, on Node 25 and later, no network), with only the helpers to reach the browser. It is killed at its deadline:

@@ -11,6 +11,8 @@ const FOUND = {
 const agent = vi.hoisted(() => ({
   /** Overrides for single agent methods (reset after each test). */
   extra: {} as Record<string, (args: unknown[]) => unknown>,
+  /** Requests the page has sent (the network tracker's count). */
+  sent: 0,
   find: (): unknown => ({
     kind: "found",
     ref: "@e00001",
@@ -49,7 +51,7 @@ vi.mock("../background/cdp", () => ({
   ),
 }))
 vi.mock("../background/input", () => ({ click: vi.fn(async () => {}), press: vi.fn(async () => {}), keyDef: vi.fn() }))
-vi.mock("../background/network-idle", () => ({ trackNetwork: () => ({ stop() {}, waitIdle: async () => true }) }))
+vi.mock("../background/network-idle", () => ({ trackNetwork: () => ({ stop() {}, waitIdle: async () => true, sent: () => agent.sent }) }))
 vi.mock("../background/sessions", () => ({ activeTab: vi.fn(), agentActing: vi.fn(() => () => {}) }))
 vi.mock("../background/control", () => ({ assertNotPaused: vi.fn() }))
 
@@ -308,26 +310,143 @@ describe("runStep", () => {
 })
 
 describe("runStep without the idle wait", () => {
-  beforeEach(() => {
+  type Rc = { received: boolean; mutations: number; connected: boolean; landedOn?: string }
+  /** What clickReceipt answers for the n-th click (0-based); default received with an effect. */
+  let receipts: Rc[]
+  let clicks: number
+  const methods = async () => ((await import("../background/agent-bridge")).callAgent as any).mock.calls.map((c: unknown[]) => c[1])
+  const sends = async () => ((await import("../background/cdp")).send as any).mock.calls.map((c: unknown[]) => c[1])
+  const fast = async () => (await import("../background/pipeline")).runStep(s, 1, { kind: "click", target: { text: "Delete everything" } }, { capMs: 15_000, idle: false })
+
+  beforeEach(async () => {
+    agent.sent = 0
+    receipts = []
+    clicks = 0
     agent.extra.find = () => ({ ...FOUND, hinted: false })
+    agent.extra.armClick = () => ({ kind: "ok", x: 10, y: 20 })
+    agent.extra.clickReceipt = () => receipts[clicks - 1] ?? { received: true, mutations: 1, connected: true }
+    const input = await import("../background/input")
+    ;(input.click as any).mockImplementation(async () => void clicks++)
+  })
+  afterEach(async () => {
+    const input = await import("../background/input")
+    ;(input.click as any).mockImplementation(async () => {})
+    const cdp = await import("../background/cdp")
+    ;(cdp.send as any).mockImplementation(async (_t: number, m: string) => (m === "Page.getFrameTree" ? { frameTree: { frame: { id: "F" } } } : { result: {} }))
   })
 
-  it("takes no snapshots, skips the idle wait and the click-handler probe, and reports no diff", async () => {
-    const { runStep } = await import("../background/pipeline")
-    const { callAgent } = await import("../background/agent-bridge")
+  /** No click listener at the click point until the `after`-th handler check (hasClickHandler), then one. */
+  const handlersFrom = async (after = Infinity) => {
+    let checks = 0
     const cdp = await import("../background/cdp")
-    const r = await runStep(s, 1, { kind: "click", target: { text: "Delete everything" } }, { capMs: 15_000, idle: false })
+    ;(cdp.send as any).mockImplementation(async (_t: number, m: string, params: { expression?: string }) => {
+      if (m === "Page.getFrameTree") return { frameTree: { frame: { id: "F" } } }
+      if (m === "Runtime.evaluate") return params?.expression?.includes("elementFromPoint") ? { result: { objectId: "chain" } } : { result: { value: "visible" } }
+      if (m === "Runtime.getProperties") return { result: [{ name: "nodes", value: { objectId: "nodes" } }, { name: "0", value: { objectId: "el" } }] }
+      if (m === "DOMDebugger.getEventListeners") return { listeners: ++checks >= after ? [{ type: "click" }] : [] }
+      return { result: {} }
+    })
+  }
+
+  it("a click with an effect takes no snapshots, no idle wait and no click-handler probe", async () => {
+    const r = await fast()
     expect(r).toMatchObject({ ok: true, status: "done", diff: { added: [], removed: [] }, page: "", acted: true })
-    const methods = (callAgent as any).mock.calls.map((c: unknown[]) => c[1])
-    expect(methods).toEqual(["find", "check"])
-    const sent = (cdp.send as any).mock.calls.map((c: unknown[]) => c[1])
-    expect(sent).not.toContain("DOMDebugger.getEventListeners")
+    expect(clicks).toBe(1)
+    const m = await methods()
+    expect(m).not.toContain("snapshot")
+    expect(m).not.toContain("waitQuiet")
+    expect(await sends()).not.toContain("DOMDebugger.getEventListeners")
+  })
+
+  it("a press that never reached the element, with no effect, is sent again (the element was replaced)", async () => {
+    receipts = [{ received: false, mutations: 0, connected: false }]
+    const r = await fast()
+    expect(clicks).toBe(2)
+    expect(r.status).toBe("done")
+    expect((await methods()).filter((m: string) => m === "find")).toHaveLength(2) // found again before the resend
+  })
+
+  it("a missed press is resent even though the DOM changed (the element going away is a change)", async () => {
+    receipts = [{ received: false, mutations: 4, connected: false }]
+    const r = await fast()
+    expect(clicks).toBe(2)
+    expect(r.status).toBe("done")
+  })
+
+  it("a press that reached another control is never resent: it stops and says which", async () => {
+    receipts = [{ received: false, mutations: 0, connected: true, landedOn: 'button "Cancel order"' } as Rc]
+    const r = await fast()
+    expect(clicks).toBe(1)
+    expect(r).toMatchObject({ status: "error", acted: true, detail: expect.stringMatching(/landed on button "Cancel order" instead/) })
+  })
+
+  it("...at most twice more, then reports that it did not land, and that nothing was sent that took effect", async () => {
+    receipts = [0, 1, 2].map(() => ({ received: false, mutations: 0, connected: false }))
+    const r = await fast()
+    expect(clicks).toBe(3)
+    expect(r).toMatchObject({ status: "error", acted: false, detail: expect.stringMatching(/did not reach the element/) })
+  })
+
+  it("a press that went elsewhere but had an effect is never resent", async () => {
+    agent.extra.clickReceipt = () => {
+      agent.sent = 1 // the page sent a request
+      return { received: false, mutations: 0, connected: false }
+    }
+    const r = await fast()
+    expect(clicks).toBe(1)
+    expect(r.status).toBe("done")
+  })
+
+  it("a received click with no effect and no click handler waits for one to appear (an app starting), then clicks once more", async () => {
+    await handlersFrom(3)
+    receipts = [{ received: true, mutations: 0, connected: true }]
+    const r = await fast()
+    expect(clicks).toBe(2)
+    expect(r.status).toBe("done")
+  })
+
+  it("...and when none appears, it is no_effect with no second click", async () => {
+    await handlersFrom()
+    receipts = [{ received: true, mutations: 0, connected: true }]
+    const r = await fast()
+    expect(clicks).toBe(1)
+    expect(r.status).toBe("no_effect")
+  }, 10_000)
+
+  it("a received click with no visible effect on a handled element is done, never resent (it may have changed app state)", async () => {
+    receipts = [{ received: true, mutations: 0, connected: true }]
+    const r = await fast()
+    expect(clicks).toBe(1)
+    expect(r.status).toBe("done")
+  })
+
+  it("a hidden tab fails at once with why, before any input", async () => {
+    const cdp = await import("../background/cdp")
+    ;(cdp.send as any).mockImplementation(async (_t: number, m: string) =>
+      m === "Page.getFrameTree" ? { frameTree: { frame: { id: "F" } } } : m === "Runtime.evaluate" ? { result: { value: "hidden" } } : { result: {} },
+    )
+    const r = await fast()
+    expect(clicks).toBe(0)
+    expect(r).toMatchObject({ status: "error", acted: false, detail: expect.stringMatching(/tab is hidden/) })
+  })
+
+  it("an element covered at the last check is blocked, not clicked", async () => {
+    agent.extra.armClick = () => ({ kind: "blocked", by: 'dialog "Sign in"' })
+    const r = await fast()
+    expect(clicks).toBe(0)
+    expect(r).toMatchObject({ status: "blocked", blockedBy: 'dialog "Sign in"' })
+  })
+
+  it("an element replaced between CHECK and the last check is found again", async () => {
+    let n = 0
+    agent.extra.armClick = () => (n++ === 0 ? { kind: "gone" } : { kind: "ok", x: 10, y: 20 })
+    const r = await fast()
+    expect(clicks).toBe(1)
+    expect(r.status).toBe("done")
   })
 
   it("still waits for a navigation the click started to load", async () => {
-    const { runStep } = await import("../background/pipeline")
     const cdp = await import("../background/cdp")
-    const input = await import("../background/input")
     type Handler = (e: { method: string; params: Record<string, unknown> }) => void
     const handlers: Handler[] = []
     const emit: Handler = (e) => handlers.forEach((h) => h(e))
@@ -335,18 +454,20 @@ describe("runStep without the idle wait", () => {
       handlers.push(h)
       return () => {}
     })
+    const input = await import("../background/input")
     let loadedAt = 0
     ;(input.click as any).mockImplementation(async () => {
+      clicks++
       emit({ method: "Page.frameStartedLoading", params: { frameId: "F" } })
       setTimeout(() => {
         loadedAt = Date.now()
         emit({ method: "Page.loadEventFired", params: {} })
       }, 200)
     })
-    const r = await runStep(s, 1, { kind: "click", target: { text: "Delete everything" } }, { capMs: 15_000, idle: false })
+    const r = await fast()
     expect(r.status).toBe("done")
     expect(loadedAt).toBeGreaterThan(0)
+    expect(clicks).toBe(1)
     ;(cdp.onEvent as any).mockImplementation(() => () => {})
-    ;(input.click as any).mockImplementation(async () => {})
   })
 })
