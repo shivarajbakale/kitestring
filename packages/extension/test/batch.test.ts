@@ -397,6 +397,21 @@ describe("runBatch", () => {
     expect(r3.next).toBe(1)
   })
 
+  it("expect text: a page that does not answer is reported as such, not as missing text", async () => {
+    const { callAgent } = await import("../background/agent-bridge")
+    const original = (callAgent as any).getMockImplementation()
+    ;(callAgent as any).mockImplementation(async (tabId: number, method: string, args: unknown[]) =>
+      method === "hasText" ? new Promise(() => {}) : original(tabId, method, args),
+    )
+    try {
+      const { p } = await run({ steps: [click("A", { expect: { text: "Thank you" } })] })
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect((await p).halted).toMatchObject({ index: 0, reason: "expect", detail: expect.stringMatching(/could not read the page text/) })
+    } finally {
+      ;(callAgent as any).mockImplementation(original)
+    }
+  })
+
   it("step wait polls find until the target appears", async () => {
     let n = 0
     const { callAgent } = await import("../background/agent-bridge")
@@ -573,5 +588,73 @@ describe("runBatch", () => {
     expect(ended.sort()).toEqual([1, 2])
     ;(sessions.newestAdopted as any).mockReturnValue(undefined)
     ;(sessions.agentActing as any).mockImplementation(() => () => {})
+  })
+
+  describe("wait_idle", () => {
+    it("each (default): every step waits for idle", async () => {
+      const r = await (await run({ steps: [click("A"), click("B")] })).p
+      expect(r.ok).toBe(true)
+      expect(state.calls.map((c) => c.opts.idle)).toEqual([true, true])
+    })
+
+    it("last: only the last step waits for idle; the batch still diffs and summarizes", async () => {
+      const { p } = await run({ steps: [click("A"), click("B"), click("C")], wait_idle: "last" })
+      await vi.advanceTimersByTimeAsync(0)
+      const r = await p
+      expect(state.calls.map((c) => c.opts.idle)).toEqual([false, false, true])
+      expect(r.page).toBe("brief of https://www.shop.example/cart")
+    })
+
+    it("never: no step waits for idle and the batch takes no snapshot or summary", async () => {
+      const { callAgent } = await import("../background/agent-bridge")
+      ;(callAgent as any).mockClear()
+      const r = await (await run({ steps: [click("A")], wait_idle: "never" })).p
+      expect(r.ok).toBe(true)
+      expect(r.page).toBe("")
+      expect(state.calls.map((c) => c.opts.idle)).toEqual([false])
+      const methods = (callAgent as any).mock.calls.map((c: unknown[]) => c[1])
+      expect(methods).not.toContain("snapshot")
+      expect(methods).not.toContain("brief")
+    })
+
+    it("a step that does not wait for idle waits for its target to appear without being told", async () => {
+      let n = 0
+      const { callAgent } = await import("../background/agent-bridge")
+      const original = (callAgent as any).getMockImplementation()
+      ;(callAgent as any).mockImplementation(async (tabId: number, method: string, args: unknown[]) =>
+        method === "find" ? (++n < 3 ? { kind: "not_found" } : { kind: "found", ref: "@e1", line: "" }) : original(tabId, method, args),
+      )
+      try {
+        const { p } = await run({ steps: [click("Later")], wait_idle: "never" })
+        await vi.advanceTimersByTimeAsync(1_000)
+        expect((await p).ok).toBe(true)
+        expect(n).toBe(3)
+      } finally {
+        ;(callAgent as any).mockImplementation(original)
+      }
+    })
+
+    it("...but not an if_present step's target, which is skipped at once", async () => {
+      state.findResult = { kind: "not_found" }
+      const { p } = await run({ steps: [click("Maybe", { if_present: true })], wait_idle: "never" })
+      await vi.advanceTimersByTimeAsync(0)
+      const r = await p
+      expect(r.steps[0]!.status).toBe("skipped")
+    })
+
+    it("its expect is polled until it comes true", async () => {
+      const { p } = await run({ steps: [click("Save", { expect: { text: "Saved" } })], wait_idle: "never" })
+      await vi.advanceTimersByTimeAsync(600)
+      state.pageText = "All changes saved"
+      await vi.advanceTimersByTimeAsync(400)
+      expect((await p).ok).toBe(true)
+    })
+
+    it("...up to its wait, then halts expect", async () => {
+      const { p } = await run({ steps: [{ action: "wait", ms: 0, wait: 1_000, expect: { url: "/done" } } as Step], wait_idle: "never" })
+      await vi.advanceTimersByTimeAsync(1_500)
+      const r = await p
+      expect(r.halted).toMatchObject({ index: 0, reason: "expect", detail: expect.stringMatching(/expected url "\/done"/) })
+    })
   })
 })

@@ -17,12 +17,18 @@ afterAll(async () => {
 
 describe("torture server", () => {
   it("lists the pages in expected.md plus the navigation targets", () => {
-    expect(pages).toHaveLength(29)
+    expect(pages).toHaveLength(34)
   })
   it.each(pages)("serves /%s with 200", async (name) => {
     const res = await fetch(`${site.url}/${name}`)
     expect(res.status).toBe(200)
     expect(await res.text()).toContain("__result")
+  })
+  it("/delay/<ms> answers after that long (an app bundle still downloading)", async () => {
+    const t0 = Date.now()
+    const res = await fetch(`${site.url}/delay/250`)
+    expect(res.status).toBe(200)
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(240)
   })
   it("returns 204 for analytics", async () => {
     expect((await fetch(`${site.url}/analytics/x`)).status).toBe(204)

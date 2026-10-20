@@ -9,9 +9,9 @@ import {
   type Status,
   type Target,
 } from "@kitestring/protocol"
-import { diffSnapshots, type CheckResult, type Closer, type FindResult } from "@kitestring/page-agent"
+import { diffSnapshots, type ArmResult, type CheckResult, type Closer, type FindResult, type Receipt } from "@kitestring/page-agent"
 import { callAgent, isRestrictedUrl } from "./agent-bridge"
-import { ensureAttached, isNotAttached, onEvent, send } from "./cdp"
+import { ensureAttached, hold, isNotAttached, onEvent, send } from "./cdp"
 import { cacheKey, getHint, hit, ready as cacheReady, remember } from "./cache"
 import { assertNotPaused } from "./control"
 import { watchDialogs, type DialogPolicy, type DialogWatch } from "./dialogs"
@@ -41,6 +41,24 @@ const ACTION_CAP_MS = 15_000
 const EXPIRED_HOLD_MS = 5_000
 /** Not-found retries (each scrolls one viewport first). */
 const FIND_RETRIES = 3
+/** A step that does not wait for idle: how long a navigation its input starts has to show up before the step ends. */
+const NAV_GRACE_MS = 50
+/**
+ * A click that does not wait for idle looks this long for an effect (navigation, request, DOM change, new tab,
+ * dialog), polling every CLICK_EFFECT_POLL_MS. Nothing by then tells "did not land" or "app not ready" apart from done.
+ */
+const CLICK_EFFECT_MS = 300
+const CLICK_EFFECT_POLL_MS = 50
+/**
+ * A fast click that reached an element nothing handles yet waits up to this long for a click handler to appear there
+ * (an app still starting: its bundle may have been requested before the action, so network idle cannot tell).
+ */
+const APP_READY_WAIT_MS = 5_000
+const APP_READY_POLL_MS = 200
+/** Times a click that provably did nothing (its press never reached the element) is sent again. */
+const CLICK_RETRIES = 2
+export const HIDDEN_TAB_DETAIL =
+  "the tab is hidden (its window is minimized, covered or in the background), and Chrome does not deliver input to hidden tabs: bring its window to the front"
 const EMPTY: Diff = { added: [], removed: [] }
 
 /** What the pipeline has learned so far, for the timeout answer. */
@@ -95,8 +113,11 @@ class Watch {
   seq = 0
   loading = false
   navigated = false
+  /** The main document's DOMContentLoaded has fired (true before any navigation). */
+  domReady = true
   readonly newTabs: number[] = []
   private waiters: (() => void)[] = []
+  private domWaiters: (() => void)[] = []
   private offCdp: () => void
   private onCreated = (t: chrome.tabs.Tab) => {
     if (t.openerTabId === this.tabId && t.id !== undefined) this.newTabs.push(t.id)
@@ -112,6 +133,7 @@ class Watch {
         case "Page.frameStartedLoading":
           if (frameId === this.mainFrameId) {
             this.loading = true
+            this.domReady = false
             this.seq++
           }
           break
@@ -126,6 +148,9 @@ class Watch {
         }
         case "Page.navigatedWithinDocument":
           if (frameId === this.mainFrameId) this.navigated = true
+          break
+        case "Page.domContentEventFired":
+          this.domLoaded()
           break
         case "Page.loadEventFired":
           this.loaded()
@@ -146,12 +171,29 @@ class Watch {
   /** Expect a navigation (Page.navigate answered with a loader) even if its first event is still in flight. */
   expectLoad(): void {
     this.loading = true
+    this.domReady = false
     this.seq++
+  }
+
+  private domLoaded(): void {
+    this.domReady = true
+    for (const w of this.domWaiters.splice(0)) w()
   }
 
   private loaded(): void {
     this.loading = false
+    this.domLoaded()
     for (const w of this.waiters.splice(0)) w()
+  }
+
+  /** Resolves true once the main document's DOMContentLoaded fired, false after `ms`. */
+  waitDomReady(ms: number): Promise<boolean> {
+    if (this.domReady) return Promise.resolve(true)
+    return withTimeout(
+      new Promise<boolean>((resolve) => this.domWaiters.push(() => resolve(true))),
+      ms,
+      false,
+    )
   }
 
   /** Resolves true when the main frame finished loading, false after `ms`. */
@@ -310,6 +352,11 @@ interface Run {
   dialogs: DialogWatch
   /** Cookie walls / newsletter modals closed on the way: reported with every outcome. */
   closedPopups: string[]
+  /**
+   * Wait for the page to go idle after acting, and diff snapshots around it. False (a fast batch step): only a
+   * navigation the input started is waited for (to its load event); no snapshots, no no_effect check.
+   */
+  idle: boolean
 }
 
 /** The element FIND resolved, as `beforeAct` sees it. */
@@ -336,6 +383,10 @@ interface Hooks {
   secret?: boolean
   /** A select's chosen option text. */
   chosen?: string
+  /** Fast clicks: times the click was sent again because it provably did nothing. */
+  clickRetries?: number
+  /** Fast clicks: the click already waited once for an app that was not ready to handle it. */
+  waitedForApp?: boolean
 }
 
 async function early(r: Run, status: Status, extra: Partial<ActionResult>): Promise<ActionResult> {
@@ -382,11 +433,15 @@ async function finishOpen(
   verify: { click?: { handled: boolean }; fill?: { ref: string; text: string }; upload?: { ref: string; names: string[] } },
 ): Promise<ActionResult> {
   const { tabId, watch, net, p } = r
-  const ready = await settle(tabId, watch, net, p)
+  let ready: boolean
+  if (r.idle) ready = await settle(tabId, watch, net, p)
+  else {
+    await sleep(NAV_GRACE_MS)
+    ready = await watch.waitLoaded(READY.timeoutMs)
+  }
   if (p.expired) throw new Expired()
 
-  const after = await agentCall<string>(tabId, watch, net, p, "snapshot", [{ full: false }])
-  const diff = diffSnapshots(before, after)
+  const diff = r.idle ? diffSnapshots(before, await agentCall<string>(tabId, watch, net, p, "snapshot", [{ full: false }])) : EMPTY
   p.diff = diff
 
   const tab = await chrome.tabs.get(tabId)
@@ -419,7 +474,7 @@ async function finishOpen(
     }
   }
 
-  const page = await agentCall<string>(tabId, watch, net, p, "brief", []).catch(() => "")
+  const page = r.idle ? await agentCall<string>(tabId, watch, net, p, "brief", []).catch(() => "") : ""
   p.page = page
   const res: ActionResult = { ok: status === "done", status, diff, page }
   if (detail) res.detail = detail
@@ -435,6 +490,9 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   const guard = () => {
     if (p.expired) throw new Expired()
   }
+  // The idle path waits out a hidden tab (its own timeouts say so); a fast step says why at once.
+  if (!r.idle && (await pageHidden(tabId))) return early(r, "error", { detail: HIDDEN_TAB_DETAIL })
+  guard()
 
   if (action.kind === "press" || action.kind === "scroll") {
     if (action.kind === "press" && hooks.beforeAct) {
@@ -450,7 +508,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
         })
       }
     }
-    const before = await callAgent<string>(tabId, "snapshot", [{ full: false }])
+    const before = r.idle ? await callAgent<string>(tabId, "snapshot", [{ full: false }]) : ""
     guard()
     hooks.acted = true
     if (action.kind === "press") await input.press(tabId, action.key)
@@ -509,7 +567,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     const fileInput = await callAgent<{ ref: string; multiple: boolean } | null>(tabId, "fileInputFor", [found.ref])
     guard()
     if (fileInput) {
-      const before = await callAgent<string>(tabId, "snapshot", [{ full: false }])
+      const before = r.idle ? await callAgent<string>(tabId, "snapshot", [{ full: false }]) : ""
       guard()
       hooks.acted = true
       await setFiles(tabId, fileInput, action.files)
@@ -556,7 +614,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   }
 
   // Before-snapshot after CHECK's scroll, so scrolling doesn't show up as the action's diff.
-  const before = await callAgent<string>(tabId, "snapshot", [{ full: false }])
+  const before = r.idle ? await callAgent<string>(tabId, "snapshot", [{ full: false }]) : ""
   guard()
 
   // ACT
@@ -573,8 +631,10 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     }
     return res
   }
+  if (action.kind === "click" && !r.idle) return fastClick(r, action, hooks, found)
   if (action.kind === "click") {
-    const handled = await hasClickHandler(tabId, c.x, c.y)
+    // Only the idle path's no_effect check needs it.
+    const handled = r.idle ? await hasClickHandler(tabId, c.x, c.y) : true
     guard()
     hooks.acted = true
     await input.click(tabId, c.x, c.y)
@@ -597,6 +657,127 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   hooks.acted = true
   hooks.chosen = chosen
   return finish(r, before, {})
+}
+
+async function pageHidden(tabId: number): Promise<boolean> {
+  try {
+    const r = await send<{ result: { value?: unknown } }>(tabId, "Runtime.evaluate", { expression: "document.visibilityState", returnByValue: true })
+    return r.result.value === "hidden"
+  } catch {
+    return false
+  }
+}
+
+/**
+ * A click that does not wait for the page to go idle checks that it landed instead. `armClick` re-checks the element
+ * right before the input (attached, not moving, nothing covering it) and listens; then the click looks for an effect
+ * for up to CLICK_EFFECT_MS. It is sent again only when that cannot repeat anything:
+ * - its press reached no control (the element was removed or moved in between) and nothing that outlives the page
+ *   happened (navigation, request, new tab, dialog): up to CLICK_RETRIES. DOM changes do not count here: the
+ *   element going away is one. A twin re-rendered in its place (same role and name) counts as the element;
+ * - it reached the element but nothing happened and nothing on the page handles clicks there (an app that has not
+ *   started yet): once, as soon as a click handler shows up there (up to APP_READY_WAIT_MS); none by then is
+ *   no_effect, with no second click.
+ * A press that reached another control stops with an error (it may have done something). A click that reached a
+ * handled element and changed nothing visible is done: it may have changed app state.
+ */
+async function fastClick(r: Run, action: Action, hooks: Hooks, found: Extract<FindResult, { kind: "found" }>): Promise<ActionResult> {
+  const { tabId, watch, net, p } = r
+  const guard = () => {
+    if (p.expired) throw new Expired()
+  }
+  const again = (): Promise<ActionResult> => {
+    hooks.clickRetries = (hooks.clickRetries ?? 0) + 1
+    return act(r, action, hooks)
+  }
+  const retriesLeft = (hooks.clickRetries ?? 0) < CLICK_RETRIES
+  const arm = await callAgent<ArmResult>(tabId, "armClick", [found.ref])
+  guard()
+  if (arm.kind !== "ok") {
+    if (arm.kind === "blocked") return early(r, "blocked", { detail: `covered by ${arm.by}`, blockedBy: arm.by })
+    if (arm.kind === "disabled") return early(r, "disabled", { detail: "element is disabled" })
+    // Replaced, re-rendered or still moving since CHECK: find it again.
+    if (retriesLeft) return again()
+    return early(r, "not_found", { detail: arm.kind === "moving" ? "element kept moving" : "element was replaced while it was being clicked" })
+  }
+  const before = { seq: watch.seq, sent: net.sent(), tabs: watch.newTabs.length, dialogs: r.dialogs.events.length }
+  hooks.acted = true
+  await input.click(tabId, arm.x, arm.y)
+  guard()
+  const { received, effect, lasting, landedOn } = await clickOutcome(r, before)
+  guard()
+  if (!received) {
+    if (landedOn) return early(r, "error", { detail: `the click landed on ${landedOn} instead (the page changed under it): check the page before going on` })
+    if (!lasting) {
+      // The press reached no control and nothing lasting happened: sending it again repeats nothing.
+      if (retriesLeft) return again()
+      hooks.acted = false
+      return early(r, "error", { detail: "the click did not reach the element (it was replaced or moved each time)" })
+    }
+  }
+  let handled = true
+  if (!effect) {
+    handled = await hasClickHandler(tabId, arm.x, arm.y)
+    guard()
+    if (!handled && !hooks.waitedForApp) {
+      hooks.waitedForApp = true
+      const until = Date.now() + APP_READY_WAIT_MS
+      while (!handled && Date.now() < until) {
+        await sleep(APP_READY_POLL_MS)
+        guard()
+        handled = await hasClickHandler(tabId, arm.x, arm.y)
+      }
+      guard()
+      if (handled) return act(r, action, hooks)
+    }
+  }
+  return finish(r, "", { click: { handled } })
+}
+
+/**
+ * What a fast click did within CLICK_EFFECT_MS: whether its element received the press (`landedOn`: the other control
+ * it reached instead), whether anything happened (`effect`), and whether that outlives the page (`lasting`: a
+ * navigation, request, new tab or dialog; DOM changes alone are not).
+ */
+async function clickOutcome(
+  r: Run,
+  before: { seq: number; sent: number; tabs: number; dialogs: number },
+): Promise<{ received: boolean; effect: boolean; lasting: boolean; landedOn?: string }> {
+  const { tabId, watch, net } = r
+  const start = Date.now()
+  // Awaited: its listeners must be gone before hasClickHandler looks for the page's own.
+  const disarm = () => withTimeout(callAgent(tabId, "clickReceipt", [true]), 1_000, null).catch(() => null)
+  for (;;) {
+    await sleep(CLICK_EFFECT_POLL_MS)
+    const happened =
+      watch.seq !== before.seq ||
+      watch.loading ||
+      watch.navigated ||
+      net.sent() > before.sent ||
+      watch.newTabs.length > before.tabs ||
+      r.dialogs.events.length > before.dialogs
+    // A page that does not answer (a dialog the guard has not answered yet, a document going away) is no evidence that
+    // nothing happened: never resend on it.
+    const UNKNOWN = { received: true, mutations: 1, connected: true }
+    let rc: Receipt | null
+    try {
+      rc = await withTimeout(callAgent<Receipt | null>(tabId, "clickReceipt", [false]), 1_000, UNKNOWN)
+    } catch {
+      rc = UNKNOWN
+    }
+    // null: a new document's agent, which armed nothing: the click navigated.
+    if (rc === null) return { received: true, effect: true, lasting: true }
+    const landedOn = rc.landedOn ? { landedOn: rc.landedOn } : {}
+    // A missed press waits out the window: only a lasting effect (or a control it hit) decides it early.
+    if (happened || (rc.received && rc.mutations > 0) || rc.landedOn) {
+      await disarm()
+      return { received: rc.received, effect: true, lasting: happened, ...landedOn }
+    }
+    if (Date.now() - start >= CLICK_EFFECT_MS) {
+      await disarm()
+      return { received: rc.received, effect: rc.mutations > 0, lasting: false }
+    }
+  }
 }
 
 const baseName = (path: string): string => path.split(/[\\/]/).pop() ?? path
@@ -706,17 +887,24 @@ interface DialogOpts {
   navigating?: () => boolean
 }
 
+interface BeginOpts extends DialogOpts {
+  /** Run.idle; default true. */
+  idle?: boolean
+}
+
 async function begin(
   s: Session,
   tabId: number,
   p: Progress,
   fn: (r: Run) => Promise<ActionResult>,
-  dialogOpts: DialogOpts = {},
+  opts: BeginOpts = {},
 ): Promise<ActionResult> {
   const ended = agentActing(tabId)
+  const release = hold(tabId)
   try {
-    return await beginActing(s, tabId, p, fn, dialogOpts)
+    return await beginActing(s, tabId, p, fn, opts)
   } finally {
+    release()
     ended()
   }
 }
@@ -726,7 +914,7 @@ async function beginActing(
   tabId: number,
   p: Progress,
   fn: (r: Run) => Promise<ActionResult>,
-  dialogOpts: DialogOpts,
+  { idle = true, ...dialogOpts }: BeginOpts,
 ): Promise<ActionResult> {
   let watch: Watch
   try {
@@ -745,7 +933,7 @@ async function beginActing(
     const urlBefore = await tabUrl(tabId)
     const net = trackNetwork(tabId)
     try {
-      return await fn({ s, tabId, watch, net, p, urlBefore, dialogs, closedPopups })
+      return await fn({ s, tabId, watch, net, p, urlBefore, dialogs, closedPopups, idle })
     } finally {
       net.stop()
     }
@@ -797,6 +985,8 @@ async function navigate(
   p: Progress,
   policy?: DialogPolicy,
   hooks: Hooks = {},
+  idle = true,
+  waitUntil: WaitUntil = "load",
 ): Promise<ActionResult> {
   let navigated = false
   const current = await tabUrl(tabId)
@@ -817,9 +1007,14 @@ async function navigate(
       hooks.acted = true
       if (nav.loaderId) r.watch.expectLoad()
     }
-    const ready = await settle(tabId, r.watch, r.net, p)
+    const ready =
+      idle || waitUntil === "idle"
+        ? await settle(tabId, r.watch, r.net, p)
+        : waitUntil === "domcontentloaded"
+          ? await r.watch.waitDomReady(READY.timeoutMs)
+          : await r.watch.waitLoaded(READY.timeoutMs)
     const tab = await chrome.tabs.get(tabId)
-    const page = await safeBrief(tabId)
+    const page = idle ? await safeBrief(tabId) : ""
     const res: ActionResult = {
       ok: ready,
       status: ready ? "done" : "timeout",
@@ -830,10 +1025,13 @@ async function navigate(
     if (!ready) res.detail = `page not ready after ${READY.timeoutMs} ms`
     if (r.dialogs.events.length) res.dialogs = [...r.dialogs.events]
     return res
-  }, { navigating: () => true, ...(policy ? { policy } : {}) })
+  }, { navigating: () => true, idle, ...(policy ? { policy } : {}) })
 }
 
-export type StepAction = Action | { kind: "goto"; url: string }
+/** What a goto that does not wait for idle waits for (one that does always waits for idle). */
+export type WaitUntil = "load" | "domcontentloaded" | "idle"
+
+export type StepAction = Action | { kind: "goto"; url: string; waitUntil?: WaitUntil }
 
 export interface StepOutcome extends ActionResult {
   resolved?: { role: string; name: string; within?: string }
@@ -862,8 +1060,11 @@ export async function runStep(
     dialog?: DialogPolicy
     beforeAct?: (found: Found) => HaltReason | null
     linger?: (tail: Promise<void>) => void
+    /** Run.idle; default true. */
+    idle?: boolean
   },
 ): Promise<StepOutcome> {
+  const idle = opts.idle ?? true
   if (action.kind === "press") input.keyDef(action.key) // BAD_REQUEST before touching the page
   if (action.kind === "goto" && isRestrictedUrl(action.url)) throw new RestrictedPageError(action.url)
   const hooks: Hooks = opts.beforeAct ? { beforeAct: opts.beforeAct } : {}
@@ -873,8 +1074,8 @@ export async function runStep(
       tabId,
       (p) =>
         action.kind === "goto"
-          ? navigate(s, tabId, action.url, p, opts.dialog, hooks)
-          : begin(s, tabId, p, (r) => act(r, action, hooks), opts.dialog ? { policy: opts.dialog } : {}),
+          ? navigate(s, tabId, action.url, p, opts.dialog, hooks, idle, action.waitUntil)
+          : begin(s, tabId, p, (r) => act(r, action, hooks), { idle, ...(opts.dialog ? { policy: opts.dialog } : {}) }),
       { capMs: opts.capMs, holdsLock: true },
     )
   } catch (e) {

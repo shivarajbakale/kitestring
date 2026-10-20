@@ -23,7 +23,7 @@ uploads, memory, recording, and the build notes. For problems, see [troubleshoot
 ## MCP tools
 
 `kite mcp` serves MCP over stdio. The session name comes from `KITE_SESSION` (`kite init` sets one per agent;
-the default is `agent`). It exposes 21 tools:
+the default is `agent`). It exposes 24 tools:
 
 | Tool | What it does |
 | --- | --- |
@@ -33,8 +33,11 @@ the default is `agent`). It exposes 21 tools:
 | `browser_snapshot` | read the page as a compact tree with refs |
 | `browser_click`, `browser_fill`, `browser_select`, `browser_press`, `browser_scroll`, `browser_upload` | act on the page; each returns a diff of what changed |
 | `browser_batch` | run a list of steps in one call (see [Batches](#batches)) |
+| `browser_script` | run JavaScript that drives the tab through helpers: loops, branches and reads in one call (see [Scripts](#scripts)) |
 | `browser_console`, `browser_network` | recent console messages and network requests of the tab |
+| `browser_extract` | read the page's biggest table or repeated list (or the one holding `near` text, or `selector`'s items) as rows; `next` pages through (a button's text or `scroll`); `save` writes every row to a .csv, .json or .jsonl file. See [Extracting data](#extracting-data) |
 | `browser_screenshot` | capture the tab (the viewport, the whole page, or one element by ref) |
+| `browser_ask_human` | ask the person at the browser to do something only they should (captcha, 2FA code, password, login); waits up to 40 s per call and answers `waiting`, `done` or `declined` |
 | `browser_plan_find`, `browser_plan_run`, `browser_plan_save`, `browser_plan_discard` | find, replay, save and drop remembered tasks: plans built from the agent's batches, with every typed value a parameter |
 
 ## The action pipeline
@@ -89,6 +92,7 @@ line to add.
 | `kite tab close [id]` | close a tab (the active one without an id) |
 | `kite goto <url>` | navigate the active tab |
 | `kite snapshot [--full] [--scope <ref>]` | the visible page as a compact tree with refs; `--full` for everything, `--scope` to limit it to one ref |
+| `kite extract [--near <text>] [--selector <css>] [--pick <n>] [--next <target>\|scroll] [--pages <n>] [--max <n>] [-o <file>]` | the page's table or repeated list as CSV on stdout (the summary and other candidates on stderr), or saved to a .csv/.json/.jsonl file |
 | `kite screenshot [--full] [--ref <ref>] [-o <file>]` | PNG of the active tab; prints the file path (default `$KITE_HOME/shots/<timestamp>.png`) |
 | `kite console [--errors] [--limit <n>] [--clear]` | console messages and uncaught errors (newest 50 by default) |
 | `kite network [--failed] [--filter <s>] [--limit <n>] [--clear]` | network requests; `--failed` keeps status ≥ 400 and requests with no response |
@@ -104,6 +108,7 @@ line to add.
 | `kite scroll <up\|down> [px]` | scroll one viewport, or `px` pixels |
 | `kite upload <target> <files...>` | put files into a file input, a button that opens one, or a drop zone (see [Upload](#upload)) |
 | `kite batch <file\|->` `[--budget <ms>] [--allow-domain <domain>]...` | run steps from a JSON file or stdin (see [Batches](#batches)) |
+| `kite script <file\|->` `[--timeout <ms>]` | run JavaScript from a file or stdin (see [Scripts](#scripts)) |
 
 Examples:
 
@@ -123,6 +128,7 @@ kite goto https://example.org
 | --- | --- |
 | `kite pause [reason]` | stop all agents from acting until resumed; the reason reaches the agents |
 | `kite resume` | let agents act again |
+| `kite ask <reason> [--timeout <s>]` | ask the person at the browser to do something (captcha, 2FA, login) and wait for Done or Can't do it; exit 0 done, 1 declined, 2 still waiting at the timeout (600 s by default) |
 | `kite activity [--limit <n>]` | recent agent actions, newest first (200 by default) |
 
 ### Memory, replay and recording
@@ -136,6 +142,12 @@ kite goto https://example.org
 | `kite memory forget <slug>` | delete a plan |
 | `kite memory discard` | drop this session's unsaved journal |
 | `kite run <plan> [--param name=value]... [--secret name=value]... [--dry-run]` | replay a plan (`<site>/<slug>`, or a bare slug when unique) |
+| `kite schedule add <plan> --every <30m\|6h\|1d\|1w> [--param name=value]... [--name <slug>]` | replay a plan on its own every so often while Chrome runs; the first run is as soon as you are away (plans with secret params are refused) |
+| `kite watch <url> --every <30m\|6h\|1d\|1w> [--ignore <regex>]... [--name <slug>]` | read a page on its own (logged-in pages too) and get a notification when its text changes; managed with `kite schedule list / run / remove` |
+| `kite export <url> --every <interval> [--near <text>] [--selector <css>] [--next <text>\|scroll] [--pages <n>] [--max <n>] [--format csv\|json\|jsonl] [--name <slug>]` | save a page's table or list to `$KITE_HOME/exports/<name>/` on its own and hear how many rows are new; managed with `kite schedule list / run / remove` |
+| `kite schedule list` | schedules, watches and exports, their next run and how the last one went |
+| `kite schedule run <name>` | run a schedule now (its timer is unchanged) |
+| `kite schedule remove <name>` | delete a schedule (the plan stays) |
 | `kite record start --name <slug>` | record what you do by hand in this session's active tab |
 | `kite record stop [--force]` | stop and write the skill and its plan |
 | `kite cache stats` | entries, sites, hits |
@@ -200,6 +212,92 @@ the step to resend from. Reasons: `not_found`, `ambiguous`, `blocked`, `disabled
 `domain`, `dialog`, `expect`, `risky`, `paused`, `time`. The time budget is 40 s by default (`--budget <ms>`,
 clamped to 5 to 40 s; the MCP server reads `KITE_BATCH_BUDGET_MS`). Each step shows in the activity list, grouped as
 one batch.
+
+By default every step waits for the page to go idle (network and DOM quiet) and is diffed. `"wait_idle": "last"`
+(`fast: true` on `browser_batch`) lets only the last step do that: the steps before it wait instead for their own
+target to appear (up to 3 s, or the step's `wait`) and poll their `expect` (up to 5 s, or `wait`). That saves the idle
+wait on every step, which on busy pages (analytics, live updates) is most of a batch's time; put an `expect` on a
+step whose effect the next step depends on. `"wait_idle": "never"` also skips the batch's own snapshots: no diff and
+no page summary.
+
+## Scripts
+
+`browser_script` (or `kite script <file|->`) runs JavaScript that drives the active tab, so a task with loops,
+branches or reads takes one call instead of one per step:
+
+```js
+await goto("https://shop.example/orders")
+const rows = []
+for (let page = 1; page <= 3; page++) {
+  const { rows: r } = await extract()
+  rows.push(...r)
+  try {
+    await click("Next", { expect: { text: `Page ${page + 1}` } })
+  } catch (e) {
+    if (e.code === "NOT_FOUND") break
+    throw e
+  }
+}
+return rows.filter((r) => r.Status === "Delayed")
+```
+
+The code is the body of an async function. Its helpers: `goto(url, {waitUntil?})`, `click(target, opts)`,
+`fill(target, value, opts)`, `select(target, value, opts)`, `press(key, opts)`, `scroll("up"|"down", px?)`,
+`upload(target, files, opts)`, `waitFor(cond, {timeout?})` (see below), `snapshot({full?, scope?})`, `text({max?})`,
+`extract({near?, selector?, max?})`,
+`evaluate(fn, arg?)` (runs `fn` in the page and returns its JSON value), `tabs()`, `newTab(url)`, `useTab(id)`,
+`closeTab(id?)`, `sleep(ms)` and `console.log`. `opts` are a batch step's `within`, `role`, `wait`, `if_present`,
+`expect` and `dialog`.
+
+Each action is a one-step batch with `wait_idle: "never"`: it waits for its target (up to 3 s) and its `expect`, not
+for the page to go idle, so the script says what it waits for. Guards apply as in a batch, including `risky`. A step
+that does not work throws an error whose `code` is the halt reason in capitals (`NOT_FOUND`, `AMBIGUOUS`, `EXPECT`,
+`RISKY`, ...; `candidates` on `AMBIGUOUS`); a script can catch it. The reply is the script's console output, its return
+value (`→ ...`) or error, and the number of browser calls. Steps a script runs are not remembered as plans.
+
+`goto` waits for the page's `load` event; `waitUntil: "domcontentloaded"` returns sooner and `"idle"` waits for the
+network and the DOM to go quiet as well.
+
+`waitFor(cond, {timeout})` resolves as soon as the condition holds (the page agent re-checks on every DOM change, so
+there is no polling delay) and throws `TIMEOUT` naming what it last saw (`3 of 5 "article"`, `the page is at ...`).
+The default timeout is 10 s, at most 120 s and never past the script's deadline. A wait carries on across a
+navigation. Conditions:
+
+| `cond` | Holds when |
+| --- | --- |
+| `{selector, state}` | a CSS selector is `visible` (default), `hidden`, `attached` or `detached` |
+| `{target, within?, role?}` | an element an action could target (visible text or `@ref`) is there |
+| `{text, within?, gone?}` | the visible text (of the `within` section if given) contains `text`, or a `/regex/`; `gone` waits for it to disappear |
+| `{count: {selector, min}}` | at least `min` elements match (an infinite feed, a lazy list) |
+| `{url}` | the URL contains `url`, or matches a `/regex/` |
+| `{fn, arg?}` | `fn(arg)`, run in the page, returns something truthy; `waitFor` returns that value |
+| `{idle: true}` | the network and the DOM are quiet |
+
+Scope text waits with `within`: page-wide text is often already somewhere else on the page (a sidebar, a header).
+CSS selectors do not reach into shadow roots; `target` and `text` do. A bad selector or regex, or a `fn` that throws,
+fails at once.
+
+### How a fast click makes sure it landed
+
+A click that does not wait for the page to go idle (in a script, or a `wait_idle` batch step) checks right before the
+input that its element is still attached, has not moved across two frames and is not covered, then listens for
+the press and looks 300 ms for an effect. It is sent again only when that cannot repeat anything:
+
+- The press reached no control (the element was removed or re-rendered under the pointer) and nothing lasting
+  happened (no navigation, request, new tab or dialog): found again and sent again, at most twice more. An identical
+  element re-rendered in its place (same role and name) counts as the element itself.
+- The press reached the element, nothing happened, and nothing on the page handles clicks there yet (an app still
+  starting): it waits up to 5 s for a click handler to appear, then clicks once more. None by then is `no_effect`.
+
+A press that reached a different control stops with an error naming it. A click that reached a handled element and
+changed nothing visible is `done`: it may have changed state the page does not show, so it is never repeated. A
+fast step in a hidden tab (minimized, covered or background window: Chrome delivers no input there) fails at once
+saying so.
+
+The code runs in a child Node process under the permission model: no files, subprocesses, workers or environment
+(and, on Node 25 and later, no network), with only the helpers to reach the browser. It is killed at its deadline:
+40 s for `browser_script` (5 s under the MCP call's bound), 120 s for `kite script` (`--timeout <ms>`).
+`evaluate` runs in the page's own JavaScript world, with the page's privileges.
 
 ## Guards
 
@@ -272,6 +370,39 @@ Plans live in `$KITE_HOME/memory/<site>/<plan>.json` (directories 0700, files 06
 path pattern, parameter names and the batches. A plan is found by site first, then by how much its intent overlaps
 the task. `kite memory forget <slug>` removes one; `kite memory discard` drops the unsaved journal.
 
+### Schedules
+
+A schedule replays a saved plan every 5 minutes or more, with no agent and no model calls. The native host runs it,
+so it only happens while Chrome (and the extension) runs: a run missed while Chrome was closed happens once at the
+next start, then the timer goes on from there. A due run waits until you have been away for a minute (no mouse or
+keyboard input; a locked screen does not count), or until it is an hour late, then opens the plan's page in a new
+window in front, in its own session (`schedule-<name>`). It has to be visible: Chrome stops drawing background tabs and
+covered windows, and clicks and scrolls sent to them never finish. Each run ends with a notification. A full run closes its
+window; a stop (a target gone, a risky click, a guard) leaves it where it stopped, and a click on the notification
+shows it. While Kitestring is paused, runs are skipped without a notification. Schedules live in
+`$KITE_HOME/schedules.json` (owner-only) with their param values; a plan with secret params cannot be scheduled.
+
+### Watches
+
+`kite watch <url> --every 1h` reads a page on a timer, in your own Chrome (so pages you are logged into work), and
+tells you when its visible text changes: a notification with how many lines came and went and the first new one; a
+click opens the page. A watch only reads, so it runs in a background tab of its own session (`schedule-<name>`) when
+due, without waiting for you to be away, and closes the tab after. The page is read until two reads 2 s apart agree,
+for content that loads late. The first read only keeps the text; no change means no notification; an error (the site
+is down, the browser did not answer) is told once, not again while it repeats. `--ignore <regex>` (repeatable,
+case-insensitive) leaves out lines that change on their own, like clocks and counters. The last text is kept in
+`$KITE_HOME/watches/<name>.txt` (owner-only) and deleted with the watch. A logged-out page counts as a change: you hear
+about it.
+
+### Exports
+
+`kite export <url> --every 1d` saves a page's table or repeated list (see [Extracting data](#extracting-data)) to a new
+file each run, `$KITE_HOME/exports/<name>/<time>.csv` (owner-only; `--format json` or `jsonl` for others), and notifies
+you with the row count and how many rows are new since the last run. A one-page export only reads, so it runs in a
+background tab when due, like a watch; with `--next` it clicks or scrolls, so it waits until you are away and opens a
+window in front, like a plan. The rows are read once they settle (two reads 2 s apart count the same). Removing the
+export keeps its files.
+
 ### Action cache
 
 The extension remembers where it found each element (by site, page shape and the text you asked for). The next find
@@ -285,6 +416,27 @@ kite cache stats                       # entries, sites, hits
 kite cache clear                       # everything
 kite cache clear --site https://example.com
 ```
+
+## Extracting data
+
+`browser_extract` and `kite extract` read repeated data off the active page without snapshots: a `<table>` (or ARIA
+table/grid), its header cells becoming columns and each row's first link a `link` column; or a list of elements that
+share their tag and classes (product cards, search results, issue rows), whose text parts, links (`link`) and images
+(`image`) line up into columns by where they sit in each item, named from their class, `aria-label`, `itemprop` or
+`data-testid`. Hidden items are left out. The biggest candidate wins (navigation, headers and footers count less);
+`near` takes the tightest one holding a text, `selector` names the items, and `pick` one of the other candidates the
+reply lists.
+
+With `next`, it clicks that button (or, with `scroll`, scrolls 2000 px) and reads the same table or list again by its
+key, up to `pages` (5 by default, 50 at most), stopping early when the next button is missing, a page brings no new
+rows (it waits up to 4 s for them), or `max` rows (500 by default, 5000 at most) are in. Rows already read are not
+repeated, which suits infinite lists that keep their old items. The MCP tool stops paging in time to answer inside its
+call bound, returns the rows as CSV (the first ones when they pass 30,000 characters), and with `save` writes them all.
+CSV cells starting with `=`, `+`, `-` or `@` (not numbers) get a leading `'` so spreadsheets do not run them as formulas.
+
+It reads only what the page shows you, in your own logged-in Chrome: fine for your own orders, statements, invoices and
+admin lists; collecting other people's data, or pages a site's terms forbid automating, is on you. Busy paging on
+large consumer sites can get your own account flagged.
 
 ## Recording a task
 
@@ -315,6 +467,12 @@ view of what agents are doing: every action, grouped by batch, with its diff.
 Paused:
 
 ![Popup, paused](ui/popup-paused-light.png)
+
+When an agent asks for the person (`browser_ask_human`, `kite ask`), Chrome shows a notification with **Done** and
+**Can’t do it**, the toolbar icon gets a `!` badge, the agent's tab comes to the front, and the popup and the side
+panel show a card with the same two answers. One request stays open per session; an answer given while the agent is
+not waiting is kept for its next call with the same reason. Turning off Chrome's notifications leaves the badge and the
+card.
 
 ## Safety model
 

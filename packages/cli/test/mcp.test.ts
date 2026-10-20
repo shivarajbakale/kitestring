@@ -68,18 +68,19 @@ async function connect(env: Record<string, string> = {}): Promise<{ stderr: () =
 }
 
 describe("kite mcp", () => {
-  it("lists all 21 tools with the server name", async () => {
+  it("lists all 24 tools with the server name", async () => {
     await connect()
     const { tools } = await client!.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual(
       [
         "browser_status", "browser_tabs", "browser_tab_new", "browser_tab_use", "browser_tab_close",
         "browser_goto", "browser_snapshot", "browser_click", "browser_fill", "browser_select",
-        "browser_press", "browser_scroll", "browser_console", "browser_network", "browser_screenshot", "browser_upload", "browser_batch",
+        "browser_press", "browser_scroll", "browser_console", "browser_network", "browser_screenshot", "browser_upload", "browser_batch", "browser_script",
+        "browser_ask_human", "browser_extract",
         "browser_plan_find", "browser_plan_run", "browser_plan_save", "browser_plan_discard",
       ].sort(),
     )
-    expect(tools).toHaveLength(21)
+    expect(tools).toHaveLength(24)
     expect(client!.getServerVersion()?.name).toBe("kitestring")
     for (const t of tools) expect(t.description).toBeTruthy()
   })
@@ -121,6 +122,7 @@ describe("kite mcp", () => {
       ["browser_scroll", { direction: "down", px: 200 }, "act.scroll", { direction: "down", px: 200 }],
       ["browser_console", { level: "error" }, "page.console", { level: "error", limit: 50, clear: false }],
       ["browser_network", { failed: true }, "page.network", { failed: true, limit: 50, clear: false }],
+      ["browser_ask_human", { reason: "Solve the captcha" }, "human.ask", { reason: "Solve the captcha", wait_ms: 40_000 }],
     ]
     for (const [name, args, method, params] of calls) {
       received.length = 0
@@ -183,6 +185,32 @@ describe("kite mcp", () => {
       allow_domains: ["example.org"],
       budget_ms: 12000,
     })
+  })
+  it("browser_batch fast asks only the last step to wait for idle", async () => {
+    await startFake()
+    await connect({ KITE_BATCH_BUDGET_MS: "" })
+    await client!.callTool({ name: "browser_batch", arguments: { steps: [{ action: "scroll", direction: "down" }], fast: true } })
+    expect(received[0].params).toEqual({ steps: [{ action: "scroll", direction: "down" }], wait_idle: "last" })
+  })
+  it("browser_script runs code whose actions are calls in this session", async () => {
+    canned = { ok: true, steps: [{ i: 0, action: "click", status: "done", ms: 1 }], diff: { added: [], removed: [] }, page: "" }
+    await startFake()
+    await connect({ KITE_SESSION: "s1" })
+    const r: any = await client!.callTool({
+      name: "browser_script",
+      arguments: { code: `await click("Next"); console.log("clicked"); return (await snapshot()).length` },
+    })
+    expect(r.isError).toBeFalsy()
+    expect(r.content[0].text).toMatch(/^clicked\n→ 9\n\(2 browser calls, \d+ ms\)$/)
+    expect(received.map((m) => [m.method, m.session])).toEqual([["act.batch", "s1"], ["page.snapshot", "s1"]])
+    expect(received[0].params).toMatchObject({ steps: [{ action: "click", target: "Next" }], wait_idle: "never" })
+  })
+  it("browser_script reports a failing script as an error with its output", async () => {
+    await startFake()
+    await connect()
+    const r: any = await client!.callTool({ name: "browser_script", arguments: { code: `console.log("before"); throw new Error("nope")` } })
+    expect(r.isError).toBe(true)
+    expect(r.content[0].text).toMatch(/^before\nerror: Error: nope \(line 1\)\n/)
   })
   it("browser_batch without the env sends no budget_ms", async () => {
     await startFake()

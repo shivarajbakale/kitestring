@@ -6,7 +6,7 @@ vi.mock("../background/agent-bridge", () => ({
   callAgent: vi.fn(async () => "brief"),
   isRestrictedUrl: () => false,
 }))
-vi.mock("../background/cdp", () => ({ ensureAttached: vi.fn(), isNotAttached: () => false, onEvent: vi.fn(), send: vi.fn() }))
+vi.mock("../background/cdp", () => ({ ensureAttached: vi.fn(), hold: () => () => {}, isNotAttached: () => false, onEvent: vi.fn(), send: vi.fn() }))
 vi.mock("../background/input", () => ({}))
 vi.mock("../background/network-idle", () => ({ trackNetwork: vi.fn() }))
 vi.mock("../background/sessions", () => ({ activeTab: vi.fn(), adoptTab: vi.fn() }))

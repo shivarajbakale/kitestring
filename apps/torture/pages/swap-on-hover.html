@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>swap-on-hover</title></head><body>
+<main><h1>Swap on hover</h1><div id="slot"></div></main>
+<script>
+// The first hover re-renders the button: it is removed, and a new one takes its place 200 ms later. A press in
+// between hits the empty slot. Each pick counts, so a click sent twice shows up as picked:2.
+window.__result = undefined
+let picks = 0
+let swapped = false
+function render() {
+  const b = document.createElement("button")
+  b.textContent = "Pick me"
+  b.addEventListener("click", () => (window.__result = "picked:" + ++picks))
+  b.addEventListener("mousemove", () => {
+    if (swapped) return
+    swapped = true
+    b.remove()
+    setTimeout(render, 200)
+  })
+  document.getElementById("slot").appendChild(b)
+}
+document.getElementById("slot").style.minHeight = "40px"
+render()
+</script>
+</body></html>

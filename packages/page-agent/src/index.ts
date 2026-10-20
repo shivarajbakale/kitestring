@@ -11,6 +11,9 @@ import { fileInputFor, fileNames, watchFileInput } from "./files.js"
 import { pressTarget } from "./submit.js"
 import { elementLine } from "./snapshot.js"
 import { roleOf } from "./roles.js"
+import { extract, type ExtractOpts, type ExtractResult } from "./extract.js"
+import { ClickReceipts, type ArmResult, type Receipt } from "./receipt.js"
+import { waitFor, type WaitCondition, type WaitResult } from "./wait.js"
 
 export interface PageAgent {
   snapshot(opts?: SnapshotOpts): string
@@ -25,6 +28,16 @@ export interface PageAgent {
   brief(): string
   /** Case-folded substring test against the page's visible text (batch `expect: {text}`). */
   hasText(text: string): boolean
+  /** The page's visible text, at most `max` characters (a watch compares it run to run). */
+  text(max: number): string
+  /** Rows of the page's best (or chosen) table or repeated list (browser_extract). */
+  extract(opts?: ExtractOpts): ExtractResult
+  /** The last check before a click (attached, still, not covered), and start listening for what the click does. */
+  armClick(ref: string): Promise<ArmResult>
+  /** Whether the armed element received the press, and DOM changes since arming; null when nothing is armed. */
+  clickReceipt(disarm: boolean): Receipt | null
+  /** Resolves as soon as `cond` holds in this document, or after `ms` with what was last seen. */
+  waitFor(cond: WaitCondition, ms: number): Promise<WaitResult>
   readValue(ref: string): string | null
   /** Picks the option whose value or visible text is `value`; its visible text, or null if there is none. */
   setSelect(ref: string, value: string): string | null
@@ -50,6 +63,7 @@ const fold = (s: string): string => s.replace(/\s+/g, " ").toLowerCase()
 export function createAgent(win: Window): PageAgent {
   const doc = win.document
   const reg = new RefRegistry(doc)
+  const receipts = new ClickReceipts(win)
   return {
     snapshot: (opts = {}) => snapshot(doc, reg, opts),
     resolve: (ref) => reg.resolve(ref),
@@ -70,6 +84,11 @@ export function createAgent(win: Window): PageAgent {
     waitQuiet: () => waitQuiet(win),
     brief: () => brief(doc),
     hasText: (text) => fold(doc.body?.innerText ?? "").includes(fold(text)),
+    text: (max) => (doc.body?.innerText ?? "").slice(0, max),
+    extract: (opts) => extract(doc, opts),
+    armClick: (ref) => receipts.arm(reg.resolve(ref)),
+    clickReceipt: (disarm) => receipts.receipt(disarm),
+    waitFor: (cond, ms) => waitFor(doc, reg, cond, ms),
     readValue: (ref) => {
       const el = reg.resolve(ref)
       if (!el) return null
@@ -127,6 +146,9 @@ export function createAgent(win: Window): PageAgent {
 export { RefRegistry } from "./refs.js"
 export { norm } from "./normalize.js"
 export type { SnapshotOpts } from "./snapshot.js"
+export type { ExtractOpts, ExtractResult, ExtractCandidate } from "./extract.js"
+export type { ArmResult, Receipt } from "./receipt.js"
+export type { WaitCondition, WaitResult } from "./wait.js"
 export { find } from "./find.js"
 export type { FindResult, FindIntent } from "./find.js"
 export { check } from "./check.js"

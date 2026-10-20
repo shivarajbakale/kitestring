@@ -2,10 +2,11 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { Command, CommanderError } from "commander"
-import { EXTENSION_ID, RECORD_NAME_RE, parseTarget, type BatchResult, type Method, type Recording, type ScreenshotResult, type Step } from "@kitestring/protocol"
+import { EXTENSION_ID, HANDOFF_WAIT_MS, RECORD_NAME_RE, parseTarget, type BatchResult, type HandoffResult, type Method, type Recording, type ScreenshotResult, type Step } from "@kitestring/protocol"
 import { KiteError, call } from "./client/rpc-client.js"
 import { human } from "./client/human.js"
 import { withoutStartUrl } from "./client/format.js"
+import { DEFAULT_MAX_ROWS, MAX_PAGES, MAX_ROWS, extractPages, extractSummary, formatOf, saveRows, toCsv } from "./client/extract.js"
 import { installHost, legacyNotices } from "./install/host-manifest.js"
 import { kiteHome } from "./paths.js"
 import { resolveUploads } from "./upload-guard.js"
@@ -113,6 +114,49 @@ export async function main(argv: string[]): Promise<number> {
       else process.stdout.write(file + "\n")
     })
   program
+    .command("extract")
+    .description("print the active page's table or repeated list as CSV (or save it), optionally paging with --next")
+    .option("--near <text>", "the table or list holding this text (e.g. a value in one row)")
+    .option("--selector <css>", "CSS selector of the items, one row each")
+    .option("--pick <n>", "another candidate, by the index listed on stderr")
+    .option("--next <target>", 'visible text or @ref of the next-page button, or "scroll" for infinite lists')
+    .option("--pages <n>", "at most this many pages with --next", "5")
+    .option("--max <n>", "at most this many rows", String(DEFAULT_MAX_ROWS))
+    .option("-o, --output <file>", "write the rows to this .csv, .json or .jsonl file instead of printing CSV")
+    .action(async (o: { near?: string; selector?: string; pick?: string; next?: string; pages: string; max: string; output?: string }) => {
+      const int = (name: string, v: string, lo: number, hi: number): number => {
+        if (!/^\d+$/.test(v) || Number(v) < lo || Number(v) > hi) throw new UsageError(`--${name} must be an integer from ${lo} to ${hi}: ${v}`)
+        return Number(v)
+      }
+      if (o.output) {
+        try {
+          formatOf(o.output)
+        } catch (e) {
+          throw new UsageError((e as Error).message)
+        }
+      }
+      const session = sessionName()
+      const x = await extractPages((method, params) => call(method, params, { session }), {
+        ...(o.near ? { near: o.near } : {}),
+        ...(o.selector ? { selector: o.selector } : {}),
+        ...(o.pick !== undefined ? { pick: int("pick", o.pick, 0, 50) } : {}),
+        ...(o.next ? { next: o.next } : {}),
+        pages: int("pages", o.pages, 1, MAX_PAGES),
+        max: int("max", o.max, 1, MAX_ROWS),
+      })
+      const g = program.opts<Globals>()
+      if (o.output) {
+        const path = saveRows(x, o.output, process.cwd())
+        if (g.json) process.stdout.write(JSON.stringify({ path, rows: x.rows.length, columns: x.columns, pages: x.pages, ...(x.stopped ? { stopped: x.stopped } : {}) }) + "\n")
+        else process.stdout.write(`${extractSummary(x)}\nsaved ${path}\n`)
+        return
+      }
+      if (g.json) return void process.stdout.write(JSON.stringify(x) + "\n")
+      process.stderr.write(extractSummary(x) + "\n")
+      if (x.others.length) process.stderr.write(`other candidates (--pick): ${x.others.map((c) => `${c.index} ${c.source}`).join("; ")}\n`)
+      process.stdout.write(toCsv(x.columns, x.rows))
+    })
+  program
     .command("click <target>")
     .option("--within <name>")
     .option("--role <role>")
@@ -165,6 +209,25 @@ export async function main(argv: string[]): Promise<number> {
         const note = appendPending(kiteHome(), sessionName(), result.startUrl ?? "", params.steps as Step[], result)
         if (note) process.stderr.write(`kite: ${note}\n`)
       }
+    })
+  program
+    .command("script <file>")
+    .description("run JavaScript from a file (or - for stdin) that drives the active tab through helpers (see docs/reference.md)")
+    .option("--timeout <ms>", "kill the script after this long (default 120000)")
+    .action(async (file: string, o: { timeout?: string }) => {
+      if (o.timeout !== undefined && !/^[1-9]\d*$/.test(o.timeout)) throw new UsageError(`--timeout must be a positive integer (ms): ${o.timeout}`)
+      const code = file === "-" ? await readStdin() : readFileSync(file, "utf8")
+      const { SCRIPT_MAX_CHARS, formatScript, runScript } = await import("./script/run.js")
+      if (!code.trim() || code.length > SCRIPT_MAX_CHARS) throw new UsageError(`the script must be 1 to ${SCRIPT_MAX_CHARS} characters`)
+      const session = sessionName()
+      const r = await runScript(code, {
+        call: (method, params, timeoutMs) => call(method, params, { session, timeoutMs }),
+        timeoutMs: o.timeout !== undefined ? Number(o.timeout) : 120_000,
+        resolveFiles: (files) => resolveUploads(files, { cwd: process.cwd(), home: homedir(), kiteHome: kiteHome(), env: process.env }),
+      })
+      if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(r) + "\n")
+      else process.stdout.write(formatScript(r) + "\n")
+      if (r.error) exitCode = 1
     })
   program
     .command("run <plan>")
@@ -245,6 +308,23 @@ export async function main(argv: string[]): Promise<number> {
     .action((reason?: string) => run("control.pause", reason ? { reason } : {}))
   program.command("resume").description("let agents act again").action(() => run("control.resume", {}))
   program
+    .command("ask <reason>")
+    .description("ask the person at the browser to do something (captcha, 2FA, login) and wait for Done or Can't do it")
+    .option("--timeout <s>", "give up after this many seconds (still waiting: exit 2)", "600")
+    .action(async (reason: string, o: { timeout: string }) => {
+      if (!/^[1-9]\d*$/.test(o.timeout)) throw new UsageError(`--timeout must be a positive integer: ${o.timeout}`)
+      const deadline = Date.now() + Number(o.timeout) * 1000
+      let r: HandoffResult
+      for (;;) {
+        const left = deadline - Date.now()
+        r = (await call("human.ask", { reason, wait_ms: Math.max(0, Math.min(HANDOFF_WAIT_MS, left)) }, { session: sessionName() })) as HandoffResult
+        if (r.status !== "waiting" || left <= HANDOFF_WAIT_MS) break
+      }
+      if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(r) + "\n")
+      else process.stdout.write(human("human.ask", r) + "\n")
+      exitCode = r.status === "done" ? 0 : r.status === "declined" ? 1 : 2
+    })
+  program
     .command("activity")
     .description("recent agent actions, newest first")
     .option("--limit <n>", "how many entries", "200")
@@ -262,6 +342,155 @@ export async function main(argv: string[]): Promise<number> {
         throw new UsageError(`--site must be an origin like https://example.com: ${o.site}`)
       }
       return run("cache.clear", o.site ? { site: o.site } : {})
+    })
+  const scheduleCmd = program
+    .command("schedule")
+    .description("replay a saved plan on its own every so often, while Chrome runs (once you are away, in a window of its own; you get a notification)")
+  scheduleCmd
+    .command("add <plan>")
+    .description("schedule a saved plan (kite memory list); the first run is as soon as you are away")
+    .requiredOption("--every <interval>", "how often: 30m, 6h, 1d, 1w (at least 5m)")
+    .option("--param <name=value>", "a parameter value (repeatable)", collect, [] as string[])
+    .option("--name <slug>", "the schedule's name (default: the plan's)")
+    .action(async (id: string, o: { every: string; param: string[]; name?: string }) => {
+      const { planById } = await import("./memory/store.js")
+      const { addSchedule, formatEvery, parseEvery } = await import("./schedule/store.js")
+      let stored, everyMs
+      try {
+        stored = planById(kiteHome(), id)
+        everyMs = parseEvery(o.every)
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      const secret = stored.plan.params.filter((p) => p.secret).map((p) => p.name)
+      if (secret.length) throw new UsageError(`plan ${stored.id} takes secrets (${secret.join(", ")}): a schedule never stores one`)
+      const params: Record<string, string> = {}
+      for (const kv of o.param) {
+        const m = /^([^=]+)=(.*)$/s.exec(kv)
+        if (!m) throw new UsageError(`expected name=value: ${kv}`)
+        if (Object.hasOwn(params, m[1]!)) throw new UsageError(`parameter given twice: ${m[1]}`)
+        params[m[1]!] = m[2]!
+      }
+      const names = stored.plan.params.map((p) => p.name)
+      const unknown = Object.keys(params).filter((k) => !names.includes(k))
+      const missing = names.filter((n) => !Object.hasOwn(params, n))
+      if (unknown.length) throw new UsageError(`unknown parameter${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")} (plan takes: ${names.join(", ") || "none"})`)
+      if (missing.length) throw new UsageError(`missing parameter${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`)
+      let s
+      try {
+        s = addSchedule(kiteHome(), { ...(o.name ? { id: o.name } : {}), kind: "plan", plan: stored.id, params, everyMs, nextAt: Date.now(), createdAt: new Date().toISOString() })
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(s) + "\n")
+      process.stdout.write(`scheduled ${s.id}: plan ${stored.id} every ${formatEvery(s.everyMs)}; first run once you are away from the computer for a minute, while Chrome runs\n`)
+    })
+  program
+    .command("watch <url>")
+    .description("read a page every so often while Chrome runs (logged-in pages too) and get a notification when its text changes")
+    .requiredOption("--every <interval>", "how often: 30m, 6h, 1d, 1w (at least 5m)")
+    .option("--ignore <regex>", "leave out lines matching this (case-insensitive; repeatable), e.g. clocks or counters", collect, [] as string[])
+    .option("--name <slug>", "the watch's name (default: from the URL)")
+    .action(async (url: string, o: { every: string; ignore: string[]; name?: string }) => {
+      const { addSchedule, formatEvery, parseEvery } = await import("./schedule/store.js")
+      if (!/^https?:\/\/[^\s]+$/.test(url)) throw new UsageError(`url must start with http:// or https://: ${url}`)
+      let everyMs
+      try {
+        everyMs = parseEvery(o.every)
+        for (const r of o.ignore) new RegExp(r, "i")
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      let s
+      try {
+        s = addSchedule(kiteHome(), { ...(o.name ? { id: o.name } : {}), kind: "watch", url, ...(o.ignore.length ? { ignore: o.ignore } : {}), everyMs, nextAt: Date.now(), createdAt: new Date().toISOString() })
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(s) + "\n")
+      process.stdout.write(`watching ${url} as ${s.id} every ${formatEvery(s.everyMs)}; the first read is within a minute (kite schedule list / remove ${s.id})\n`)
+    })
+  program
+    .command("export <url>")
+    .description("save a page's table or list to a file every so often while Chrome runs (logged-in pages too); you hear how many rows are new")
+    .requiredOption("--every <interval>", "how often: 30m, 6h, 1d, 1w (at least 5m)")
+    .option("--near <text>", "the table or list holding this text")
+    .option("--selector <css>", "CSS selector of the items, one row each")
+    .option("--next <target>", 'page with this button (visible text), or "scroll"; such runs wait until you are away')
+    .option("--pages <n>", "at most this many pages with --next", "5")
+    .option("--max <n>", "at most this many rows", String(DEFAULT_MAX_ROWS))
+    .option("--format <format>", "csv, json or jsonl", "csv")
+    .option("--name <slug>", "the export's name (default: from the URL)")
+    .action(async (url: string, o: { every: string; near?: string; selector?: string; next?: string; pages: string; max: string; format: string; name?: string }) => {
+      const { addSchedule, exportDir, formatEvery, parseEvery } = await import("./schedule/store.js")
+      if (!/^https?:\/\/[^\s]+$/.test(url)) throw new UsageError(`url must start with http:// or https://: ${url}`)
+      if (o.format !== "csv" && o.format !== "json" && o.format !== "jsonl") throw new UsageError(`--format must be csv, json or jsonl: ${o.format}`)
+      if (o.next?.startsWith("@")) throw new UsageError("--next must be the button's visible text (an @ref does not last until the next run)")
+      const int = (name: string, v: string, hi: number): number => {
+        if (!/^[1-9]\d*$/.test(v) || Number(v) > hi) throw new UsageError(`--${name} must be an integer from 1 to ${hi}: ${v}`)
+        return Number(v)
+      }
+      const pages = int("pages", o.pages, MAX_PAGES)
+      const max = int("max", o.max, MAX_ROWS)
+      let everyMs
+      try {
+        everyMs = parseEvery(o.every)
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      let s
+      try {
+        s = addSchedule(kiteHome(), {
+          ...(o.name ? { id: o.name } : {}),
+          kind: "export",
+          url,
+          ...(o.near ? { near: o.near } : {}),
+          ...(o.selector ? { selector: o.selector } : {}),
+          ...(o.next ? { next: o.next, pages } : {}),
+          ...(max !== DEFAULT_MAX_ROWS ? { max } : {}),
+          format: o.format,
+          everyMs,
+          nextAt: Date.now(),
+          createdAt: new Date().toISOString(),
+        })
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(s) + "\n")
+      const first = o.next ? "the first run is once you are away from the computer for a minute" : "the first run is within a minute"
+      process.stdout.write(`exporting ${url} as ${s.id} every ${formatEvery(s.everyMs)} to ${exportDir(kiteHome(), s.id)}; ${first} (kite schedule list / remove ${s.id})\n`)
+    })
+  scheduleCmd
+    .command("list")
+    .description("schedules, their next run and how the last one went")
+    .action(async () => {
+      const { formatSchedules } = await import("./client/format.js")
+      const { loadSchedules } = await import("./schedule/store.js")
+      const list = loadSchedules(kiteHome())
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(list) + "\n")
+      process.stdout.write(formatSchedules(list) + "\n")
+    })
+  scheduleCmd
+    .command("remove <name>")
+    .description("stop and delete a schedule (the plan stays)")
+    .action(async (name: string) => {
+      const { removeSchedule } = await import("./schedule/store.js")
+      if (!removeSchedule(kiteHome(), name)) throw new UsageError(`no such schedule: ${name}`)
+      process.stdout.write(`removed ${name}\n`)
+    })
+  scheduleCmd
+    .command("run <name>")
+    .description("run a schedule now (its timer is unchanged)")
+    .action(async (name: string) => {
+      const { loadSchedules, updateSchedule } = await import("./schedule/store.js")
+      const { runSchedule } = await import("./schedule/runner.js")
+      const s = loadSchedules(kiteHome()).find((x) => x.id === name)
+      if (!s) throw new UsageError(`no such schedule: ${name}`)
+      const run = await runSchedule(kiteHome(), s, (method, params, session) => call(method, params, { session }))
+      updateSchedule(kiteHome(), s.id, { last: run })
+      if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(run) + "\n")
+      else process.stdout.write(`${run.status === "done" ? "✓" : run.status === "changed" ? "●" : "✗"} ${run.status}: ${run.summary}\n`)
+      if (run.status !== "done" && run.status !== "changed") exitCode = 1
     })
   const recordCmd = program.command("record").description("record a task you do in Chrome once; replay it as a skill")
   recordCmd

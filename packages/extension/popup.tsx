@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { ConnectionPill } from "~ui/components/ConnectionPill"
+import { HandoffList } from "~ui/components/HandoffList"
 import { ChevronIcon, PanelIcon } from "~ui/components/icons"
 import { Lockup } from "~ui/components/Lockup"
 import { PauseControl } from "~ui/components/PauseControl"
@@ -49,6 +50,13 @@ function Popup() {
 
       {state ? (
         <>
+          <HandoffList
+            handoffs={state.handoffs}
+            onShow={(h) =>
+              void act(h.tabId === null ? { op: "focusTab", session: h.session } : { op: "focusTab", session: h.session, tabId: h.tabId })
+            }
+            onAnswer={(h, outcome) => act({ op: "handoff", session: h.session, outcome })}
+          />
           <PauseControl
             paused={state.paused}
             reason={state.reason}

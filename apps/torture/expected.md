@@ -31,3 +31,8 @@ Serve with `pnpm --filter torture dev` (default http://127.0.0.1:4173). Each pag
 `/navigating-link-done` is the navigation target of `navigating-link`. `/multi-page-checkout-shipping`, `-review` and `-done` are the next steps of `multi-page-checkout`. `/new-tab-target` is opened by `new-tab-link`; `/oauth` is opened (via `http://localhost:<port>`) by `oauth-popup`. `/analytics/*` returns 204.
 
 `serial` (M2): records click order in `window.__events`. `kite click "Slow task"` (2 s progress bar) and a concurrent `kite click "Fast task"` on the same tab must give `["slow:start", "slow:end", "fast"]` — actions on one tab never interleave.
+| `late-app` | `kite script`: `await click("Save")` right after load: the handler arrives 1.2 s later with the "bundle"; the click waits for it and lands once | `saved:1` |
+| `swap-on-hover` | `kite script`: `await click("Pick me")`: the first hover removes the button and renders a new one 200 ms later; the missed press is sent again | `picked:1` (`picked:2` = sent twice) |
+| `toggle` | `kite script`: `await click("Notifications")` | `flips:1` (`flips:2` = sent twice) |
+| `late-list` | `kite script`: `waitFor({text: "@", within: "Timeline"})`, `waitFor({count: {selector: "article", min: 5}})` (the sidebar's "@" is there from the start) | `loaded` |
+| `navigate-later` | `kite script`: `waitFor({text: "Arrived"})` across the navigation 300 ms after load | `arrived` |

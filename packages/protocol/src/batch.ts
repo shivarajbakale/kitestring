@@ -10,14 +10,25 @@ export const BATCH_STEP_MIN_START_MS = 3_000
 export const STEP_WAIT_MAX_MS = 10_000
 export const BATCH_RESULT_MAX_BYTES = 900_000
 export const BATCH_DIFF_MAX_LINES = 40
+/** A step that does not wait for the page to go idle waits this long for its target to appear (unless `wait` says otherwise). */
+export const FAST_FIND_WAIT_MS = 3_000
+/** ...and this long for its `expect` to come true. */
+export const FAST_EXPECT_MS = 5_000
+
+/**
+ * When a step waits for the page to go idle (network quiet and no DOM changes) after acting. `each` (the default) also
+ * diffs every step. `last`: only the last step waits; the others wait for their target to appear and their `expect` to
+ * come true. `never`: no step waits for idle, and the batch takes no snapshots (empty diff, no page summary).
+ */
+export type WaitIdle = "each" | "last" | "never"
 
 /** text: substring of page text; url: substring or /regex/. */
 export type Expect = { text: string } | { url: string }
 
 export interface StepBase {
-  /** ms to wait for the target to appear (polls find), max 10_000. */
+  /** ms to wait for the target to appear (polls find), max 10_000. A step that does not wait for idle also waits this long for `expect`. */
   wait?: number
-  /** Checked after the step settles. */
+  /** Checked after the step settles (a step that does not wait for idle polls it). */
   expect?: Expect
   /** Target missing: step is "skipped" and the batch continues. */
   if_present?: boolean
@@ -31,7 +42,8 @@ export interface StepBase {
 
 export type Step = StepBase &
   (
-    | { action: "goto"; url: string }
+    /** `wait_until`, for a step that does not wait for idle: "load" (default), "domcontentloaded" or "idle". */
+    | { action: "goto"; url: string; wait_until?: "load" | "domcontentloaded" | "idle" }
     | { action: "click"; target: string | Target }
     | { action: "fill"; target: string | Target; value: string }
     | { action: "select"; target: string | Target; value: string }
@@ -51,6 +63,8 @@ export interface BatchParams {
   tab?: number
   /** Default 40_000, clamped to 5_000..40_000 (see clampBudget). */
   budget_ms?: number
+  /** Default "each". */
+  wait_idle?: WaitIdle
 }
 
 export type HaltReason =
@@ -132,7 +146,12 @@ const base = {
 const req = (what: string) => ({ required_error: `required for ${what}` })
 
 const StepSchema = z.discriminatedUnion("action", [
-  z.object({ ...base, action: z.literal("goto"), url: z.string(req("goto")).min(1) }),
+  z.object({
+    ...base,
+    action: z.literal("goto"),
+    url: z.string(req("goto")).min(1),
+    wait_until: z.enum(["load", "domcontentloaded", "idle"]).optional(),
+  }),
   z.object({ ...base, action: z.literal("click"), target: TargetIn }),
   z.object({ ...base, action: z.literal("fill"), target: TargetIn, value: z.string(req("fill")) }),
   z.object({ ...base, action: z.literal("select"), target: TargetIn, value: z.string(req("select")) }),
@@ -169,6 +188,7 @@ const BatchSchema = z.object({
   allow_domains: z.array(z.string()).optional(),
   tab: z.number().int().optional(),
   budget_ms: z.number().optional(),
+  wait_idle: z.enum(["each", "last", "never"]).optional(),
 })
 
 function formatPath(path: (string | number)[]): string {

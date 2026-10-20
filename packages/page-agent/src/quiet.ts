@@ -7,8 +7,12 @@ function isVisible(win: Window, el: Element): boolean {
   return r.width > 0 && r.height > 0
 }
 
+/**
+ * A progressbar without aria-valuenow is indeterminate (a spinner). A determinate one is only busy while its value
+ * moves, which the observer sees as attribute mutations: a static one (GitHub's language bar) is a gauge.
+ */
 function busy(win: Window): boolean {
-  const els = win.document.querySelectorAll('[aria-busy="true"], [role="progressbar"]')
+  const els = win.document.querySelectorAll('[aria-busy="true"], [role="progressbar"]:not([aria-valuenow])')
   return Array.from(els).some((el) => isVisible(win, el))
 }
 

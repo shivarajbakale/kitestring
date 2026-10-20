@@ -1,15 +1,17 @@
-import { parseTarget, type BatchResult, type Method, type ScreenshotResult, type Step } from "@kitestring/protocol"
+import { HANDOFF_REASON_MAX, HANDOFF_WAIT_MS, parseTarget, type BatchResult, type Method, type ScreenshotResult, type Step } from "@kitestring/protocol"
 import { homedir } from "node:os"
 import { z } from "zod"
 import { KiteError, call } from "../client/rpc-client.js"
 import { human } from "../client/human.js"
 import { formatReplay } from "../client/format.js"
+import { DEFAULT_MAX_ROWS, MAX_PAGES, MAX_ROWS, extractPages, extractSummary, formatOf, saveRows, toCsv } from "../client/extract.js"
 import { appendPending, discardPending, recordReplayStop, savePending } from "../memory/pending.js"
 import { runPlan } from "../memory/replay.js"
 import { findAnyPlan, planById } from "../memory/store.js"
 import { staleSkillNote } from "../record/write-skill.js"
 import { kiteHome } from "../paths.js"
 import { resolveUploads } from "../upload-guard.js"
+import { SCRIPT_MAX_CHARS, formatScript, runScript } from "../script/run.js"
 
 export type ToolContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: "image/png" }
 export interface ToolResult {
@@ -32,7 +34,8 @@ interface LocalTool {
   name: string
   description: string
   shape: z.ZodRawShape
-  run: (a: any, session: string) => Promise<string>
+  /** `isError`: the call failed, but its text (a script's output so far) is still the answer. */
+  run: (a: any, session: string) => Promise<string | { text: string; isError: boolean }>
 }
 
 type ToolDef = RpcTool | LocalTool
@@ -91,6 +94,30 @@ function batchStepParams(s: z.infer<typeof batchStep>): Record<string, unknown> 
   }
   return out
 }
+
+/** How long one browser_ask_human call waits: inside this call's own bound, with room for the reply. */
+function askWait(): number {
+  return Math.max(0, Math.min(HANDOFF_WAIT_MS, mcpTimeout() - 5_000))
+}
+
+/** Rows shown in a browser_extract reply: all of them up to this much CSV, else the first ones and a note to save. */
+const EXTRACT_REPLY_CHARS = 30_000
+
+/** A script answers this long before the MCP call's own bound. */
+const SCRIPT_MARGIN_MS = 5_000
+
+const SCRIPT_DESCRIPTION = [
+  "Run JavaScript that drives the active tab, for a task you can write as code: several actions, loops over rows or pages, branches on what the page shows, reading values out.",
+  "One call replaces many tool calls. Actions do not wait for the page to go idle: each waits up to 3 s for its target to appear, so after a step that changes the page, wait for what you need next (waitFor, or the expect option). Scope text waits with within: page-wide text is often already on the page elsewhere.",
+  "A click checks that it landed: one that never reached its element (re-rendered under the pointer) is sent again, one before the app handles clicks waits for it; it is never sent twice when it may have done something.",
+  "Helpers (all async, await them): goto(url, {waitUntil?: 'load'|'domcontentloaded'|'idle'}), click(target, opts), fill(target, value, opts), select(target, value, opts), press(key, opts), scroll('up'|'down', px?), upload(target, files, opts),",
+  "waitFor(cond, {timeout?}) where cond is {selector, state?: 'visible'|'hidden'|'attached'|'detached'}, {target, within?, role?}, {text, within?, gone?} (text may be /regex/), {count: {selector, min}}, {url}, {fn, arg?} (fn runs in the page; its truthy value is returned) or {idle: true};",
+  "snapshot({full?, scope?}) -> text, text({max?}) -> visible text, extract({near?, selector?, max?}) -> {columns, rows}, evaluate(fn, arg?) -> value (fn runs in the page),",
+  "tabs(), newTab(url), useTab(id), closeTab(id?), sleep(ms), console.log(...).",
+  "target is visible text or an @ref from a snapshot taken in the same page state. opts: within, role, wait (ms), if_present, expect ({text}|{url}), dialog ('accept'|'dismiss').",
+  "A failed action throws (err.code NOT_FOUND, AMBIGUOUS, BLOCKED, DISABLED, EXPECT, ...; err.candidates on AMBIGUOUS); catch it to branch. The script has no files, network or require: only these helpers.",
+  "Return a value or console.log what you need; end with `return await snapshot()` when you will act on the page next.",
+].join(" ")
 
 function batchBudget(): { budget_ms?: number } {
   const n = Number(process.env.KITE_BATCH_BUDGET_MS)
@@ -185,6 +212,14 @@ export const TOOLS: ToolDef[] = [
     params: (a) => ({ full: !!a.full, ...(a.ref ? { ref: a.ref } : {}) }),
   },
   {
+    name: "browser_ask_human",
+    description:
+      "Ask the user to do something only a person should: solve a captcha, enter a 2FA code or a password, log in, approve a payment. They get a Chrome notification and the tab comes to the front. Waits up to 40 s per call: on \"waiting\" call again with the same reason; on \"done\" take a snapshot and continue; on \"declined\" stop and tell the user what is blocked.",
+    method: "human.ask",
+    shape: { reason: z.string().min(1).max(HANDOFF_REASON_MAX).describe("what the user should do, one short sentence, e.g. \"Solve the captcha on the login page\"") },
+    params: (a) => ({ reason: a.reason, wait_ms: askWait() }),
+  },
+  {
     name: "browser_batch",
     description:
       "Prefer this over single actions when you know several steps ahead (forms, multi-page flows). Steps run in order with lazy targets; the batch stops at the first problem and tells you which step to resend from.",
@@ -192,12 +227,70 @@ export const TOOLS: ToolDef[] = [
     shape: {
       steps: z.array(batchStep).min(1).max(50).describe("steps in order; each has an action (goto, click, fill, select, press, scroll, upload, switch_tab, wait)"),
       allow_domains: z.array(z.string()).optional().describe("extra registrable domains the batch may move to"),
+      fast: z
+        .boolean()
+        .optional()
+        .describe("only the last step waits for the page to go idle; the others wait for their target (up to 3 s, or wait) and their expect. Faster; put expect on steps whose effect the next step needs"),
     },
     params: (a) => ({
       steps: (a.steps as z.infer<typeof batchStep>[]).map(batchStepParams),
       ...(a.allow_domains ? { allow_domains: a.allow_domains } : {}),
+      ...(a.fast ? { wait_idle: "last" } : {}),
       ...batchBudget(),
     }),
+  },
+  {
+    name: "browser_script",
+    description: SCRIPT_DESCRIPTION,
+    shape: {
+      code: z.string().min(1).max(SCRIPT_MAX_CHARS).describe("the body of an async function: top-level await and return work"),
+    },
+    run: async (a: { code: string }, session) => {
+      const r = await runScript(a.code, {
+        call: (method, params, timeoutMs) => call(method, params, { session, timeoutMs }),
+        timeoutMs: Math.max(5_000, mcpTimeout() - SCRIPT_MARGIN_MS),
+        resolveFiles: (files) => resolveUploads(files, { cwd: process.cwd(), home: homedir(), kiteHome: kiteHome(), env: process.env }),
+      })
+      return { text: formatScript(r), isError: !!r.error }
+    },
+  },
+  {
+    name: "browser_extract",
+    description:
+      "Read a table or repeated list of the active page (search results, orders, product cards, issue rows) as rows with columns, without snapshots. Picks the biggest one; pass near (text in one row) to choose another. With next (the Next button's text or @ref, or \"scroll\" for infinite lists) it pages and gathers rows. Pass save (a .csv/.json/.jsonl path) to write every row to a file. Only read what the user asked for; respect the site's terms.",
+    shape: {
+      near: z.string().min(1).optional().describe("text that appears in one of the wanted rows, e.g. an order number"),
+      selector: z.string().min(1).optional().describe("CSS selector of the items, one row each (when the automatic choice is wrong)"),
+      pick: z.number().int().min(0).max(50).optional().describe("index of another candidate listed in the reply"),
+      next: z.string().min(1).optional().describe("visible text or @ref of the next-page button/link, or \"scroll\""),
+      pages: z.number().int().min(1).max(MAX_PAGES).optional().describe("at most this many pages with next (default 5)"),
+      max: z.number().int().min(1).max(MAX_ROWS).optional().describe(`at most this many rows (default ${DEFAULT_MAX_ROWS})`),
+      save: z.string().min(1).optional().describe("file to write the rows to (.csv, .json or .jsonl), relative to the working directory"),
+    },
+    run: async (a: { near?: string; selector?: string; pick?: number; next?: string; pages?: number; max?: number; save?: string }, session) => {
+      if (a.save) formatOf(a.save)
+      const x = await extractPages((method, params) => call(method, params, { session, timeoutMs: mcpTimeout() }), {
+        ...a,
+        // Paging stops in time to answer inside this call's bound.
+        budgetMs: Math.max(5_000, mcpTimeout() - 15_000),
+      })
+      const lines = [extractSummary(x)]
+      if (a.save) lines.push(`saved ${saveRows(x, a.save, process.cwd())}`)
+      if (x.others.length) lines.push(`other candidates (pick): ${x.others.map((c) => `${c.index} ${c.source}`).join("; ")}`)
+      let shown = x.rows
+      let csv = toCsv(x.columns, shown)
+      while (csv.length > EXTRACT_REPLY_CHARS && shown.length > 1) {
+        shown = shown.slice(0, Math.floor(shown.length / 2))
+        csv = toCsv(x.columns, shown)
+      }
+      if (shown.length < x.rows.length) lines.push(`first ${shown.length} of ${x.rows.length} rows${a.save ? "" : " (pass save to get them all)"}:`)
+      else if (a.save && x.rows.length > 5) {
+        shown = x.rows.slice(0, 5)
+        csv = toCsv(x.columns, shown)
+        lines.push("first 5 rows:")
+      }
+      return `${lines.join("\n")}\n${csv}`
+    },
   },
   {
     name: "browser_plan_find",
@@ -291,7 +384,10 @@ export const TOOL_NAMES: string[] = TOOLS.map((t) => t.name)
 
 export async function runTool(def: ToolDef, args: unknown, session: string): Promise<ToolResult> {
   try {
-    if ("run" in def) return { content: [{ type: "text", text: await def.run(args ?? {}, session) }] }
+    if ("run" in def) {
+      const out = await def.run(args ?? {}, session)
+      return typeof out === "string" ? { content: [{ type: "text", text: out }] } : { content: [{ type: "text", text: out.text }], ...(out.isError ? { isError: true } : {}) }
+    }
     const params = def.params(args ?? {})
     const result = await call(def.method, params, { session, timeoutMs: mcpTimeout() })
     if (def.method === "page.screenshot") {

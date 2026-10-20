@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>late-list</title></head><body>
+<aside aria-label="Sidebar"><p>@kite on the sidebar</p></aside>
+<main><h1>Feed</h1><section aria-label="Timeline"><div id="feed"></div></section></main>
+<script>
+// Posts arrive one by one from 500 ms on; the sidebar already shows an "@" (a page-wide text wait passes too early).
+window.__result = undefined
+let n = 0
+setTimeout(function add() {
+  const a = document.createElement("article")
+  a.textContent = "@author" + n + " post " + n
+  document.getElementById("feed").appendChild(a)
+  if (++n < 5) setTimeout(add, 150)
+  else window.__result = "loaded"
+}, 500)
+</script>
+</body></html>

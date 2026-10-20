@@ -9,7 +9,7 @@
 
 <p>
   <img alt="Chrome MV3" src="https://img.shields.io/badge/Chrome-MV3-D63B1F?style=flat-square">
-  <img alt="MCP: 21 tools" src="https://img.shields.io/badge/MCP-21%20tools-16181D?style=flat-square">
+  <img alt="MCP: 24 tools" src="https://img.shields.io/badge/MCP-24%20tools-16181D?style=flat-square">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square">
   <img alt="macOS | Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-5F646C?style=flat-square">
   <img alt="Windows: untested" src="https://img.shields.io/badge/Windows-untested-9BA1AA?style=flat-square">
@@ -18,6 +18,7 @@
 
 <p>
   <a href="#quickstart">Quickstart</a> ·
+  <a href="#speed">Speed</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#safety-and-privacy">Safety</a> ·
   <a href="docs/reference.md">Reference</a> ·
@@ -43,10 +44,17 @@ and replays.
 
 - **Your browser, not a fresh one.** Agents work in the Chrome you are signed in to, so there is no login dance and no
   separate profile to keep in sync.
-- **Fewer agent turns.** A whole form is one `kite batch` call, and a task that worked before replays with one
-  `kite run`. Each call saved is a model turn saved.
+- **Fast because it needs fewer turns.** Most of an agent's time in a browser goes to model turns, not clicks. With
+  `browser_script` the agent writes a whole flow as code (loops, branches, reads) and runs it in one call: a GitHub
+  flow that took ~22 s as a batch takes ~4 s. A task that worked before replays with one `kite run`.
+- **Fast without being sloppy.** Fast steps skip the wait for the page to go idle, but every click checks that it
+  landed. One that missed is sent again; one that may have done something is never sent twice.
 - **Stops where it should.** Clicks on buttons such as pay, publish or submit for review halt the batch, and a
   Pause switch stops every agent at once.
+- **Asks you when it is stuck.** At a captcha, a 2FA code, a password or a login, the agent asks you through a
+  Chrome notification and waits, then carries on.
+- **Keeps working when no agent is running.** Saved tasks replay on a schedule, watches tell you when a page
+  changes, and exports save a page's rows to a file every day.
 - **Nothing leaves your computer.** The extension talks only to the local `kite` program. No server, no account, no
   analytics.
 
@@ -56,21 +64,46 @@ and replays.
 <tr>
 <td width="50%" valign="top">
 
-### Safe action pipeline
-Every action runs **find → check → act → wait → verify**: it finds the target by its visible name, checks that
-nothing covers it and that it is enabled, acts with real input events, waits for the page to settle, and reports
-what changed as a diff.
+### Scripts: a whole flow in one call
+`browser_script` (`kite script`) runs JavaScript the agent writes: `goto`, `click`, `fill`, `waitFor`, `extract`,
+`evaluate` and more, with loops and branches. A failed step throws with a code the script can catch. The code runs in
+a locked-down Node process: no files, no subprocesses, no environment.
 
 </td>
 <td width="50%" valign="top">
 
-### Batches
-Up to 50 steps in one call under one tab lock. A batch stops at the first step that does not work and says where
-and why, with the step to resend from.
+### Clicks that prove they landed
+A fast click re-checks its element right before the input, watches the press and looks for an effect. A press that
+missed is sent again; a click before the app is listening waits for it. A click that may have done something is
+never sent twice.
 
 </td>
 </tr>
 <tr>
+<td valign="top">
+
+### Safe action pipeline
+Every action runs **find → check → act → wait → verify**: it finds the target by its visible name, checks that
+nothing covers it and that it is enabled, acts with real input events, waits, and reports what changed as a diff.
+
+</td>
+<td valign="top">
+
+### Batches, normal or fast
+Up to 50 steps in one call under one tab lock. A batch stops at the first step that does not work and says where
+and why. `fast: true` waits for each step's target and `expect` instead of for the whole page to go idle.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### `waitFor` anything
+Wait for a selector (visible, hidden, attached, detached), a target, text in a section or gone, a count of rows, a
+URL, your own function run in the page, or idle. It resolves on the DOM change itself, survives navigations, and a
+timeout says what it last saw.
+
+</td>
 <td valign="top">
 
 ### Guards
@@ -78,6 +111,40 @@ Dialogs, cookie walls and newsletter modals are handled. New tabs and popups joi
 a run on its site. Risky clicks halt the batch, and so does an Enter or Space that would trigger one.
 
 </td>
+</tr>
+<tr>
+<td valign="top">
+
+### Ask the human
+`browser_ask_human` (`kite ask`) asks you to solve a captcha, enter a 2FA code or log in: a Chrome notification,
+the toolbar badge and a card in the side panel. The agent waits, then picks up where it stopped.
+
+</td>
+<td valign="top">
+
+### Tables and lists as rows
+`browser_extract` (`kite extract`) reads search results, orders or cards as columns and rows with no snapshots,
+pages through with `next`, and saves `.csv`, `.json` or `.jsonl`.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### Schedules, watches and exports
+`kite schedule` replays a saved task on a timer while you are away. `kite watch` checks a page in the background
+and notifies you of a real change. `kite export` saves a page's rows every day and says how many are new.
+
+</td>
+<td valign="top">
+
+### Remembered tasks and recording
+A batch that worked becomes a plan with `{{params}}` in place of every typed value; `kite run` replays it. Or
+`kite record start`, do the task yourself, `kite record stop`: your agents get a skill. Values are never stored.
+
+</td>
+</tr>
+<tr>
 <td valign="top">
 
 ### File upload
@@ -85,24 +152,6 @@ Puts local files into a file input, a button that opens one, or a drop zone. A d
 cloud credentials, shell history, `.env` files and browser profiles before the browser is touched.
 
 </td>
-</tr>
-<tr>
-<td valign="top">
-
-### Remembered tasks
-A batch that worked becomes a plan with `{{params}}` in place of every typed value. `kite run` or
-`browser_plan_run` replays it and, where a replay stops, hands the page back to the agent.
-
-</td>
-<td valign="top">
-
-### Record a task by hand
-`kite record start`, do the task in Chrome, `kite record stop`: you get a skill your agents pick up, plus the plan.
-Typed values become parameters and are never stored.
-
-</td>
-</tr>
-<tr>
 <td valign="top">
 
 ### Pause, popup and live view
@@ -110,15 +159,37 @@ The toolbar popup shows the connection, each agent session and a Pause switch. T
 as it happens, with its diff.
 
 </td>
-<td valign="top">
-
-### Benchmark and store package
-A scripted benchmark measures time and tool calls on the test site, and `pnpm package:store` builds a checked
-Web Store zip.
-
-</td>
 </tr>
 </table>
+
+## Speed
+
+The time an agent spends in a browser is mostly model turns, one per tool call, so the way to go fast is fewer
+calls. Measured in a real Chrome on live sites, the same read-only flow three ways (3 runs each):
+
+| Flow | Default batch | `fast` batch | `browser_script` |
+| --- | ---: | ---: | ---: |
+| GitHub: repo → Issues → Pull requests → Code | ~22 s | ~9 s | **~4 s** |
+| X: home → Explore → search → Latest → profile | 20–35 s | 4–6 s | **1.7–5.8 s** |
+| Hacker News: three pages of "More" | 2.9–5.2 s | 2.0–2.8 s | **1.5–2.0 s** |
+
+The difference is the wait after each step. A default step waits for the page to go idle (network and DOM quiet);
+on a live site such as X or GitHub that never quite happens, so each step waits out most of its timeout. A fast step
+waits for exactly what the next step needs instead: its target, its `expect`, or a `waitFor`.
+
+Skipping that wait does not make it flaky. Twenty runs each of the X flow (median 2.9 s) and the GitHub flow (median
+4.1 s), done as scripts that also read the results, all passed. That holds because every fast click checks that it
+landed (see [How a fast click makes sure it landed](docs/reference.md#how-a-fast-click-makes-sure-it-landed)).
+
+```js
+// One browser_script call: search, wait for real posts (not the sidebar), read five.
+await goto("https://x.com/explore")
+await fill("Search query", "claude code")
+await press("Enter", { expect: { url: "/search" } })
+await click("Latest", { role: "tab" })
+await waitFor({ count: { selector: "article [data-testid='tweetText']", min: 5 } })
+return await evaluate(() => [...document.querySelectorAll("article [data-testid='tweetText']")].slice(0, 5).map((e) => e.innerText))
+```
 
 ## Screenshots
 
@@ -192,17 +263,20 @@ flowchart LR
 ```
 
 Chrome starts the native host when the extension connects; the host serves a local socket that `kite` and
-`kite mcp` talk to. The extension's service worker owns sessions, tab groups, the pause switch and the activity log.
+`kite mcp` talk to. A `browser_script` runs in a child Node process with the permission model on (no files,
+subprocesses, workers or environment) and reaches the browser only through its helpers, each a call on that socket. The extension's service worker owns sessions, tab groups, the pause switch and the activity log.
 In each tab, the page agent reads the page as a compact tree with refs, finds targets by name, and diffs the page
 before and after each action.
 
-Each action goes through the same pipeline:
+Each action goes through the same pipeline. A fast step (in a script, or a `fast` batch) replaces the idle wait and
+the diff with a landing check: it waits for its own target and `expect`, and verifies that its click reached the
+element.
 
 ```mermaid
 flowchart LR
   F["FIND<br/>target by name or @ref"] --> C["CHECK<br/>covered? disabled? risky?"]
   C --> A["ACT<br/>real input events"]
-  A --> W["WAIT<br/>DOM and network quiet"]
+  A --> W["WAIT<br/>DOM and network quiet,<br/>or (fast) did it land?"]
   W --> V["VERIFY<br/>diff, expect"]
   V --> R["REPORT<br/>status and diff"]
 ```
@@ -220,6 +294,12 @@ flowchart LR
   console, network, screenshots).
 - **No values stored.** Remembered plans and recorded skills keep parameter names, never the values typed.
   Password and one-time-code values are never kept, not even as a hash.
+- **Asks instead of guessing.** Captchas, 2FA codes, passwords and logins go to you through `browser_ask_human`;
+  the skill tells agents never to type a secret themselves, not even one pasted into the chat.
+- **Scripts are boxed in.** A `browser_script` gets no files, subprocesses, workers or environment variables (and,
+  on Node 25 and later, no network), and it is killed at its deadline. Its clicks halt on risky buttons like any
+  batch. `evaluate` runs in the page with the page's privileges and shows in the activity log; the skill tells
+  agents to use it for reading only.
 - **Nothing sent anywhere.** The extension talks only to the `kite` program on your computer, through native
   messaging. It has no server, account, analytics or model. Restricted pages (`chrome://`, the Chrome Web Store)
   are refused.
@@ -316,7 +396,18 @@ skills tell agents to ask you first. You can also pause all agents at any time.
 
 **Why does Chrome say the browser is being debugged?**
 Kitestring uses the Chrome DevTools Protocol to send real input events, and Chrome shows that bar while it is
-attached. That is expected. If you cancel it, the next action attaches again.
+attached. It detaches from a tab after 60 s with nothing to do, so the bar goes away between tasks; the next action
+attaches again.
+
+**If fast steps skip the idle wait, can a click land too early?**
+It can arrive early, but it cannot be lost or doubled silently. A click whose press missed its element (the page
+re-rendered it) is sent again; one that reached an element nothing handles yet waits for the app's click handler
+and then clicks once more; one that may have done something is never repeated, and one that hit a different
+control stops and names it.
+
+**Why is my click failing with "the tab is hidden"?**
+Chrome does not deliver input to tabs in minimized, covered or background windows. Bring the window to the front;
+fast steps say so at once instead of timing out.
 
 **Is it on the Chrome Web Store?**
 Not yet. The package is ready (`pnpm package:store`), and the listing text is in [store/](store/).
@@ -352,9 +443,10 @@ The end-to-end suite needs `pnpm build` first, runs headless, and never touches 
 
 ```
 packages/protocol     shared types, RPC schema, constants
-packages/page-agent   snapshot, find, check, quiet, diff and brief (runs in the page)
+packages/page-agent   snapshot, find, check, quiet, diff, brief, extract, waitFor and click receipts (runs in the page)
 packages/extension    service worker (native port, RPC router, sessions, CDP pipeline), content script, popup, side panel
-packages/cli          kite CLI, MCP server, native host and socket daemon, installers, memory and recording
+packages/cli          kite CLI, MCP server, script sandbox, native host and socket daemon, installers, memory,
+                      recording and schedules
 apps/torture          edge-case test site, plus the showcase page used for the demo
 apps/bench            time-to-done benchmark
 e2e                   Playwright end-to-end suite and the docs image generators

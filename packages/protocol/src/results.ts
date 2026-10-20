@@ -95,6 +95,47 @@ export interface ControlState {
   since?: number
 }
 
+/** A request for the person at the browser, as kept in chrome.storage.session `kite.handoff`. */
+export interface Handoff {
+  session: string
+  /** The session's active tab when the agent asked; null when it had none. */
+  tabId: number | null
+  reason: string
+  /** Epoch ms when the agent first asked. */
+  since: number
+  /** Set when the person answered before the agent's next human.ask picked it up. */
+  outcome?: "done" | "declined"
+}
+
+/** human.ask: `waiting` until the person clicks Done or Can't do it. */
+export interface HandoffResult {
+  status: "done" | "declined" | "waiting"
+  reason: string
+  since: number
+}
+
+/** A table or repeated list of a page, as rows (`page.extract`). */
+export interface ExtractCandidate {
+  /** Ranked position, for `pick`. */
+  index: number
+  /** Stable across pages of the same site: pass it back as `key`. */
+  key: string
+  /** What it is, for a person: `table "Orders" (2 rows: Order, Date, Total)`, `list of 20 div.card`. */
+  source: string
+  count: number
+}
+
+export interface ExtractResult {
+  key: string
+  source: string
+  columns: string[]
+  rows: Record<string, string>[]
+  /** Rows on the page before `max`. */
+  total: number
+  /** The other candidates, best first (at most 5). */
+  others: ExtractCandidate[]
+}
+
 export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug"
 
 export interface ConsoleEntry {

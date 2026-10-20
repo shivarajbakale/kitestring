@@ -1,7 +1,7 @@
 {
   "name": "@kitestring/extension",
   "displayName": "Kitestring",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Lets AI agents control your real Chrome via the Kitestring CLI",
   "private": true,
   "scripts": {
@@ -34,7 +34,9 @@
       "scripting",
       "nativeMessaging",
       "storage",
-      "sidePanel"
+      "sidePanel",
+      "notifications",
+      "idle"
     ],
     "host_permissions": [
       "<all_urls>"

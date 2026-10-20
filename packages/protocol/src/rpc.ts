@@ -11,6 +11,17 @@ export const METHODS = [
   "page.console",
   "page.network",
   "page.screenshot",
+  /** `{max?}`: the active tab's visible text -> `{text}` (a watch compares it run to run). */
+  "page.text",
+  /** `{near?, selector?, key?, pick?, max?}`: the active tab's best (or chosen) table or repeated list -> `ExtractResult`. */
+  "page.extract",
+  /** `{expression}`: evaluate JavaScript in the active tab's page (promises awaited) -> `{value}` (JSON; undefined when not serializable). */
+  "page.eval",
+  /**
+   * `{cond, timeout_ms?}`: wait until a condition holds in the active tab (selector / target / text / count / url / fn /
+   * idle; see the extension's wait.ts) -> `{ms, value?}`, or TIMEOUT naming what was last seen.
+   */
+  "page.wait",
   "act.click",
   "act.fill",
   "act.press",
@@ -28,6 +39,13 @@ export const METHODS = [
   "record.start",
   /** Ends the recording -> `Recording` (`{name, url, steps, secrets, skipped}`; no values). `{peek: true}` returns it without ending it. */
   "record.stop",
+  /**
+   * `{reason, wait_ms?}`: ask the person at the browser to do something only they can (captcha, 2FA, login).
+   * Opens a request (notification, badge, panel card) or keeps waiting on the open one -> `HandoffResult`.
+   */
+  "human.ask",
+  /** `{title, message, tab?, url?}`: a one-way notification for the person; a click shows `tab` or opens `url` (a scheduled run's result). */
+  "notify",
 ] as const
 
 export type Method = (typeof METHODS)[number]

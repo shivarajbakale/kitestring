@@ -1,6 +1,8 @@
 import {
   BATCH_STEP_MIN_START_MS,
   ErrorCode,
+  FAST_EXPECT_MS,
+  FAST_FIND_WAIT_MS,
   clampBudget,
   isRisky,
   parseTarget,
@@ -120,6 +122,9 @@ export async function runBatch(
   const t0 = Date.now()
   const deadline = t0 + clampBudget(params.budget_ms)
   const remaining = () => deadline - Date.now()
+  const waitIdle = params.wait_idle ?? "each"
+  /** Diff the batch as a whole and summarize the page at its end. */
+  const report = waitIdle !== "never"
   let tabId = params.tab ?? activeTab(s)
   if (!s.tabs.has(tabId)) {
     throw new RpcError(ErrorCode.NOT_OWNER, `NOT_OWNER: tab ${tabId} does not belong to session "${s.name}"`)
@@ -163,7 +168,7 @@ export async function runBatch(
 
   actOn(tabId)
   try {
-    const before = await agentQuick("snapshot", [{ full: false }], "")
+    const before = report ? await agentQuick("snapshot", [{ full: false }], "") : ""
     startUrl = (await tabInfo(tabId)).url
     const start = siteOf(startUrl)
     if (start) allowed.add(start)
@@ -216,20 +221,23 @@ export async function runBatch(
       return { status: "done", acted: true }
     }
 
-    const execute = async (step: Step): Promise<Ran> => {
+    /** `idle`: the step waits for the page to go idle after acting (see WaitIdle); otherwise it waits for its target to appear. */
+    const execute = async (step: Step, idle: boolean): Promise<Ran> => {
       if (step.action === "switch_tab") return switchTab(step)
       if (step.action === "wait") {
         await sleep(Math.min(step.ms ?? 0, remaining() - STEP_MARGIN_MS))
         return { status: "done", acted: true }
       }
       let action: StepAction
-      if (step.action === "goto") action = { kind: "goto", url: step.url }
+      if (step.action === "goto") action = { kind: "goto", url: step.url, ...(step.wait_until ? { waitUntil: step.wait_until } : {}) }
       else if (step.action === "press") action = { kind: "press", key: step.key }
       else if (step.action === "scroll") action = { kind: "scroll", direction: step.direction, ...(step.px ? { px: step.px } : {}) }
       else {
         const target = typeof step.target === "string" ? parseTarget(step.target, step) : step.target
-        if (step.wait || step.if_present) {
-          const waitMs = Math.min(step.wait ?? 0, remaining() - STEP_MARGIN_MS - ACT_AFTER_WAIT_MS)
+        // Without the idle wait after the step before, the target may still be on its way.
+        const wait = step.wait ?? (idle || step.if_present ? 0 : FAST_FIND_WAIT_MS)
+        if (wait || step.if_present) {
+          const waitMs = Math.min(wait, remaining() - STEP_MARGIN_MS - ACT_AFTER_WAIT_MS)
           const present = await findTarget(target, step.action === "upload" ? "click" : step.action, waitMs)
           if (!present && step.if_present) return { status: "skipped", acted: false }
         }
@@ -248,6 +256,7 @@ export async function runBatch(
             ? { beforeAct: (f: Found) => (isRisky(f.name) ? "risky" : null) }
             : {}),
           linger: (t) => (linger = t),
+          idle,
         })
         const halt = res.halt ?? haltFor(res.status) ?? undefined
         return { status: res.status, ...(res.detail ? { detail: res.detail } : {}), res, ...(halt ? { halt } : {}), acted: res.acted }
@@ -259,8 +268,20 @@ export async function runBatch(
       }
     }
 
-    /** Domain guard, dialogs and expect, on a step that ran without halting. */
-    const guards = async (step: Step, i: number, ran: Ran): Promise<{ reason: HaltReason; detail: string } | null> => {
+    /** Why `want` does not hold on the page now, or null. */
+    const expectMiss = async (want: NonNullable<Step["expect"]>): Promise<string | null> => {
+      if ("text" in want) {
+        // null: the page did not answer in time (a hidden or busy tab), which is not the same as the text missing.
+        const has = await agentQuick<boolean | null>("hasText", [want.text], null)
+        if (has === null) return `could not read the page text to check for ${JSON.stringify(want.text)} (page did not answer in time)`
+        return has ? null : `expected text ${JSON.stringify(want.text)} is not on the page`
+      }
+      const { url } = await tabInfo(tabId)
+      return urlMatches(url, want.url) ? null : `expected url ${JSON.stringify(want.url)}, page is at ${url}`
+    }
+
+    /** Domain guard, dialogs and expect, on a step that ran without halting. A step that did not wait for idle polls its expect. */
+    const guards = async (step: Step, ran: Ran, idle: boolean): Promise<{ reason: HaltReason; detail: string } | null> => {
       const d = dialogHalt(ran.res?.dialogs, step)
       if (d) return { reason: "dialog", detail: d }
       const { url } = await tabInfo(tabId)
@@ -269,13 +290,14 @@ export async function runBatch(
         return { reason: "domain", detail: `landed on ${site} (${url}), not one of ${[...allowed].join(", ")}; pass allow_domains to go on` }
       }
       const want = step.expect
-      if (want && "text" in want && !(await agentQuick("hasText", [want.text], false))) {
-        return { reason: "expect", detail: `expected text ${JSON.stringify(want.text)} is not on the page` }
+      if (!want) return null
+      const end = idle ? 0 : Date.now() + Math.min(step.wait ?? FAST_EXPECT_MS, remaining() - STEP_MARGIN_MS)
+      for (;;) {
+        const miss = await expectMiss(want)
+        if (!miss) return null
+        if (Date.now() + FIND_POLL_MS > end) return { reason: "expect", detail: miss }
+        await sleep(FIND_POLL_MS)
       }
-      if (want && "url" in want && !urlMatches(url, want.url)) {
-        return { reason: "expect", detail: `expected url ${JSON.stringify(want.url)}, page is at ${url}` }
-      }
-      return null
     }
 
     for (let i = 0; i < params.steps.length && !halted; i++) {
@@ -293,7 +315,8 @@ export async function runBatch(
       const t = Date.now()
       const stepTab = tabId
       const openerBefore = openerOf(s, tabId)
-      const ran = await execute(step)
+      const idle = waitIdle === "each" || (waitIdle === "last" && i === params.steps.length - 1)
+      const ran = await execute(step, idle)
       const res = ran.res
       let handoff: { reason: HaltReason; detail: string } | undefined
       if (res?.detail === TAB_CLOSED_ITSELF && ran.acted && !ran.halt) {
@@ -331,7 +354,7 @@ export async function runBatch(
         halt(i, ran.halt, ran.detail, nextAfter(i, ran.halt, ran.acted))
         haltRes = res
       } else if (!halted && ran.status !== "skipped") {
-        const g = await guards(step, i, ran)
+        const g = await guards(step, ran, idle)
         if (g) halt(i, g.reason, g.detail, nextAfter(i, g.reason, ran.acted))
       }
       if (!halted && handoff) halt(i, handoff.reason, handoff.detail, i + 1)
@@ -369,9 +392,9 @@ export async function runBatch(
 
     // An unanswered snapshot (page still blocked) is no evidence that everything was removed.
     const [after, info, page] = await Promise.all([
-      agentQuick<string | null>("snapshot", [{ full: false }], null),
+      report ? agentQuick<string | null>("snapshot", [{ full: false }], null) : null,
       tabInfo(tabId),
-      agentQuick("brief", [], ""),
+      report ? agentQuick("brief", [], "") : "",
     ])
     const out: BatchResult = {
       ok: !halted,

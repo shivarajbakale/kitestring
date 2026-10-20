@@ -199,6 +199,14 @@ kbd {
 .ks-btn--block {
   width: 100%;
 }
+.ks-btn--quiet {
+  background: var(--ks-paper);
+  color: var(--ks-ink);
+  box-shadow: inset 0 0 0 1px var(--ks-line);
+}
+.ks-btn--quiet:hover {
+  background: color-mix(in srgb, var(--ks-ink) 5%, var(--ks-paper));
+}
 
 .ks-link {
   display: inline-flex;
@@ -338,6 +346,51 @@ kbd {
   color: var(--ks-accent);
   box-shadow: inset 0 0 0 1px var(--ks-line);
 }
+/* ---------- Agents waiting on the person ---------- */
+
+.ks-handoffs {
+  display: grid;
+  gap: 8px;
+}
+.ks-handoff {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--ks-accent-wash);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ks-accent) 28%, transparent);
+}
+.ks-handoff__who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+}
+.ks-handoff__who strong {
+  font-weight: 600;
+}
+.ks-handoff__who .ks-time {
+  margin-left: auto;
+  font-size: 12px;
+}
+.ks-handoff__reason {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.ks-handoff__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ks-handoff__show {
+  margin-left: auto;
+  margin-right: 0;
+}
+
 .ks-field {
   display: grid;
   gap: 4px;

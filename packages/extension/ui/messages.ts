@@ -10,6 +10,14 @@ export interface UiSession {
   lastActivity?: ActivityEntry
 }
 
+/** An agent waiting for the person to do something only they can (captcha, 2FA, login). */
+export interface UiHandoff {
+  session: string
+  reason: string
+  since: number
+  tabId: number | null
+}
+
 export interface UiState {
   hostConnected: boolean
   paused: boolean
@@ -20,6 +28,8 @@ export interface UiState {
   sessions: UiSession[]
   /** A recording in progress (`active`), or stopped from the panel and waiting for `kite record stop`. */
   recording?: { name: string; active: boolean }
+  /** Agents waiting on the person, oldest first. */
+  handoffs: UiHandoff[]
 }
 
 /** Messages the popup and side panel send the background over chrome.runtime.sendMessage. */
@@ -32,6 +42,8 @@ export type UiRequest =
   | { kite: "ui"; op: "openPanel"; windowId?: number }
   /** Stops the recording in progress; `kite record stop` still saves it. */
   | { kite: "ui"; op: "recordStop" }
+  /** The person's answer to an agent's request: Done or Can't do it. */
+  | { kite: "ui"; op: "handoff"; session: string; outcome: "done" | "declined" }
 
 export type UiResponse = { ok: true; state: UiState } | { ok: false; error: string }
 
@@ -63,6 +75,10 @@ export function parseUiRequest(m: unknown): UiRequest | null {
       if (!Number.isSafeInteger(r.tabId) || (r.tabId as number) < 0) return null
       return { kite: "ui", op: "focusTab", session: r.session, tabId: r.tabId as number }
     }
+    case "handoff":
+      if (typeof r.session !== "string" || !r.session) return null
+      if (r.outcome !== "done" && r.outcome !== "declined") return null
+      return { kite: "ui", op: "handoff", session: r.session, outcome: r.outcome }
     case "openPanel":
       if (r.windowId !== undefined && !Number.isInteger(r.windowId)) return null
       return r.windowId === undefined ? { kite: "ui", op: "openPanel" } : { kite: "ui", op: "openPanel", windowId: r.windowId as number }

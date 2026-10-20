@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>toggle</title></head><body>
+<main><h1>Toggle</h1><button id="t" aria-pressed="false">Notifications</button></main>
+<script>
+// A click sent twice turns it back off: __result counts the flips.
+window.__result = undefined
+let flips = 0
+document.getElementById("t").addEventListener("click", (e) => {
+  const on = e.currentTarget.getAttribute("aria-pressed") !== "true"
+  e.currentTarget.setAttribute("aria-pressed", String(on))
+  window.__result = "flips:" + ++flips
+})
+</script>
+</body></html>

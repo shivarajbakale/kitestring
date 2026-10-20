@@ -7,7 +7,8 @@ test.describe("sessions", () => {
   test("status reports connected", async ({ kite }) => {
     const r = await kite("status", "--json")
     expect(r.code).toBe(0)
-    expect(JSON.parse(r.stdout)).toEqual({ connected: true, sessions: [], paused: false })
+    // idle: the machine's idle state (active, idle or locked), which scheduled runs wait on; it depends on the host.
+    expect(JSON.parse(r.stdout)).toEqual({ connected: true, sessions: [], paused: false, idle: expect.stringMatching(/^(active|idle|locked)$/) })
   })
 
   test("tab new opens a tab in the session's group", async ({ kite, torture, sw }) => {
