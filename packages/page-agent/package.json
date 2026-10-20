@@ -2,6 +2,7 @@
   "name": "@kitestring/page-agent",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
@@ -21,6 +22,6 @@
     "@playwright/test": "^1.48.0",
     "esbuild": "^0.24.0",
     "@types/node": "^22.0.0",
-    "vitest": "^2.1.0"
+    "vitest": "^3.2.6"
   }
 }

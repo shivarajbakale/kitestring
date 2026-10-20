@@ -11,6 +11,7 @@
   <img alt="Chrome MV3" src="https://img.shields.io/badge/Chrome-MV3-D63B1F?style=flat-square">
   <img alt="MCP: 24 tools" src="https://img.shields.io/badge/MCP-24%20tools-16181D?style=flat-square">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-1F8A4C?style=flat-square"></a>
   <img alt="macOS | Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-5F646C?style=flat-square">
   <img alt="Windows: untested" src="https://img.shields.io/badge/Windows-untested-9BA1AA?style=flat-square">
   <img alt="No model calls" src="https://img.shields.io/badge/model%20calls-none-1F8A4C?style=flat-square">
@@ -455,3 +456,7 @@ brand                 logo, icons and colour tokens
 store                 Web Store listing text, privacy policy, screenshots
 docs                  reference, troubleshooting, benchmark, images
 ```
+
+## License
+
+[MIT](LICENSE) © 2026 Shivaraj Bakale
