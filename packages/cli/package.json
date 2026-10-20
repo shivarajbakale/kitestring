@@ -2,6 +2,7 @@
   "name": "@kitestring/cli",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "bin": {
     "kite": "dist/bin.js",
     "kitestring": "dist/bin.js"
@@ -22,6 +23,6 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "vitest": "^2.1.0"
+    "vitest": "^3.2.6"
   }
 }

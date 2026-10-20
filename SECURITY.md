@@ -18,6 +18,9 @@ Things we especially want to hear about:
 - a way for one session to act on or read another session's tabs, or a tab being recorded;
 - typed values, secrets or file paths ending up in plans, recorded skills, the action cache or the activity log;
 - uploads escaping the deny list;
+- a `browser_script` reaching files, processes, environment variables or the network from its sandbox, or running
+  past its deadline;
+- a fast click being sent twice when its first press may have done something;
 - anything that lets another local user or process talk to the native host or the socket.
 
 ## What Kitestring can access
