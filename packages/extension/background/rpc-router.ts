@@ -14,7 +14,7 @@ import {
   type Target,
 } from "@kitestring/protocol"
 import * as activity from "./activity"
-import { callAgent } from "./agent-bridge"
+import { callAgent, isRestrictedUrl } from "./agent-bridge"
 import * as cache from "./cache"
 import * as capture from "./capture"
 import * as control from "./control"
@@ -22,6 +22,7 @@ import { RestrictedPageError, RpcError } from "./errors"
 import * as handoff from "./handoff"
 import * as notify from "./notify"
 import { runBatch } from "./batch"
+import { ensureAttached, hold, send } from "./cdp"
 import { goto, runAction } from "./pipeline"
 import * as recorder from "./recorder"
 import { rejectWaiters } from "./serial"
@@ -37,6 +38,11 @@ let nextBatchId = Date.now()
 
 /** Bound on page.snapshot (the only handler outside the action pipeline's cap). */
 const SNAPSHOT_CAP_MS = 15_000
+/** page.eval: a synchronous run is terminated after this; an awaited promise is abandoned at SNAPSHOT_CAP_MS. */
+const EVAL_RUN_MS = 10_000
+/** page.eval: longest expression, and largest JSON value returned. */
+const EVAL_EXPRESSION_MAX = 100_000
+const EVAL_VALUE_MAX_BYTES = 900_000
 
 /** Rejects with RPC TIMEOUT if `p` has not settled within `ms`. */
 function bounded<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
@@ -202,6 +208,39 @@ const handlers: Partial<Record<Method, Handler>> = {
     }
   },
 
+  "page.eval": async (params, s) => {
+    const expression = stringParam(params, "expression")
+    if (!expression.trim() || expression.length > EVAL_EXPRESSION_MAX) badRequest(`params.expression must be 1 to ${EVAL_EXPRESSION_MAX} characters`)
+    const tabId = sessions.activeTab(s)
+    const url = (await tabUrl(tabId)) ?? ""
+    if (isRestrictedUrl(url)) throw new RestrictedPageError(url)
+    const release = hold(tabId)
+    try {
+      await ensureAttached(tabId)
+      const r = await bounded(
+        send<{ result: { value?: unknown; type: string }; exceptionDetails?: { text: string; exception?: { description?: string } } }>(tabId, "Runtime.evaluate", {
+          expression,
+          awaitPromise: true,
+          returnByValue: true,
+          timeout: EVAL_RUN_MS,
+        }),
+        SNAPSHOT_CAP_MS,
+        `TIMEOUT: page script did not finish within ${SNAPSHOT_CAP_MS} ms`,
+      )
+      if (r.exceptionDetails) {
+        const d = r.exceptionDetails
+        badRequest(`page script threw: ${(d.exception?.description ?? d.text).split("\n")[0]}`)
+      }
+      const value = r.result.value
+      if (value !== undefined && JSON.stringify(value).length > EVAL_VALUE_MAX_BYTES) {
+        badRequest(`page script returned more than ${EVAL_VALUE_MAX_BYTES} bytes of JSON; return less`)
+      }
+      return value === undefined ? {} : { value }
+    } finally {
+      release()
+    }
+  },
+
   "page.console": async (params, s) => {
     const level = params.level
     if (level !== undefined && level !== "error" && level !== "warn" && level !== "all") {
@@ -344,7 +383,7 @@ const actsInTab = (m: Method): boolean => m.startsWith("act.") || m === "page.go
  * Methods that read the session's tab: refused while the human is recording it (R13), since a snapshot shows field values
  * and console / network entries can carry form posts. (A screenshot is also refused by the tab lock it takes.)
  */
-const READS_TAB = new Set<Method>(["page.snapshot", "page.text", "page.extract", "page.console", "page.network", "page.screenshot"])
+const READS_TAB = new Set<Method>(["page.snapshot", "page.text", "page.extract", "page.eval", "page.console", "page.network", "page.screenshot"])
 
 /** Methods that change something: recorded in the activity log, successful or not. */
 function isRecorded(m: Method): boolean {
@@ -352,6 +391,8 @@ function isRecorded(m: Method): boolean {
     m === "tab.new" ||
     m === "tab.close" ||
     m === "page.goto" ||
+    // A page script can change the page as much as an action can.
+    m === "page.eval" ||
     (m.startsWith("act.") && m !== "act.batch") ||
     m === "control.pause" ||
     m === "control.resume"
@@ -377,6 +418,10 @@ function describeTarget(method: Method, params: Record<string, unknown>): string
     return typeof params.px === "number" ? `${params.direction} ${params.px}` : params.direction
   }
   if ((method === "page.goto" || method === "tab.new") && typeof params.url === "string") return params.url
+  if (method === "page.eval" && typeof params.expression === "string") {
+    const e = params.expression.replace(/\s+/g, " ").trim()
+    return e.length > 80 ? `${e.slice(0, 79)}…` : e
+  }
   if (method === "tab.close" && typeof params.id === "number") return String(params.id)
   return undefined
 }
@@ -424,6 +469,10 @@ async function recordActivity(
     entry.tabId = null
     const reason = typeof req.params.reason === "string" && req.params.reason ? req.params.reason : undefined
     entry.summary = activity.controlSummary(req.method, reason)
+  } else if (req.method === "page.eval") {
+    entry.summary = "✓ ran a page script"
+    const url = await tabUrl(tabBefore)
+    if (url) entry.url = url
   } else if (req.method === "tab.close") {
     entry.summary = tabBefore === null ? "✓ closed" : `✓ closed tab ${tabBefore}`
   } else {

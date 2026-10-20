@@ -41,6 +41,8 @@ const ACTION_CAP_MS = 15_000
 const EXPIRED_HOLD_MS = 5_000
 /** Not-found retries (each scrolls one viewport first). */
 const FIND_RETRIES = 3
+/** A step that does not wait for idle: how long a navigation its input starts has to show up before the step ends. */
+const NAV_GRACE_MS = 50
 const EMPTY: Diff = { added: [], removed: [] }
 
 /** What the pipeline has learned so far, for the timeout answer. */
@@ -310,6 +312,11 @@ interface Run {
   dialogs: DialogWatch
   /** Cookie walls / newsletter modals closed on the way: reported with every outcome. */
   closedPopups: string[]
+  /**
+   * Wait for the page to go idle after acting, and diff snapshots around it. False (a fast batch step): only a
+   * navigation the input started is waited for (to its load event); no snapshots, no no_effect check.
+   */
+  idle: boolean
 }
 
 /** The element FIND resolved, as `beforeAct` sees it. */
@@ -382,11 +389,15 @@ async function finishOpen(
   verify: { click?: { handled: boolean }; fill?: { ref: string; text: string }; upload?: { ref: string; names: string[] } },
 ): Promise<ActionResult> {
   const { tabId, watch, net, p } = r
-  const ready = await settle(tabId, watch, net, p)
+  let ready: boolean
+  if (r.idle) ready = await settle(tabId, watch, net, p)
+  else {
+    await sleep(NAV_GRACE_MS)
+    ready = await watch.waitLoaded(READY.timeoutMs)
+  }
   if (p.expired) throw new Expired()
 
-  const after = await agentCall<string>(tabId, watch, net, p, "snapshot", [{ full: false }])
-  const diff = diffSnapshots(before, after)
+  const diff = r.idle ? diffSnapshots(before, await agentCall<string>(tabId, watch, net, p, "snapshot", [{ full: false }])) : EMPTY
   p.diff = diff
 
   const tab = await chrome.tabs.get(tabId)
@@ -419,7 +430,7 @@ async function finishOpen(
     }
   }
 
-  const page = await agentCall<string>(tabId, watch, net, p, "brief", []).catch(() => "")
+  const page = r.idle ? await agentCall<string>(tabId, watch, net, p, "brief", []).catch(() => "") : ""
   p.page = page
   const res: ActionResult = { ok: status === "done", status, diff, page }
   if (detail) res.detail = detail
@@ -450,7 +461,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
         })
       }
     }
-    const before = await callAgent<string>(tabId, "snapshot", [{ full: false }])
+    const before = r.idle ? await callAgent<string>(tabId, "snapshot", [{ full: false }]) : ""
     guard()
     hooks.acted = true
     if (action.kind === "press") await input.press(tabId, action.key)
@@ -509,7 +520,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     const fileInput = await callAgent<{ ref: string; multiple: boolean } | null>(tabId, "fileInputFor", [found.ref])
     guard()
     if (fileInput) {
-      const before = await callAgent<string>(tabId, "snapshot", [{ full: false }])
+      const before = r.idle ? await callAgent<string>(tabId, "snapshot", [{ full: false }]) : ""
       guard()
       hooks.acted = true
       await setFiles(tabId, fileInput, action.files)
@@ -556,7 +567,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   }
 
   // Before-snapshot after CHECK's scroll, so scrolling doesn't show up as the action's diff.
-  const before = await callAgent<string>(tabId, "snapshot", [{ full: false }])
+  const before = r.idle ? await callAgent<string>(tabId, "snapshot", [{ full: false }]) : ""
   guard()
 
   // ACT
@@ -574,7 +585,8 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     return res
   }
   if (action.kind === "click") {
-    const handled = await hasClickHandler(tabId, c.x, c.y)
+    // Only the idle path's no_effect check needs it.
+    const handled = r.idle ? await hasClickHandler(tabId, c.x, c.y) : true
     guard()
     hooks.acted = true
     await input.click(tabId, c.x, c.y)
@@ -706,17 +718,22 @@ interface DialogOpts {
   navigating?: () => boolean
 }
 
+interface BeginOpts extends DialogOpts {
+  /** Run.idle; default true. */
+  idle?: boolean
+}
+
 async function begin(
   s: Session,
   tabId: number,
   p: Progress,
   fn: (r: Run) => Promise<ActionResult>,
-  dialogOpts: DialogOpts = {},
+  opts: BeginOpts = {},
 ): Promise<ActionResult> {
   const ended = agentActing(tabId)
   const release = hold(tabId)
   try {
-    return await beginActing(s, tabId, p, fn, dialogOpts)
+    return await beginActing(s, tabId, p, fn, opts)
   } finally {
     release()
     ended()
@@ -728,7 +745,7 @@ async function beginActing(
   tabId: number,
   p: Progress,
   fn: (r: Run) => Promise<ActionResult>,
-  dialogOpts: DialogOpts,
+  { idle = true, ...dialogOpts }: BeginOpts,
 ): Promise<ActionResult> {
   let watch: Watch
   try {
@@ -747,7 +764,7 @@ async function beginActing(
     const urlBefore = await tabUrl(tabId)
     const net = trackNetwork(tabId)
     try {
-      return await fn({ s, tabId, watch, net, p, urlBefore, dialogs, closedPopups })
+      return await fn({ s, tabId, watch, net, p, urlBefore, dialogs, closedPopups, idle })
     } finally {
       net.stop()
     }
@@ -799,6 +816,7 @@ async function navigate(
   p: Progress,
   policy?: DialogPolicy,
   hooks: Hooks = {},
+  idle = true,
 ): Promise<ActionResult> {
   let navigated = false
   const current = await tabUrl(tabId)
@@ -819,9 +837,9 @@ async function navigate(
       hooks.acted = true
       if (nav.loaderId) r.watch.expectLoad()
     }
-    const ready = await settle(tabId, r.watch, r.net, p)
+    const ready = idle ? await settle(tabId, r.watch, r.net, p) : await r.watch.waitLoaded(READY.timeoutMs)
     const tab = await chrome.tabs.get(tabId)
-    const page = await safeBrief(tabId)
+    const page = idle ? await safeBrief(tabId) : ""
     const res: ActionResult = {
       ok: ready,
       status: ready ? "done" : "timeout",
@@ -832,7 +850,7 @@ async function navigate(
     if (!ready) res.detail = `page not ready after ${READY.timeoutMs} ms`
     if (r.dialogs.events.length) res.dialogs = [...r.dialogs.events]
     return res
-  }, { navigating: () => true, ...(policy ? { policy } : {}) })
+  }, { navigating: () => true, idle, ...(policy ? { policy } : {}) })
 }
 
 export type StepAction = Action | { kind: "goto"; url: string }
@@ -864,8 +882,11 @@ export async function runStep(
     dialog?: DialogPolicy
     beforeAct?: (found: Found) => HaltReason | null
     linger?: (tail: Promise<void>) => void
+    /** Run.idle; default true. */
+    idle?: boolean
   },
 ): Promise<StepOutcome> {
+  const idle = opts.idle ?? true
   if (action.kind === "press") input.keyDef(action.key) // BAD_REQUEST before touching the page
   if (action.kind === "goto" && isRestrictedUrl(action.url)) throw new RestrictedPageError(action.url)
   const hooks: Hooks = opts.beforeAct ? { beforeAct: opts.beforeAct } : {}
@@ -875,8 +896,8 @@ export async function runStep(
       tabId,
       (p) =>
         action.kind === "goto"
-          ? navigate(s, tabId, action.url, p, opts.dialog, hooks)
-          : begin(s, tabId, p, (r) => act(r, action, hooks), opts.dialog ? { policy: opts.dialog } : {}),
+          ? navigate(s, tabId, action.url, p, opts.dialog, hooks, idle)
+          : begin(s, tabId, p, (r) => act(r, action, hooks), { idle, ...(opts.dialog ? { policy: opts.dialog } : {}) }),
       { capMs: opts.capMs, holdsLock: true },
     )
   } catch (e) {

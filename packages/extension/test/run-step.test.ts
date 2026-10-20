@@ -306,3 +306,47 @@ describe("runStep", () => {
     await expect(runStep(s, 1, { kind: "click", target: { text: "X" } }, { capMs: 15_000 })).rejects.toThrow("agent gone")
   })
 })
+
+describe("runStep without the idle wait", () => {
+  beforeEach(() => {
+    agent.extra.find = () => ({ ...FOUND, hinted: false })
+  })
+
+  it("takes no snapshots, skips the idle wait and the click-handler probe, and reports no diff", async () => {
+    const { runStep } = await import("../background/pipeline")
+    const { callAgent } = await import("../background/agent-bridge")
+    const cdp = await import("../background/cdp")
+    const r = await runStep(s, 1, { kind: "click", target: { text: "Delete everything" } }, { capMs: 15_000, idle: false })
+    expect(r).toMatchObject({ ok: true, status: "done", diff: { added: [], removed: [] }, page: "", acted: true })
+    const methods = (callAgent as any).mock.calls.map((c: unknown[]) => c[1])
+    expect(methods).toEqual(["find", "check"])
+    const sent = (cdp.send as any).mock.calls.map((c: unknown[]) => c[1])
+    expect(sent).not.toContain("DOMDebugger.getEventListeners")
+  })
+
+  it("still waits for a navigation the click started to load", async () => {
+    const { runStep } = await import("../background/pipeline")
+    const cdp = await import("../background/cdp")
+    const input = await import("../background/input")
+    type Handler = (e: { method: string; params: Record<string, unknown> }) => void
+    const handlers: Handler[] = []
+    const emit: Handler = (e) => handlers.forEach((h) => h(e))
+    ;(cdp.onEvent as any).mockImplementation((_tabId: number, h: Handler) => {
+      handlers.push(h)
+      return () => {}
+    })
+    let loadedAt = 0
+    ;(input.click as any).mockImplementation(async () => {
+      emit({ method: "Page.frameStartedLoading", params: { frameId: "F" } })
+      setTimeout(() => {
+        loadedAt = Date.now()
+        emit({ method: "Page.loadEventFired", params: {} })
+      }, 200)
+    })
+    const r = await runStep(s, 1, { kind: "click", target: { text: "Delete everything" } }, { capMs: 15_000, idle: false })
+    expect(r.status).toBe("done")
+    expect(loadedAt).toBeGreaterThan(0)
+    ;(cdp.onEvent as any).mockImplementation(() => () => {})
+    ;(input.click as any).mockImplementation(async () => {})
+  })
+})

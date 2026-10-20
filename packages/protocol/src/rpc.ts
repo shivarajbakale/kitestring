@@ -15,6 +15,8 @@ export const METHODS = [
   "page.text",
   /** `{near?, selector?, key?, pick?, max?}`: the active tab's best (or chosen) table or repeated list -> `ExtractResult`. */
   "page.extract",
+  /** `{expression}`: evaluate JavaScript in the active tab's page (promises awaited) -> `{value}` (JSON; undefined when not serializable). */
+  "page.eval",
   "act.click",
   "act.fill",
   "act.press",

@@ -11,6 +11,7 @@ import { findAnyPlan, planById } from "../memory/store.js"
 import { staleSkillNote } from "../record/write-skill.js"
 import { kiteHome } from "../paths.js"
 import { resolveUploads } from "../upload-guard.js"
+import { SCRIPT_MAX_CHARS, formatScript, runScript } from "../script/run.js"
 
 export type ToolContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: "image/png" }
 export interface ToolResult {
@@ -33,7 +34,8 @@ interface LocalTool {
   name: string
   description: string
   shape: z.ZodRawShape
-  run: (a: any, session: string) => Promise<string>
+  /** `isError`: the call failed, but its text (a script's output so far) is still the answer. */
+  run: (a: any, session: string) => Promise<string | { text: string; isError: boolean }>
 }
 
 type ToolDef = RpcTool | LocalTool
@@ -100,6 +102,20 @@ function askWait(): number {
 
 /** Rows shown in a browser_extract reply: all of them up to this much CSV, else the first ones and a note to save. */
 const EXTRACT_REPLY_CHARS = 30_000
+
+/** A script answers this long before the MCP call's own bound. */
+const SCRIPT_MARGIN_MS = 5_000
+
+const SCRIPT_DESCRIPTION = [
+  "Run JavaScript that drives the active tab, for a task you can write as code: several actions, loops over rows or pages, branches on what the page shows, reading values out.",
+  "One call replaces many tool calls. Actions do not wait for the page to go idle: each waits up to 3 s for its target to appear, so after a step that changes the page, wait for what you need next (waitFor, or the expect option).",
+  "Helpers (all async, await them): goto(url), click(target, opts), fill(target, value, opts), select(target, value, opts), press(key, opts), scroll('up'|'down', px?), upload(target, files, opts),",
+  "waitFor({text}|{url}, {timeout?}), snapshot({full?, scope?}) -> text, text({max?}) -> visible text, extract({near?, selector?, max?}) -> {columns, rows}, evaluate(fn, arg?) -> value (fn runs in the page),",
+  "tabs(), newTab(url), useTab(id), closeTab(id?), sleep(ms), console.log(...).",
+  "target is visible text or an @ref from a snapshot taken in the same page state. opts: within, role, wait (ms), if_present, expect ({text}|{url}), dialog ('accept'|'dismiss').",
+  "A failed action throws (err.code NOT_FOUND, AMBIGUOUS, BLOCKED, DISABLED, EXPECT, ...; err.candidates on AMBIGUOUS); catch it to branch. The script has no files, network or require: only these helpers.",
+  "Return a value or console.log what you need; end with `return await snapshot()` when you will act on the page next.",
+].join(" ")
 
 function batchBudget(): { budget_ms?: number } {
   const n = Number(process.env.KITE_BATCH_BUDGET_MS)
@@ -209,12 +225,32 @@ export const TOOLS: ToolDef[] = [
     shape: {
       steps: z.array(batchStep).min(1).max(50).describe("steps in order; each has an action (goto, click, fill, select, press, scroll, upload, switch_tab, wait)"),
       allow_domains: z.array(z.string()).optional().describe("extra registrable domains the batch may move to"),
+      fast: z
+        .boolean()
+        .optional()
+        .describe("only the last step waits for the page to go idle; the others wait for their target (up to 3 s, or wait) and their expect. Faster; put expect on steps whose effect the next step needs"),
     },
     params: (a) => ({
       steps: (a.steps as z.infer<typeof batchStep>[]).map(batchStepParams),
       ...(a.allow_domains ? { allow_domains: a.allow_domains } : {}),
+      ...(a.fast ? { wait_idle: "last" } : {}),
       ...batchBudget(),
     }),
+  },
+  {
+    name: "browser_script",
+    description: SCRIPT_DESCRIPTION,
+    shape: {
+      code: z.string().min(1).max(SCRIPT_MAX_CHARS).describe("the body of an async function: top-level await and return work"),
+    },
+    run: async (a: { code: string }, session) => {
+      const r = await runScript(a.code, {
+        call: (method, params, timeoutMs) => call(method, params, { session, timeoutMs }),
+        timeoutMs: Math.max(5_000, mcpTimeout() - SCRIPT_MARGIN_MS),
+        resolveFiles: (files) => resolveUploads(files, { cwd: process.cwd(), home: homedir(), kiteHome: kiteHome(), env: process.env }),
+      })
+      return { text: formatScript(r), isError: !!r.error }
+    },
   },
   {
     name: "browser_extract",
@@ -346,7 +382,10 @@ export const TOOL_NAMES: string[] = TOOLS.map((t) => t.name)
 
 export async function runTool(def: ToolDef, args: unknown, session: string): Promise<ToolResult> {
   try {
-    if ("run" in def) return { content: [{ type: "text", text: await def.run(args ?? {}, session) }] }
+    if ("run" in def) {
+      const out = await def.run(args ?? {}, session)
+      return typeof out === "string" ? { content: [{ type: "text", text: out }] } : { content: [{ type: "text", text: out.text }], ...(out.isError ? { isError: true } : {}) }
+    }
     const params = def.params(args ?? {})
     const result = await call(def.method, params, { session, timeoutMs: mcpTimeout() })
     if (def.method === "page.screenshot") {

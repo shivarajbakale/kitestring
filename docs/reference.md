@@ -23,7 +23,7 @@ uploads, memory, recording, and the build notes. For problems, see [troubleshoot
 ## MCP tools
 
 `kite mcp` serves MCP over stdio. The session name comes from `KITE_SESSION` (`kite init` sets one per agent;
-the default is `agent`). It exposes 23 tools:
+the default is `agent`). It exposes 24 tools:
 
 | Tool | What it does |
 | --- | --- |
@@ -33,6 +33,7 @@ the default is `agent`). It exposes 23 tools:
 | `browser_snapshot` | read the page as a compact tree with refs |
 | `browser_click`, `browser_fill`, `browser_select`, `browser_press`, `browser_scroll`, `browser_upload` | act on the page; each returns a diff of what changed |
 | `browser_batch` | run a list of steps in one call (see [Batches](#batches)) |
+| `browser_script` | run JavaScript that drives the tab through helpers: loops, branches and reads in one call (see [Scripts](#scripts)) |
 | `browser_console`, `browser_network` | recent console messages and network requests of the tab |
 | `browser_extract` | read the page's biggest table or repeated list (or the one holding `near` text, or `selector`'s items) as rows; `next` pages through (a button's text or `scroll`); `save` writes every row to a .csv, .json or .jsonl file. See [Extracting data](#extracting-data) |
 | `browser_screenshot` | capture the tab (the viewport, the whole page, or one element by ref) |
@@ -107,6 +108,7 @@ line to add.
 | `kite scroll <up\|down> [px]` | scroll one viewport, or `px` pixels |
 | `kite upload <target> <files...>` | put files into a file input, a button that opens one, or a drop zone (see [Upload](#upload)) |
 | `kite batch <file\|->` `[--budget <ms>] [--allow-domain <domain>]...` | run steps from a JSON file or stdin (see [Batches](#batches)) |
+| `kite script <file\|->` `[--timeout <ms>]` | run JavaScript from a file or stdin (see [Scripts](#scripts)) |
 
 Examples:
 
@@ -210,6 +212,52 @@ the step to resend from. Reasons: `not_found`, `ambiguous`, `blocked`, `disabled
 `domain`, `dialog`, `expect`, `risky`, `paused`, `time`. The time budget is 40 s by default (`--budget <ms>`,
 clamped to 5 to 40 s; the MCP server reads `KITE_BATCH_BUDGET_MS`). Each step shows in the activity list, grouped as
 one batch.
+
+By default every step waits for the page to go idle (network and DOM quiet) and is diffed. `"wait_idle": "last"`
+(`fast: true` on `browser_batch`) lets only the last step do that: the steps before it wait instead for their own
+target to appear (up to 3 s, or the step's `wait`) and poll their `expect` (up to 5 s, or `wait`). That saves the idle
+wait on every step, which on busy pages (analytics, live updates) is most of a batch's time; put an `expect` on a
+step whose effect the next step depends on. `"wait_idle": "never"` also skips the batch's own snapshots: no diff and
+no page summary.
+
+## Scripts
+
+`browser_script` (or `kite script <file|->`) runs JavaScript that drives the active tab, so a task with loops,
+branches or reads takes one call instead of one per step:
+
+```js
+await goto("https://shop.example/orders")
+const rows = []
+for (let page = 1; page <= 3; page++) {
+  const { rows: r } = await extract()
+  rows.push(...r)
+  try {
+    await click("Next", { expect: { text: `Page ${page + 1}` } })
+  } catch (e) {
+    if (e.code === "NOT_FOUND") break
+    throw e
+  }
+}
+return rows.filter((r) => r.Status === "Delayed")
+```
+
+The code is the body of an async function. Its helpers: `goto(url)`, `click(target, opts)`, `fill(target, value,
+opts)`, `select(target, value, opts)`, `press(key, opts)`, `scroll("up"|"down", px?)`, `upload(target, files, opts)`,
+`waitFor({text}|{url}, {timeout?})`, `snapshot({full?, scope?})`, `text({max?})`, `extract({near?, selector?, max?})`,
+`evaluate(fn, arg?)` (runs `fn` in the page and returns its JSON value), `tabs()`, `newTab(url)`, `useTab(id)`,
+`closeTab(id?)`, `sleep(ms)` and `console.log`. `opts` are a batch step's `within`, `role`, `wait`, `if_present`,
+`expect` and `dialog`.
+
+Each action is a one-step batch with `wait_idle: "never"`: it waits for its target (up to 3 s) and its `expect`, not
+for the page to go idle, so the script says what it waits for. Guards apply as in a batch, including `risky`. A step
+that does not work throws an error whose `code` is the halt reason in capitals (`NOT_FOUND`, `AMBIGUOUS`, `EXPECT`,
+`RISKY`, ...; `candidates` on `AMBIGUOUS`); a script can catch it. The reply is the script's console output, its return
+value (`→ ...`) or error, and the number of browser calls. Steps a script runs are not remembered as plans.
+
+The code runs in a child Node process under the permission model: no files, subprocesses, workers or environment
+(and, on Node 25 and later, no network), with only the helpers to reach the browser. It is killed at its deadline:
+40 s for `browser_script` (5 s under the MCP call's bound), 120 s for `kite script` (`--timeout <ms>`).
+`evaluate` runs in the page's own JavaScript world, with the page's privileges.
 
 ## Guards
 

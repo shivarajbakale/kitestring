@@ -211,6 +211,25 @@ export async function main(argv: string[]): Promise<number> {
       }
     })
   program
+    .command("script <file>")
+    .description("run JavaScript from a file (or - for stdin) that drives the active tab through helpers (see docs/reference.md)")
+    .option("--timeout <ms>", "kill the script after this long (default 120000)")
+    .action(async (file: string, o: { timeout?: string }) => {
+      if (o.timeout !== undefined && !/^[1-9]\d*$/.test(o.timeout)) throw new UsageError(`--timeout must be a positive integer (ms): ${o.timeout}`)
+      const code = file === "-" ? await readStdin() : readFileSync(file, "utf8")
+      const { SCRIPT_MAX_CHARS, formatScript, runScript } = await import("./script/run.js")
+      if (!code.trim() || code.length > SCRIPT_MAX_CHARS) throw new UsageError(`the script must be 1 to ${SCRIPT_MAX_CHARS} characters`)
+      const session = sessionName()
+      const r = await runScript(code, {
+        call: (method, params, timeoutMs) => call(method, params, { session, timeoutMs }),
+        timeoutMs: o.timeout !== undefined ? Number(o.timeout) : 120_000,
+        resolveFiles: (files) => resolveUploads(files, { cwd: process.cwd(), home: homedir(), kiteHome: kiteHome(), env: process.env }),
+      })
+      if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(r) + "\n")
+      else process.stdout.write(formatScript(r) + "\n")
+      if (r.error) exitCode = 1
+    })
+  program
     .command("run <plan>")
     .description("replay a saved plan with its parameters; stops at the first problem and leaves the page for you")
     .option("--param <name=value>", "a parameter value (repeatable)", collect, [] as string[])

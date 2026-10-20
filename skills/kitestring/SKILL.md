@@ -23,6 +23,7 @@ Two equivalent surfaces. Use MCP tools if your harness has them, else the `kite`
 | Choose an option | `browser_select` | `kite select "Country" "India"` |
 | Upload files | `browser_upload` | `kite upload "Extension zip" /abs/path/kite.zip` (refuses ~/.ssh, ~/.aws, ~/.config, credential and shell-history files, .env files, > 100 MB) |
 | Several steps in one call | `browser_batch` | `kite batch steps.json` (or `-` for stdin; `--budget <ms>`, `--allow-domain <d>`) |
+| Loops, branches, reading values between steps | `browser_script` | `kite script task.js` (or `-` for stdin) |
 | Key | `browser_press` | `kite press Enter` |
 | Scroll | `browser_scroll` | `kite scroll down [px]` |
 | Console / network | `browser_console` / `browser_network` | `kite console --errors` / `kite network --failed` |
@@ -52,7 +53,19 @@ When you already know the next steps (a form, a multi-page flow), send them toge
 5. Read the result: `✓` done, `·` skipped, `✗` the problem. After a halt, read `halted at step N (reason): detail` and `resume with steps from N`. Fix that step (or the page), then resend `steps.slice(next)` only. Step numbers are 1-based in the text, 0-based in `--json` (`next`, `halted.index`).
 6. A batch also stops by design at: a different site than it started on (`domain`; add `allow_domains` if intended), a confirm/prompt dialog with no `dialog` policy (`dialog`), the human pausing (`paused`), and the time budget (`time`: resend from `next`).
 
+7. `fast: true` (`"wait_idle": "last"` in a file): only the last step waits for the page to go idle, so the batch runs much faster on busy pages. Each earlier step waits for its own target instead (3 s, or `wait`), so give `expect` to a step whose result the next step needs (a page change, a pane opening).
+
 Risky clicks (pay, buy, place order, send, delete, publish, submit for review, transfer) halt with `risky` by design. Never override that inside a batch: do the step as a single `kite click` only after the fresh yes the safety rules below require. A `press Enter` or `press Space` is checked the same way, against the focused button or link or the form button an Enter would submit, so do not try to get around a risky halt with a key press. Keep batches to one page flow (about 5 to 15 steps), not a whole session.
+
+## Scripts: loops and branches in one call
+
+When the next steps depend on what the page shows (page through results until a row appears, fill a row per item, read a value then decide), write them as one `browser_script` (`kite script -` with the code on stdin) instead of a call per step. The code is the body of an async function with these helpers: `goto`, `click(target, opts)`, `fill(target, value, opts)`, `select`, `press(key)`, `scroll`, `upload(target, files)`, `waitFor({text}|{url})`, `snapshot()`, `text()`, `extract()`, `evaluate(fn, arg)`, `tabs`, `newTab`, `useTab`, `closeTab`, `sleep`, `console.log`. `opts` are a batch step's (`within`, `role`, `wait`, `if_present`, `expect`, `dialog`).
+
+1. Actions do not wait for the page to go idle. Each waits up to 3 s for its target; after a step that changes the page, `waitFor` (or `expect`) what the next step needs.
+2. A failed action throws (`e.code`: `NOT_FOUND`, `AMBIGUOUS`, `EXPECT`, `RISKY`, ...). Catch it only to branch; otherwise let it end the script and read the error.
+3. Print or return only what you need. End with `return await snapshot()` when you will act on the page next.
+4. `evaluate` is for reading the page (values, app state, attributes). Never use it to click, submit or change anything: that skips the risky-action halt and the safety rules below.
+5. Script steps are not remembered as plans; use `browser_batch` for a task you will save.
 
 ## Remembered tasks
 
@@ -72,6 +85,7 @@ Upload paths: relative paths resolve against the working directory of the `kite`
 - Act by visible text first; refs only when text is unclear or duplicated.
 - Same label twice (two "Save" buttons)? `--within "<section/dialog name>"`, then `--role`, then a ref.
 - No snapshot after every action. The diff is the snapshot delta.
+- Fewest round trips wins: predictable steps go in one `browser_batch` (`fast: true` with an `expect` where the page changes), steps that depend on the page go in one `browser_script`.
 - Reading many rows (a table, search results, a long list)? `browser_extract`, not snapshots and scrolling: one call per page, `next` to page, `save` for a file. Read only what the human asked for.
 - Snapshots show headings, controls, landmarks and lists, not body text. Screenshot only when the question is visual (layout, colors, rendered text).
 - Never retry the same failing action unchanged. Read the status and recover.
