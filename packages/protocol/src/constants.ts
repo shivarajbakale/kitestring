@@ -12,7 +12,8 @@ export const ANALYTICS_HOST_RE =
   /google-analytics|googletagmanager|doubleclick|segment|hotjar|mixpanel|sentry|datadoghq|browser-intake|collector\.github\.com|\/_private\/browser\/(?:rum|errors|stats)|\/rum\?/
 /** A request in flight this long stops counting toward network idle: long polls, and requests that never report back. */
 export const STALE_REQUEST_MS = 5_000
-export const IGNORED_RESOURCE_TYPES = ["WebSocket", "EventSource", "Ping"] as const
+/** Never idle by nature. Media: a playing <video> / <audio> streams range requests back to back for as long as it plays. */
+export const IGNORED_RESOURCE_TYPES = ["WebSocket", "EventSource", "Ping", "Media"] as const
 /** Stable extension id derived from the public key in packages/extension/package.json (manifest.key). */
 export const EXTENSION_ID = "bdfegcbeenjmlbfogodoibdhfbonnicm"
 /** Extension id the Chrome Web Store assigns on the first upload; empty until then. The native host allows it in addition to EXTENSION_ID. */

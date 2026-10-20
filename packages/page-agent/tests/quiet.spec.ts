@@ -49,6 +49,22 @@ test("visible progressbar blocks until removed", async ({ fixture }) => {
   expect(r.waitedMs).toBeGreaterThanOrEqual(1000)
 })
 
+test("a static determinate progressbar (a gauge) does not block", async ({ fixture }) => {
+  const page = await fixture("quiet.html")
+  const r = await page.evaluate(async () => {
+    const bar = document.createElement("div")
+    bar.setAttribute("role", "progressbar")
+    bar.setAttribute("aria-valuenow", "60")
+    bar.style.width = "50px"
+    bar.style.height = "10px"
+    document.getElementById("m")!.appendChild(bar)
+    await new Promise((res) => setTimeout(res, 50))
+    return (window as unknown as { __kiteAgent: Agent }).__kiteAgent.waitQuiet()
+  })
+  expect(r.quiet).toBe(true)
+  expect(r.waitedMs).toBeLessThan(1000)
+})
+
 test("hidden aria-busy does not block", async ({ fixture }) => {
   const page = await fixture("quiet.html")
   const r = await page.evaluate(async () => {

@@ -19,11 +19,13 @@ describe("InflightRequests", () => {
     expect(t.quietSince).toBe(4)
   })
 
-  it("ignores websockets, event streams, pings and analytics", () => {
+  it("ignores websockets, event streams, pings, media streams and analytics", () => {
     const t = new InflightRequests(0)
     t.onEvent(...sent("ws", "L1", { type: "WebSocket" }))
     t.onEvent(...sent("es", "L1", { type: "EventSource" }))
     t.onEvent(...sent("p", "L1", { type: "Ping" }))
+    // a playing <video>: 206 range requests back to back, never idle
+    t.onEvent(...sent("v", "L1", { type: "Media" }))
     t.onEvent("Network.requestWillBeSent", { requestId: "ga", loaderId: "L1", request: { url: "https://www.google-analytics.com/collect" } })
     expect(t.size).toBe(0)
   })
