@@ -25,10 +25,18 @@ const HINTS: Record<string, string> = {
 
 /**
  * The outcome of one recorded action: a check for `done`, a pause glyph for `PAUSED`, otherwise a
- * cross and the status or error code.
+ * cross and the status or error code. `quiet` (the feed) says nothing visible for `done`, the normal
+ * case, so problems stand out; the status is still read out.
  */
-export function StatusBadge({ status }: { status: ActivityEntry["status"] }) {
+export function StatusBadge({ status, quiet = false }: { status: ActivityEntry["status"]; quiet?: boolean }) {
   const tone = statusTone(status)
+  if (quiet && tone === "ok") {
+    return (
+      <span className="ks-badge ks-visually-hidden" data-status={status}>
+        {status}
+      </span>
+    )
+  }
   return (
     <span className={`ks-badge ks-badge--${tone}`} title={HINTS[status]} data-status={status}>
       {tone === "ok" ? <CheckIcon /> : tone === "paused" ? <PauseIcon size={12} /> : <CrossIcon />}

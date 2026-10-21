@@ -22,6 +22,25 @@ export function useNow(ms = 5000): number {
   return now
 }
 
+/** "0:42", "4:05", "1:02:10": how long something has been going on. */
+export function elapsed(ts: number, now = Date.now()): string {
+  const s = Math.max(0, Math.floor((now - ts) / 1000))
+  const pad = (n: number) => String(n).padStart(2, "0")
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`
+}
+
+/** A ticking stopwatch since `ts`, for someone who is waiting. */
+export function Elapsed({ ts }: { ts: number }) {
+  const now = useNow(1000)
+  return (
+    <time className="ks-time ks-elapsed" dateTime={new Date(ts).toISOString()} title={`Since ${new Date(ts).toLocaleTimeString()}`}>
+      {elapsed(ts, now)}
+    </time>
+  )
+}
+
 export function RelativeTime({ ts, prefix = "" }: { ts: number; prefix?: string }) {
   const now = useNow()
   return (

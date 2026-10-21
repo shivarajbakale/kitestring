@@ -15,8 +15,9 @@ interface Props {
 }
 
 /**
- * The human's switch. Pausing is one click (it must be fast); once paused, an optional reason can be
- * added, which agents receive in their PAUSED error.
+ * The human's switch. Running is the normal state, so it is a calm status bar with the switch at hand
+ * (still one click: pausing must be fast). Paused is the exception and takes the room it needs: how long,
+ * an optional reason agents receive in their PAUSED error, and Resume.
  */
 export function PauseControl({ paused, reason, since, agentTabs, onPause, onResume }: Props) {
   const [busy, setBusy] = useState(false)
@@ -47,17 +48,23 @@ export function PauseControl({ paused, reason, since, agentTabs, onPause, onResu
   }
 
   if (!paused) {
+    const working = agentTabs > 0
     return (
-      <section className="ks-control" data-paused="false" aria-label="Agent control">
+      <section className="ks-control" data-paused="false" data-working={working || undefined} aria-label="Agent control">
+        <span className="ks-control__live" aria-hidden="true" />
         <p className="ks-control__state">
-          <span className="ks-dot ks-dot--live" aria-hidden="true" />
-          {agentTabs === 0
-            ? "Agents can open tabs when they need them."
-            : `Agents are working in ${agentTabs === 1 ? "1 tab" : `${agentTabs} tabs`}.`}
+          <strong>{working ? "Agents working" : "Agents idle"}</strong>
+          <span>{working ? `in ${agentTabs === 1 ? "1 tab" : `${agentTabs} tabs`}` : "They open tabs as they need them"}</span>
         </p>
-        <button type="button" className="ks-btn ks-btn--accent ks-btn--block" disabled={busy} onClick={() => run(() => onPause())}>
-          <PauseIcon />
-          Pause agents
+        <button
+          type="button"
+          className="ks-btn ks-btn--quiet ks-control__pause"
+          aria-label="Pause agents"
+          title="Pause agents: they stop before their next action"
+          disabled={busy}
+          onClick={() => run(() => onPause())}>
+          <PauseIcon size={14} />
+          Pause
         </button>
       </section>
     )
@@ -65,15 +72,19 @@ export function PauseControl({ paused, reason, since, agentTabs, onPause, onResu
 
   return (
     <section className="ks-control" data-paused="true" aria-label="Agent control">
+      <span className="ks-control__glyph" aria-hidden="true">
+        <PauseIcon size={14} />
+      </span>
       <p className="ks-control__state">
-        <span className="ks-control__glyph" aria-hidden="true">
-          <PauseIcon size={12} />
-        </span>
         <strong>Agents paused</strong>
-        {since ? <RelativeTime ts={since} /> : null}
+        <span>{since ? <RelativeTime ts={since} prefix="since " /> : "Nothing runs until you resume"}</span>
       </p>
-      <form className="ks-field" onSubmit={saveReason}>
-        <label htmlFor={id}>Reason (optional)</label>
+      <button type="button" className="ks-btn ks-btn--ink ks-control__pause" disabled={busy} onClick={() => run(onResume)}>
+        <PlayIcon size={14} />
+        Resume
+      </button>
+      <form className="ks-field ks-control__reason" onSubmit={saveReason}>
+        <label htmlFor={id}>Tell agents why (optional)</label>
         <input
           ref={input}
           id={id}
@@ -90,10 +101,6 @@ export function PauseControl({ paused, reason, since, agentTabs, onPause, onResu
           {saved ? "Sent. Agents see it with PAUSED." : "Agents see it with PAUSED. Enter to send."}
         </p>
       </form>
-      <button type="button" className="ks-btn ks-btn--ink ks-btn--block" disabled={busy} onClick={() => run(onResume)}>
-        <PlayIcon />
-        Resume
-      </button>
     </section>
   )
 }

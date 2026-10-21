@@ -1,6 +1,15 @@
 import type { ActivityEntry } from "@kitestring/protocol"
 import { useId, useState } from "react"
-import { BATCH_COLLAPSE_OVER, clockTime, describeAction, dialogLines, duration, groupBatches, summaryDetail } from "../activity-format"
+import {
+  BATCH_COLLAPSE_OVER,
+  clockTime,
+  describeAction,
+  dialogLines,
+  duration,
+  groupBatches,
+  statusTone,
+  summaryDetail,
+} from "../activity-format"
 import type { GroupColor } from "../messages"
 import { ChevronIcon } from "./icons"
 import { SessionDot } from "./SessionDot"
@@ -83,32 +92,49 @@ export function ActivityRow({ entry, color, fresh, onFocus }: RowProps) {
   const detailsId = useId()
   const detail = summaryDetail(entry)
   const action = describeAction(entry)
+  const space = action.indexOf(" ")
+  const verb = space < 0 ? action : action.slice(0, space)
+  const target = space < 0 ? "" : action.slice(space)
+  const tone = statusTone(entry.status)
   const changed = !!(detail.added || detail.removed)
   return (
-    <li className="ks-entry" data-fresh={fresh || undefined} data-open={open || undefined}>
+    <li className="ks-entry" data-tone={tone} data-fresh={fresh || undefined} data-open={open || undefined}>
       <button type="button" className="ks-entry__main" title="Show this tab" onClick={() => onFocus(entry)}>
-        <span className="ks-entry__meta">
+        <span className="ks-entry__rail" aria-hidden="true">
           <SessionDot color={color} />
-          <span className="ks-entry__session">{entry.session}</span>
-          <span className="ks-entry__nums">
-            <span className="ks-entry__ms">{duration(entry.ms)}</span>
-            <time dateTime={new Date(entry.ts).toISOString()} title={new Date(entry.ts).toLocaleString()}>
+        </span>
+        <span className="ks-entry__body">
+          <span className="ks-entry__line">
+            <span className="ks-entry__action" title={action}>
+              <span className="ks-entry__verb">{verb}</span>
+              {target}
+            </span>
+            <time className="ks-entry__time" dateTime={new Date(entry.ts).toISOString()} title={new Date(entry.ts).toLocaleString()}>
               {clockTime(entry.ts)}
             </time>
           </span>
-        </span>
-        <span className="ks-entry__line">
-          <span className="ks-entry__action" title={action}>
-            {action}
-          </span>
-          <StatusBadge status={entry.status} />
-        </span>
-        {detail.text || changed ? (
-          <span className="ks-entry__summary">
-            {detail.text ? (
-              <span className="ks-entry__summary-text" title={detail.text}>
-                {detail.text}
-              </span>
+          {tone !== "ok" ? (
+            <span className="ks-entry__problem">
+              <StatusBadge status={entry.status} quiet />
+              {detail.text ? (
+                <span className="ks-entry__problem-text" title={detail.text}>
+                  {detail.text}
+                </span>
+              ) : null}
+            </span>
+          ) : null}
+          <span className="ks-entry__meta">
+            {tone === "ok" ? <StatusBadge status={entry.status} quiet /> : null}
+            <span className="ks-entry__session">{entry.session}</span>
+            <span className="ks-entry__sep" aria-hidden="true">·</span>
+            <span className="ks-entry__ms">{duration(entry.ms)}</span>
+            {tone === "ok" && detail.text ? (
+              <>
+                <span className="ks-entry__sep" aria-hidden="true">·</span>
+                <span className="ks-entry__summary-text" title={detail.text}>
+                  {detail.text}
+                </span>
+              </>
             ) : null}
             {changed ? (
               <span className="ks-stat" title={`${detail.added} added, ${detail.removed} removed`}>
@@ -118,7 +144,7 @@ export function ActivityRow({ entry, color, fresh, onFocus }: RowProps) {
               </span>
             ) : null}
           </span>
-        ) : null}
+        </span>
       </button>
       {hasDetails(entry) ? (
         <button
@@ -165,10 +191,12 @@ function BatchGroup({
   return (
     <li className="ks-batch" data-open={open || undefined}>
       <button type="button" className="ks-batch__head" aria-expanded={open} aria-controls={open ? listId : undefined} onClick={() => setChosen(!open)}>
-        <ChevronIcon size={14} />
+        <span className="ks-batch__glyph" aria-hidden="true">
+          <ChevronIcon size={12} />
+        </span>
         <span className="ks-batch__label">{label}</span>
         <span className="ks-batch__session">{first.session}</span>
-        <StatusBadge status={steps[steps.length - 1]!.status} />
+        <StatusBadge status={steps[steps.length - 1]!.status} quiet />
       </button>
       {open ? (
         <ol className="ks-batch__steps" id={listId} aria-label={label}>
