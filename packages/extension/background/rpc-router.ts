@@ -364,7 +364,11 @@ const handlers: Partial<Record<Method, Handler>> = {
     if (px !== undefined && (typeof px !== "number" || !Number.isFinite(px) || px <= 0)) {
       badRequest("params.px must be a positive number")
     }
-    return runAction(s, { kind: "scroll", direction, ...(px !== undefined ? { px } : {}) })
+    const at = params.at as { x?: unknown; y?: unknown } | undefined
+    if (at !== undefined && (typeof at !== "object" || at === null || [at.x, at.y].some((n) => typeof n !== "number" || !Number.isFinite(n) || n < 0))) {
+      badRequest("params.at must be {x, y}: a point in the viewport, in CSS pixels")
+    }
+    return runAction(s, { kind: "scroll", direction, ...(px !== undefined ? { px } : {}), ...(at ? { at: { x: at.x as number, y: at.y as number } } : {}) })
   },
 }
 

@@ -267,6 +267,29 @@ function fromSelector(doc: Document, selector: string): Candidate {
   return { key: `css:${selector}`, source: `${items.length} × ${selector}`, items, score: 0, text: "" }
 }
 
+/**
+ * The middle of the visible part of the nearest box around `el` that scrolls on its own, when that is not the page
+ * itself and nothing covers the point; else undefined (the page's own scrolling reaches the list).
+ */
+function innerScrollPoint(doc: Document, el: Element): { x: number; y: number } | undefined {
+  const win = doc.defaultView
+  if (!win) return undefined
+  for (let box = el.parentElement; box && box !== doc.body && box !== doc.documentElement; box = box.parentElement) {
+    if (box.scrollHeight <= box.clientHeight + 1 || !/(auto|scroll|overlay)/.test(win.getComputedStyle(box).overflowY)) continue
+    const r = box.getBoundingClientRect()
+    const left = Math.max(0, r.left)
+    const right = Math.min(win.innerWidth, r.right)
+    const top = Math.max(0, r.top)
+    const bottom = Math.min(win.innerHeight, r.bottom)
+    if (right - left < 4 || bottom - top < 4) return undefined
+    const x = Math.round((left + right) / 2)
+    const y = Math.round((top + bottom) / 2)
+    const hit = doc.elementFromPoint(x, y)
+    return hit && box.contains(hit) ? { x, y } : undefined
+  }
+  return undefined
+}
+
 /** Rows of the page's best (or chosen) table or repeated list; throws when the page has none. */
 export function extract(doc: Document, opts: ExtractOpts = {}): ExtractResult {
   const max = Math.max(1, opts.max ?? 500)
@@ -296,5 +319,6 @@ export function extract(doc: Document, opts: ExtractOpts = {}): ExtractResult {
     .map((c, index) => ({ index, key: c.key, source: c.source, count: c.items.length }))
     .filter((c) => c.key !== chosen!.key)
     .slice(0, 5)
-  return { key: chosen.key, source: chosen.source, ...data, others }
+  const at = innerScrollPoint(doc, chosen.table ?? chosen.items[0]!)
+  return { key: chosen.key, source: chosen.source, ...data, others, ...(at ? { scrollAt: at } : {}) }
 }

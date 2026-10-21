@@ -37,3 +37,4 @@ Serve with `pnpm --filter torture dev` (default http://127.0.0.1:4173). Each pag
 | `late-list` | `kite script`: `waitFor({text: "@", within: "Timeline"})`, `waitFor({count: {selector: "article", min: 5}})` (the sidebar's "@" is there from the start) | `loaded` |
 | `navigate-later` | `kite script`: `waitFor({text: "Arrived"})` across the navigation 300 ms after load | `arrived` |
 | `orders-table` | `kite extract --next Next --columns "Order=Order,Total=Total" --id Order -o orders.csv`: two pages of a table; order `1003` is on both with its `Updated` cell changed, and its `Total` is `=1+1` | `page:2`; `orders.csv` has orders 1001–1004 once each, `Order,Total` columns, and `'=1+1` |
+| `panel-list` | `kite extract --next scroll --pages 10`: 45 results in a left panel that scrolls on its own (15 at a time), beside a "map" covering the viewport's centre; the wheel must go over the panel | 45 rows; `__result` stays unset (`map-zoomed:<n>` if a wheel hit the map) |

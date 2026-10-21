@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import type { ExtractResult } from "@kitestring/protocol"
 import { KiteError } from "../src/client/rpc-client.js"
-import { extractPages, extractSummary, parseColumns, saveRows, toCsv } from "../src/client/extract.js"
+import { extractPages, extractSummary, parseColumns, rowsOfValue, saveRows, toCsv } from "../src/client/extract.js"
 
 const page = (rows: Record<string, string>[], extra: Partial<ExtractResult> = {}): ExtractResult => ({
   key: "list:div>div.card",
@@ -71,6 +71,16 @@ describe("extractPages", () => {
     expect(f.calls.find((c) => c.method === "act.scroll")!.params).toEqual({ direction: "down", px: 2000 })
   })
 
+  it("scroll wheels over the list's own panel when the page says where it is", async () => {
+    const at = { x: 160, y: 400 }
+    const f = fake([page([{ t: "a" }], { scrollAt: at }), page([{ t: "a" }, { t: "b" }], { scrollAt: at }), page([{ t: "a" }, { t: "b" }])])
+    await extractPages(f.call as never, { next: "scroll", pages: 3 }, noSleep)
+    expect(f.calls.filter((c) => c.method === "act.scroll").map((c) => c.params)).toEqual([
+      { direction: "down", px: 2000, at },
+      { direction: "down", px: 2000, at },
+    ])
+  })
+
   it("stops at max rows", async () => {
     const f = fake([page([{ t: "a" }, { t: "b" }]), page([{ t: "c" }, { t: "d" }])])
     const x = await extractPages(f.call as never, { next: "Next", max: 3, pages: 5 }, noSleep)
@@ -121,6 +131,18 @@ describe("csv and files", () => {
 
   it("quotes commas, quotes and newlines; formulas stay text; missing cells are empty", () => {
     expect(toCsv(["a", "b"], [{ a: 'x,"y"', b: "1\n2" }, { a: "=SUM(A1)" }, { a: "-5", b: "@x" }])).toBe('a,b\n"x,""y""","1\n2"\n\'=SUM(A1),\n-5,\'@x\n')
+  })
+
+  it("a script's returned rows: columns in first-seen order, cells as text; anything else is refused", () => {
+    expect(rowsOfValue(JSON.stringify([{ name: "A", n: 1 }, { name: "B", tags: ["x"], n: null, ok: true }]))).toEqual({
+      columns: ["name", "n", "tags", "ok"],
+      rows: [{ name: "A", n: "1" }, { name: "B", tags: '["x"]', n: "", ok: "true" }],
+    })
+    expect(rowsOfValue("[]")).toEqual({ columns: [], rows: [] })
+    expect(() => rowsOfValue(undefined)).toThrow(/array of objects.*returned nothing/)
+    expect(() => rowsOfValue("loaded")).toThrow(/returned string/)
+    expect(() => rowsOfValue('{"a":1}')).toThrow(/returned object/)
+    expect(() => rowsOfValue('[{"a":1},2]')).toThrow(/non-object item/)
   })
 
   it("saves csv, json and jsonl by extension; refuses others", () => {

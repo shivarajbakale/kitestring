@@ -4,7 +4,7 @@ import { z } from "zod"
 import { KiteError, call } from "../client/rpc-client.js"
 import { human } from "../client/human.js"
 import { formatReplay } from "../client/format.js"
-import { DEFAULT_MAX_ROWS, MAX_PAGES, MAX_ROWS, extractPages, extractSummary, formatOf, parseColumns, saveRows, toCsv } from "../client/extract.js"
+import { DEFAULT_MAX_ROWS, MAX_PAGES, MAX_ROWS, extractPages, extractSummary, formatOf, parseColumns, rowsOfValue, saveRows, toCsv } from "../client/extract.js"
 import { appendPending, discardPending, recordReplayStop, savePending } from "../memory/pending.js"
 import { runPlan } from "../memory/replay.js"
 import { findAnyPlan, planById } from "../memory/store.js"
@@ -244,14 +244,26 @@ export const TOOLS: ToolDef[] = [
     description: SCRIPT_DESCRIPTION,
     shape: {
       code: z.string().min(1).max(SCRIPT_MAX_CHARS).describe("the body of an async function: top-level await and return work"),
+      save: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("file (.csv, .json or .jsonl, relative to the working directory) to write the rows the script returns: an array of objects, one per row"),
     },
-    run: async (a: { code: string }, session) => {
+    run: async (a: { code: string; save?: string }, session) => {
+      if (a.save) formatOf(a.save)
       const r = await runScript(a.code, {
         call: (method, params, timeoutMs) => call(method, params, { session, timeoutMs }),
         timeoutMs: Math.max(5_000, mcpTimeout() - SCRIPT_MARGIN_MS),
         resolveFiles: (files) => resolveUploads(files, { cwd: process.cwd(), home: homedir(), kiteHome: kiteHome(), env: process.env }),
       })
-      return { text: formatScript(r), isError: !!r.error }
+      if (!a.save || r.error) return { text: formatScript(r), isError: !!r.error }
+      // The script's sandbox has no files: the rows it returned are written here. The reply shows a few, not all.
+      const x = rowsOfValue(r.value)
+      const path = saveRows(x, a.save, process.cwd())
+      const head = toCsv(x.columns, x.rows.slice(0, 5))
+      const value = `${x.rows.length} row${x.rows.length === 1 ? "" : "s"} × ${x.columns.length} columns saved to ${path}${x.rows.length ? `; first ${Math.min(5, x.rows.length)}:\n${head.trimEnd()}` : ""}`
+      return { text: formatScript({ ...r, value }), isError: false }
     },
   },
   {

@@ -23,7 +23,7 @@ Two equivalent surfaces. Use MCP tools if your harness has them, else the `kite`
 | Choose an option | `browser_select` | `kite select "Country" "India"` |
 | Upload files | `browser_upload` | `kite upload "Extension zip" /abs/path/kite.zip` (refuses ~/.ssh, ~/.aws, ~/.config, credential and shell-history files, .env files, > 100 MB) |
 | Several steps in one call | `browser_batch` | `kite batch steps.json` (or `-` for stdin; `--budget <ms>`, `--allow-domain <d>`) |
-| Loops, branches, reading values between steps | `browser_script` | `kite script task.js` (or `-` for stdin) |
+| Loops, branches, reading values between steps | `browser_script` | `kite script task.js` (or `-` for stdin; `--save rows.csv` writes the rows it returns) |
 | Key | `browser_press` | `kite press Enter` |
 | Scroll | `browser_scroll` | `kite scroll down [px]` |
 | Console / network | `browser_console` / `browser_network` | `kite console --errors` / `kite network --failed` |
@@ -87,7 +87,7 @@ Upload paths: relative paths resolve against the working directory of the `kite`
 - Same label twice (two "Save" buttons)? `--within "<section/dialog name>"`, then `--role`, then a ref.
 - No snapshot after every action. The diff is the snapshot delta.
 - Fewest round trips wins: predictable steps go in one `browser_batch` (`fast: true` with an `expect` where the page changes), steps that depend on the page go in one `browser_script`.
-- Reading many rows (a table, search results, a long list)? `browser_extract`, not snapshots and scrolling: one call per page, `next` to page, `save` for a file. For a file the human will open, read once, then pass `columns` to keep and name the useful columns, and `id` when rows have a number of their own. Read only what the human asked for.
+- Reading many rows (a table, search results, a long list)? `browser_extract`, not snapshots and scrolling: one call per page, `next` to page, `save` for a file. Cards too uneven for `extract` (map results, mixed layouts)? A `browser_script` that reads each field and returns an array of row objects, with `save`. For a file the human will open, read once, then pass `columns` to keep and name the useful columns, and `id` when rows have a number of their own. Read only what the human asked for.
 - Snapshots show headings, controls, landmarks and lists, not body text. Screenshot only when the question is visual (layout, colors, rendered text).
 - Never retry the same failing action unchanged. Read the status and recover.
 - Setup problem (not connected, tools missing)? Run `kite doctor` and show the human the failing `fix:` lines; `kite init` is something only the human runs.

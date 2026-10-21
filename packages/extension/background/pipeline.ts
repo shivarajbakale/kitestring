@@ -30,7 +30,8 @@ export type Action =
   /** `files` are absolute paths (already vetted by the CLI). */
   | { kind: "upload"; target: Target; files: string[]; nocache?: boolean }
   /** `px` defaults to one viewport height. */
-  | { kind: "scroll"; direction: "up" | "down"; px?: number }
+  /** `at`: wheel over this viewport point (a panel that scrolls on its own) instead of the viewport's centre. */
+  | { kind: "scroll"; direction: "up" | "down"; px?: number; at?: { x: number; y: number } }
 
 /** Hard cap per action, retries included: the CLI has no client-side timeout, so we must always answer. */
 const ACTION_CAP_MS = 15_000
@@ -313,14 +314,14 @@ async function hasClickHandler(tabId: number, x: number, y: number): Promise<boo
  * asynchronous and may be animated). Pages that load on "scroll" start their work only then, so the
  * following quiet check sees it.
  */
-async function scrollAndSettle(tabId: number, dy: number): Promise<void> {
-  const pos = async () =>
-    (await send<{ result: { value?: [number, number] } }>(tabId, "Runtime.evaluate", {
-      expression: "[scrollY, (document.scrollingElement || document.documentElement).scrollHeight - innerHeight]",
-      returnByValue: true,
-    })).result.value ?? [0, 0]
+async function scrollAndSettle(tabId: number, dy: number, at?: { x: number; y: number }): Promise<void> {
+  // With `at`, the box that scrolls is the nearest one under the point that can (the page's own when none).
+  const expression = at
+    ? `(() => { let b = document.elementFromPoint(${Math.round(at.x)}, ${Math.round(at.y)}); while (b && b !== document.body && b !== document.documentElement && !(b.scrollHeight > b.clientHeight + 1 && /(auto|scroll|overlay)/.test(getComputedStyle(b).overflowY))) b = b.parentElement; if (!b || b === document.body || b === document.documentElement) return [scrollY, (document.scrollingElement || document.documentElement).scrollHeight - innerHeight]; return [b.scrollTop, b.scrollHeight - b.clientHeight] })()`
+    : "[scrollY, (document.scrollingElement || document.documentElement).scrollHeight - innerHeight]"
+  const pos = async () => (await send<{ result: { value?: [number, number] } }>(tabId, "Runtime.evaluate", { expression, returnByValue: true })).result.value ?? [0, 0]
   const [y0, max] = await pos()
-  await input.wheel(tabId, dy)
+  await input.wheel(tabId, dy, at)
   const canMove = dy > 0 ? y0 < max - 1 : y0 > 0
   const start = Date.now()
   let last = y0
@@ -514,7 +515,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     if (action.kind === "press") await input.press(tabId, action.key)
     else {
       const px = action.px ?? (await input.viewport(tabId)).height
-      await scrollAndSettle(tabId, action.direction === "up" ? -px : px)
+      await scrollAndSettle(tabId, action.direction === "up" ? -px : px, action.at)
     }
     return finish(r, before, {})
   }

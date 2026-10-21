@@ -88,6 +88,7 @@ export async function extractPages(call: Call, o: ExtractOpts, sleep: (ms: numbe
   })
   const first = (await call("page.extract", pick(o))) as ExtractResult
   const columns = [...first.columns]
+  let scrollAt = first.scrollAt
   const seen = new Set<string>()
   const rows: Record<string, string>[] = []
   const idFrom = o.id !== undefined ? idSource(o.id, o.columns) : undefined
@@ -119,7 +120,8 @@ export async function extractPages(call: Call, o: ExtractOpts, sleep: (ms: numbe
       break
     }
     try {
-      const r = (o.next === "scroll" ? await call("act.scroll", { direction: "down", px: 2_000 }) : await call("act.click", { target: parseTarget(o.next!) })) as ActionResult | null
+      // A list in a panel of its own (results beside a map) scrolls under a wheel over that panel.
+      const r = (o.next === "scroll" ? await call("act.scroll", { direction: "down", px: 2_000, ...(scrollAt ? { at: scrollAt } : {}) }) : await call("act.click", { target: parseTarget(o.next!) })) as ActionResult | null
       if (r && r.ok === false) {
         stopped = `no next page (${r.status}${r.detail ? `: ${r.detail.split("\n")[0]}` : ""})`
         break
@@ -134,7 +136,9 @@ export async function extractPages(call: Call, o: ExtractOpts, sleep: (ms: numbe
     let added = 0
     for (let waited = 0; ; waited += NEW_ROWS_POLL_MS) {
       try {
-        added = add((await call("page.extract", pick(again))) as ExtractResult)
+        const r = (await call("page.extract", pick(again))) as ExtractResult
+        if (r.scrollAt) scrollAt = r.scrollAt
+        added = add(r)
       } catch (e) {
         if (!(e instanceof KiteError && e.code === "BAD_REQUEST")) throw e
       }
@@ -186,6 +190,33 @@ export function serialize(x: Pick<Extracted, "columns" | "rows">, format: SaveFo
   if (format === "csv") return toCsv(x.columns, x.rows)
   if (format === "json") return JSON.stringify(x.rows, null, 2) + "\n"
   return x.rows.map((r) => JSON.stringify(r)).join("\n") + (x.rows.length ? "\n" : "")
+}
+
+/**
+ * A script's return value (JSON) as rows: it must be an array of plain objects. Columns are every key, in the order
+ * first seen; a string cell is kept as is, null or undefined is empty, anything else is its JSON.
+ */
+export function rowsOfValue(value: string | undefined): Pick<Extracted, "columns" | "rows"> {
+  let v: unknown
+  try {
+    v = value === undefined ? undefined : JSON.parse(value)
+  } catch {
+    v = value
+  }
+  const what = v === undefined ? "nothing" : Array.isArray(v) ? "an array with a non-object item" : v === null ? "null" : typeof v
+  if (!Array.isArray(v) || v.some((r) => typeof r !== "object" || r === null || Array.isArray(r))) {
+    throw new KiteError("BAD_REQUEST", `save needs the script to return its rows: an array of objects, one per row (it returned ${what})`)
+  }
+  const columns: string[] = []
+  const rows = (v as Record<string, unknown>[]).map((r) => {
+    const row: Record<string, string> = {}
+    for (const [k, c] of Object.entries(r)) {
+      if (!columns.includes(k)) columns.push(k)
+      row[k] = typeof c === "string" ? c : c === null || c === undefined ? "" : JSON.stringify(c)
+    }
+    return row
+  })
+  return { columns, rows }
 }
 
 /** Writes the rows to `file` (format from its extension, relative to `cwd`); the absolute path. */
