@@ -37,8 +37,8 @@ body,
 .panel__top {
   flex: none;
   display: grid;
-  gap: 14px;
-  padding: 14px var(--panel-gutter) 16px;
+  gap: 12px;
+  padding: 14px var(--panel-gutter) 14px;
 }
 
 .panel__header {
@@ -105,7 +105,6 @@ body,
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  border-top: 1px solid var(--ks-line);
   scrollbar-gutter: stable;
 }
 
@@ -114,16 +113,19 @@ body,
   top: 0;
   z-index: 1;
   display: grid;
-  gap: 8px;
-  padding: 12px var(--panel-gutter) 10px;
-  background: var(--ks-paper);
+  gap: 9px;
+  padding: 10px var(--panel-gutter) 10px;
+  background: color-mix(in srgb, var(--ks-paper) 92%, transparent);
+  backdrop-filter: blur(8px);
   box-shadow: 0 1px 0 var(--ks-line);
 }
 
 .panel__h2 {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--ks-muted);
 }
 
@@ -160,39 +162,51 @@ body,
 
 /* ---------- Session filter chips ---------- */
 
+/* One scrolling row: many sessions never push the feed down. */
 .ks-chips {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
+  margin: 0 calc(-1 * var(--panel-gutter));
+  padding: 0 var(--panel-gutter);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ks-chips::-webkit-scrollbar {
+  display: none;
 }
 .ks-chip {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 6px;
-  max-width: 100%;
-  min-height: 28px;
-  padding: 0 10px;
+  max-width: 180px;
+  min-height: 26px;
+  padding: 0 9px;
   border: 0;
-  border-radius: 999px;
-  background: var(--ks-surface);
+  border-radius: 7px;
+  background: none;
   box-shadow: inset 0 0 0 1px var(--ks-line);
   font-size: 12px;
   font-weight: 550;
+  color: var(--ks-muted);
   cursor: pointer;
   transition:
     background-color 120ms var(--ks-ease),
     color 120ms var(--ks-ease);
 }
 .ks-chip:hover {
-  background: color-mix(in srgb, var(--ks-ink) 7%, var(--ks-surface));
+  background: var(--ks-hover);
+  color: var(--ks-ink);
 }
 .ks-chip[aria-pressed="true"] {
   background: var(--ks-ink);
   color: var(--ks-paper);
   box-shadow: none;
 }
-.ks-chip[aria-pressed="true"] .ks-session-dot {
-  box-shadow: 0 0 0 1.5px var(--ks-paper);
+.ks-chip .ks-session-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
 }
 .ks-chip__name {
   min-width: 0;
@@ -203,17 +217,21 @@ body,
 .ks-chip__count {
   font-variant-numeric: tabular-nums;
   font-weight: 500;
-  opacity: 0.7;
+  opacity: 0.65;
 }
 
 /* ---------- Entries ---------- */
 
+/*
+ * A row reads in one glance: what was done (verb quiet, target loud) and when, then who and how long.
+ * Success says nothing; a problem gets a tinted row and its own line.
+ */
 .ks-feed {
   list-style: none;
   margin: 0;
-  padding: 4px calc(var(--panel-gutter) - 8px) 12px;
+  padding: 6px calc(var(--panel-gutter) - 8px) 16px;
   display: grid;
-  gap: 1px;
+  gap: 2px;
 }
 
 .ks-entry {
@@ -226,6 +244,13 @@ body,
 .ks-entry:hover,
 .ks-entry[data-open] {
   background: var(--ks-hover);
+}
+.ks-entry[data-tone="fail"] {
+  background: color-mix(in srgb, var(--ks-accent) 6%, transparent);
+}
+.ks-entry[data-tone="fail"]:hover,
+.ks-entry[data-tone="fail"][data-open] {
+  background: color-mix(in srgb, var(--ks-accent) 10%, transparent);
 }
 .ks-entry[data-fresh] {
   animation: ks-arrive 1400ms var(--ks-ease) both;
@@ -240,58 +265,10 @@ body,
   }
 }
 
-.ks-batch {
-  display: grid;
-  border-radius: var(--ks-radius);
-}
-.ks-batch__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 8px 8px;
-  border: 0;
-  border-radius: var(--ks-radius);
-  background: none;
-  font: inherit;
-  font-size: 12px;
-  color: var(--ks-muted);
-  text-align: left;
-  cursor: pointer;
-}
-.ks-batch__head:hover {
-  background: var(--ks-hover);
-}
-.ks-batch__head svg {
-  flex: none;
-  transition: transform 120ms var(--ks-ease);
-}
-.ks-batch__head[aria-expanded="false"] svg {
-  transform: rotate(-90deg);
-}
-.ks-batch__label {
-  font-weight: 550;
-  color: var(--ks-ink);
-}
-.ks-batch__session {
-  min-width: 0;
-  margin-right: auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ks-batch__steps {
-  list-style: none;
-  margin: 0 0 4px 12px;
-  padding: 0 0 0 8px;
-  border-left: 1px solid var(--ks-hover);
-  display: grid;
-  gap: 1px;
-}
-
 .ks-entry__main {
   display: grid;
-  gap: 2px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 8px;
   min-width: 0;
   padding: 9px 4px 9px 8px;
   border: 0;
@@ -308,33 +285,21 @@ body,
   outline-offset: -2px;
 }
 
-.ks-entry__meta {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--ks-muted);
+.ks-entry__rail {
+  display: grid;
+  place-items: center;
+  height: 19px;
 }
-.ks-entry__meta .ks-session-dot {
+.ks-entry__rail .ks-session-dot {
   width: 8px;
   height: 8px;
   border-radius: 2.5px;
 }
-.ks-entry__session {
+
+.ks-entry__body {
+  display: grid;
+  gap: 3px;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 550;
-  color: var(--ks-ink);
-}
-.ks-entry__nums {
-  display: flex;
-  gap: 10px;
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
 .ks-entry__line {
@@ -353,17 +318,39 @@ body,
   font-weight: 600;
   letter-spacing: -0.01em;
 }
-.ks-entry__line .ks-badge {
-  align-self: center;
+.ks-entry__verb {
+  font-weight: 450;
+  color: var(--ks-muted);
+}
+.ks-entry__time {
+  flex: none;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ks-muted);
 }
 
-.ks-entry__summary {
+.ks-entry__meta {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   font-size: 12px;
   color: var(--ks-muted);
+}
+.ks-entry__session {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ks-entry__sep {
+  flex: none;
+  opacity: 0.6;
+}
+.ks-entry__ms {
+  flex: none;
+  font-variant-numeric: tabular-nums;
 }
 .ks-entry__summary-text {
   min-width: 0;
@@ -373,10 +360,11 @@ body,
 }
 .ks-stat {
   display: inline-flex;
-  gap: 6px;
+  gap: 5px;
   flex: none;
+  margin-left: auto;
   font-family: var(--ks-mono);
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 550;
   font-variant-numeric: tabular-nums;
 }
@@ -387,18 +375,63 @@ body,
   color: var(--ks-removed);
 }
 
+/* What went wrong: the code as a tag, then the reason in full ink. */
+.ks-entry__problem {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+.ks-entry__problem .ks-badge {
+  flex: none;
+  align-self: center;
+  gap: 3px;
+  padding: 1px 6px 1px 4px;
+  border-radius: 5px;
+  font-family: var(--ks-mono);
+  font-size: 11px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--ks-accent) 13%, transparent);
+  color: var(--ks-removed);
+}
+.ks-entry__problem .ks-badge svg {
+  color: currentColor;
+}
+.ks-entry__problem .ks-badge--paused {
+  background: var(--ks-press);
+  color: var(--ks-ink);
+}
+.ks-entry__problem-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ks-entry[data-tone="paused"] {
+  background: none;
+}
+
 .ks-entry__toggle {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  margin: 6px 4px 0 0;
+  width: 28px;
+  height: 28px;
+  margin: 5px 4px 0 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 7px;
   background: none;
   color: var(--ks-muted);
   cursor: pointer;
-  transition: background-color 120ms var(--ks-ease);
+  opacity: 0.6;
+  transition:
+    background-color 120ms var(--ks-ease),
+    opacity 120ms var(--ks-ease);
+}
+.ks-entry:hover .ks-entry__toggle,
+.ks-entry__toggle[aria-expanded="true"],
+.ks-entry__toggle:focus-visible {
+  opacity: 1;
 }
 .ks-entry__toggle:hover {
   background: var(--ks-press);
@@ -411,21 +444,90 @@ body,
   transform: rotate(90deg);
 }
 
+/* ---------- Batches ---------- */
+
+.ks-batch {
+  display: grid;
+  border-radius: var(--ks-radius);
+}
+.ks-batch__head {
+  display: grid;
+  grid-template-columns: 16px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 8px;
+  border: 0;
+  border-radius: var(--ks-radius);
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ks-muted);
+  text-align: left;
+  cursor: pointer;
+}
+.ks-batch__head:hover {
+  background: var(--ks-hover);
+}
+.ks-batch__glyph {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--ks-line);
+}
+.ks-batch__glyph svg {
+  transition: transform 120ms var(--ks-ease);
+}
+.ks-batch__head[aria-expanded="true"] .ks-batch__glyph svg {
+  transform: rotate(90deg);
+}
+.ks-batch__label {
+  font-weight: 600;
+  color: var(--ks-ink);
+}
+.ks-batch__session {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ks-batch__head .ks-badge:not(.ks-visually-hidden) {
+  font-family: var(--ks-mono);
+  font-size: 11px;
+  color: var(--ks-removed);
+}
+.ks-batch__steps {
+  list-style: none;
+  margin: 0 0 4px 15px;
+  padding: 0 0 0 6px;
+  border-left: 1.5px solid var(--ks-line);
+  display: grid;
+  gap: 2px;
+}
+
 /* ---------- Details ---------- */
 
 .ks-entry__details {
   grid-column: 1 / -1;
   display: grid;
-  gap: 12px;
+  gap: 14px;
   min-width: 0;
-  padding: 2px 10px 12px 23px;
+  margin: 0 8px 10px 32px;
+  padding: 12px;
+  border-radius: 9px;
+  background: var(--ks-paper);
+  box-shadow: inset 0 0 0 1px var(--ks-line);
   font-size: 12px;
 }
 .ks-entry__label {
   display: block;
-  margin: 0 0 4px;
-  font-size: 11.5px;
+  margin: 0 0 5px;
+  font-size: 10.5px;
   font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--ks-muted);
 }
 .ks-entry__url {
@@ -445,24 +547,32 @@ body,
   list-style: none;
   margin: 0;
   padding: 0;
+  display: grid;
+  gap: 2px;
   font-family: var(--ks-mono);
-  font-size: 11.5px;
+  font-size: 11px;
   line-height: 1.5;
 }
 .ks-diff__line {
   display: grid;
-  grid-template-columns: 1.4ch minmax(0, 1fr);
+  grid-template-columns: 1.6ch minmax(0, 1fr);
   gap: 4px;
+  padding: 2px 6px 2px 4px;
+  border-radius: 5px;
   overflow-wrap: anywhere;
 }
 .ks-diff__sign {
   font-weight: 700;
   text-align: center;
 }
+.ks-diff__line[data-kind="added"] {
+  background: color-mix(in srgb, var(--ks-added) 10%, transparent);
+}
 .ks-diff__line[data-kind="added"] .ks-diff__sign {
   color: var(--ks-added);
 }
 .ks-diff__line[data-kind="removed"] {
+  background: color-mix(in srgb, var(--ks-removed) 9%, transparent);
   color: var(--ks-muted);
 }
 .ks-diff__line[data-kind="removed"] .ks-diff__sign {
@@ -474,12 +584,11 @@ body,
   max-height: 220px;
   overflow: auto;
   padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--ks-paper);
-  box-shadow: inset 0 0 0 1px var(--ks-line);
+  border-radius: 6px;
+  background: var(--ks-surface);
   font-family: var(--ks-mono);
   font-size: 11px;
-  line-height: 1.5;
+  line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

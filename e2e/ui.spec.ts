@@ -44,8 +44,8 @@ test.describe("toolbar popup", () => {
     expect(out(paused)).toContain("PAUSED")
 
     // The optional reason reaches the agents.
-    await popup.getByLabel("Reason (optional)").fill("checking the checkout")
-    await popup.getByLabel("Reason (optional)").press("Enter")
+    await popup.getByLabel("Tell agents why (optional)").fill("checking the checkout")
+    await popup.getByLabel("Tell agents why (optional)").press("Enter")
     await expect.poll(async () => out(await kite("click", "Fast task"))).toContain("checking the checkout")
 
     await popup.getByRole("button", { name: "Resume" }).click()
@@ -80,7 +80,7 @@ test.describe("toolbar popup", () => {
     await expect(popup.getByRole("button", { name: "Pause agents" })).toBeVisible()
     expect((await kite("pause", "lunch")).code).toBe(0)
     await expect(popup.getByRole("button", { name: "Resume" })).toBeVisible()
-    await expect(popup.getByLabel("Reason (optional)")).toHaveValue("lunch")
+    await expect(popup.getByLabel("Tell agents why (optional)")).toHaveValue("lunch")
     expect((await kite("resume")).code).toBe(0)
     await expect(popup.getByRole("button", { name: "Pause agents" })).toBeVisible()
   })
@@ -228,28 +228,38 @@ test.describe("live side panel", () => {
     const cc = (...a: string[]) => kiteEnv({ KITE_SESSION: "claude-code" }, ...a)
     expect((await cc("tab", "new", `${torture}/serial`)).code).toBe(0)
     expect((await cc("click", "Fast task")).code).toBe(0)
-    for (const width of [320, 600]) {
+    const shoot = async (prefix: string, widths: number[], rowCount?: number) => {
+    for (const width of widths) {
       for (const scheme of ["light", "dark"] as const) {
         const panel = await openPanel(context, width)
         await panel.emulateMedia({ colorScheme: scheme })
         const rows = panel.getByRole("list", { name: "Activity" }).locator(":scope > li")
-        await expect(rows).toHaveCount(5)
-        await rows.nth(3).getByRole("button", { name: /details/i }).click() // fill "Name": a diff and a brief
+        if (rowCount !== undefined) await expect(rows).toHaveCount(rowCount)
+        await rows.filter({ hasText: 'fill "Name"' }).getByRole("button", { name: /details/i }).click() // a diff and a brief
         await panel.evaluate(() => document.fonts.ready)
         // No horizontal scroll at any supported width.
         expect(await panel.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
-        // As tall as the content: the log scrolls inside a fixed-height panel, so size the page to show all of it.
-        const tall = await panel.evaluate(() => {
-          const log = document.querySelector<HTMLElement>(".panel__log")!
-          return Math.ceil(log.getBoundingClientRect().top + log.scrollHeight + 1)
+        // As tall as the content: the log scrolls inside a fixed-height panel, so let it grow, then size the
+        // page to show all of it.
+        await panel.addStyleTag({
+          content: "html, body, #__plasmo, .panel { height: auto !important } .panel__log { overflow: visible !important }",
         })
-        await panel.setViewportSize({ width: width * 2, height: tall * 2 })
+        await panel.setViewportSize({ width: width * 2, height: 800 })
         await panel.evaluate(() => (document.documentElement.style.zoom = "2"))
+        const tall = await panel.evaluate(() => Math.ceil(document.querySelector("main")!.getBoundingClientRect().height * 2))
+        await panel.setViewportSize({ width: width * 2, height: tall })
         await panel.mouse.move(1, 1) // no stray hover in the docs
-        const name = width === 320 ? `sidepanel-${scheme}` : `sidepanel-${width}-${scheme}`
+        const name = width === 320 ? `${prefix}-${scheme}` : `${prefix}-${width}-${scheme}`
         await panel.locator("main").screenshot({ path: shotPath(`${name}.png`), animations: "disabled" })
         await panel.close()
       }
     }
+    }
+    await shoot("sidepanel", [320, 600], 5)
+    // An agent waiting on the person: the request sits on top of everything.
+    expect((await cc("ask", "Enter the 2FA code sent to your phone", "--timeout", "1")).code).toBe(2)
+    await shoot("sidepanel-ask", [320])
+    expect((await kite("pause", "checking the order myself")).code).toBe(0)
+    await shoot("sidepanel-paused", [320])
   })
 })

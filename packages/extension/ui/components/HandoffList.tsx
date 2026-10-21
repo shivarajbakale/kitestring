@@ -1,6 +1,7 @@
 import { useState } from "react"
 import type { UiHandoff } from "../messages"
-import { RelativeTime } from "./RelativeTime"
+import { ChevronIcon } from "./icons"
+import { Elapsed } from "./RelativeTime"
 
 interface Props {
   handoffs: UiHandoff[]
@@ -9,7 +10,11 @@ interface Props {
   onAnswer: (h: UiHandoff, outcome: "done" | "declined") => Promise<unknown>
 }
 
-/** Agents waiting on the person: what they need, and the two answers that let them go on. */
+/**
+ * Agents waiting on the person: the most urgent thing on screen, so it sits first and is the only place
+ * the accent fills a button. The request reads as the headline; who asked and how long they have waited
+ * sit above it.
+ */
 export function HandoffList({ handoffs, onShow, onAnswer }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
   if (!handoffs.length) return null
@@ -28,24 +33,27 @@ export function HandoffList({ handoffs, onShow, onAnswer }: Props) {
       {handoffs.map((h) => (
         <article key={h.session} className="ks-handoff" role="status">
           <p className="ks-handoff__who">
-            <span className="ks-dot ks-dot--warn" aria-hidden="true" />
-            <strong>{h.session}</strong> needs you
-            <RelativeTime ts={h.since} />
+            <span className="ks-handoff__beacon" aria-hidden="true" />
+            <span className="ks-handoff__name">
+              <strong>{h.session}</strong> is waiting for you
+            </span>
+            <Elapsed ts={h.since} />
           </p>
           <p className="ks-handoff__reason">{h.reason}</p>
           <div className="ks-handoff__actions">
-            <button type="button" className="ks-btn ks-btn--ink" disabled={busy === h.session} onClick={() => void answer(h, "done")}>
+            <button type="button" className="ks-btn ks-btn--accent" disabled={busy === h.session} onClick={() => void answer(h, "done")}>
               Done
             </button>
             <button type="button" className="ks-btn ks-btn--quiet" disabled={busy === h.session} onClick={() => void answer(h, "declined")}>
               Can’t do it
             </button>
-            {h.tabId !== null ? (
-              <button type="button" className="ks-link ks-handoff__show" onClick={() => onShow(h)}>
-                Show tab
-              </button>
-            ) : null}
           </div>
+          {h.tabId !== null ? (
+            <button type="button" className="ks-link ks-handoff__show" onClick={() => onShow(h)}>
+              Show tab
+              <ChevronIcon size={12} />
+            </button>
+          ) : null}
         </article>
       ))}
     </section>
