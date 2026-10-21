@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>orders-table</title></head><body>
+<main><h1>Orders</h1>
+<table><thead><tr><th>Order</th><th>Date</th><th>Status</th><th>Updated</th><th>Total</th></tr></thead><tbody id="rows"></tbody></table>
+<button id="next">Next</button></main>
+<script>
+window.__result = undefined
+// Two pages of orders. Order 1003 is on both, with its Updated cell changed: only an id column tells it is the same row.
+const pages = [
+  [["1001", "2026-10-01", "paid", "3 min ago", "$12.00"], ["1002", "2026-10-02", "paid", "2 min ago", "$1,240.50"], ["1003", "2026-10-03", "pending", "1 min ago", "=1+1"]],
+  [["1003", "2026-10-03", "pending", "just now", "=1+1"], ["1004", "2026-10-04", "shipped", "just now", "$8.25"]],
+]
+let at = 0
+function show(){ rows.innerHTML = pages[at].map(r => "<tr>" + r.map(c => "<td>" + c + "</td>").join("") + "</tr>").join(""); next.disabled = at === pages.length - 1 }
+show()
+next.addEventListener("click", () => { if (at < pages.length - 1) { at++; window.__result = "page:" + (at + 1); setTimeout(show, 200) } })
+</script>
+</body></html>

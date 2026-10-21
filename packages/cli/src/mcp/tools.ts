@@ -4,7 +4,7 @@ import { z } from "zod"
 import { KiteError, call } from "../client/rpc-client.js"
 import { human } from "../client/human.js"
 import { formatReplay } from "../client/format.js"
-import { DEFAULT_MAX_ROWS, MAX_PAGES, MAX_ROWS, extractPages, extractSummary, formatOf, saveRows, toCsv } from "../client/extract.js"
+import { DEFAULT_MAX_ROWS, MAX_PAGES, MAX_ROWS, extractPages, extractSummary, formatOf, parseColumns, saveRows, toCsv } from "../client/extract.js"
 import { appendPending, discardPending, recordReplayStop, savePending } from "../memory/pending.js"
 import { runPlan } from "../memory/replay.js"
 import { findAnyPlan, planById } from "../memory/store.js"
@@ -265,12 +265,20 @@ export const TOOLS: ToolDef[] = [
       next: z.string().min(1).optional().describe("visible text or @ref of the next-page button/link, or \"scroll\""),
       pages: z.number().int().min(1).max(MAX_PAGES).optional().describe("at most this many pages with next (default 5)"),
       max: z.number().int().min(1).max(MAX_ROWS).optional().describe(`at most this many rows (default ${DEFAULT_MAX_ROWS})`),
+      columns: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('keep, order and rename columns, e.g. "Order=order-id,Total=price,title" (name=column, or a column kept as is); a reply without it lists the columns'),
+      id: z.string().min(1).optional().describe("a column whose value names a row (an order number): rows repeat by it, not by every cell"),
       save: z.string().min(1).optional().describe("file to write the rows to (.csv, .json or .jsonl), relative to the working directory"),
     },
-    run: async (a: { near?: string; selector?: string; pick?: number; next?: string; pages?: number; max?: number; save?: string }, session) => {
+    run: async (a: { near?: string; selector?: string; pick?: number; next?: string; pages?: number; max?: number; columns?: string; id?: string; save?: string }, session) => {
       if (a.save) formatOf(a.save)
+      const { columns, ...rest } = a
       const x = await extractPages((method, params) => call(method, params, { session, timeoutMs: mcpTimeout() }), {
-        ...a,
+        ...rest,
+        ...(columns !== undefined ? { columns: parseColumns(columns) } : {}),
         // Paging stops in time to answer inside this call's bound.
         budgetMs: Math.max(5_000, mcpTimeout() - 15_000),
       })

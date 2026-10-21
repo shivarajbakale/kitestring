@@ -234,7 +234,7 @@ async function runExport(home: string, s: ExportSchedule, call: SessionCall, opt
       last = n
       await sleep(2_000)
     }
-    const x: Extracted = await extractPages(c, { ...choose, ...(s.next ? { next: s.next } : {}), ...(s.pages ? { pages: s.pages } : {}), ...(s.max ? { max: s.max } : {}) }, sleep)
+    const x: Extracted = await extractPages(c, { ...choose, ...(s.next ? { next: s.next } : {}), ...(s.pages ? { pages: s.pages } : {}), ...(s.max ? { max: s.max } : {}), ...(s.columns ? { columns: s.columns } : {}), ...(s.rowId ? { id: s.rowId } : {}) }, sleep)
     const dir = exportDir(home, s.id)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     chmodSync(dir, 0o700)
@@ -247,7 +247,7 @@ async function runExport(home: string, s: ExportSchedule, call: SessionCall, opt
     } catch {
       /* first run */
     }
-    const keys = x.rows.map(rowKey)
+    const keys = x.rows.map((r) => (s.rowId && r[s.rowId] ? `id:${r[s.rowId]}` : rowKey(r)))
     const fresh = before ? keys.filter((k) => !before.has(k)).length : undefined
     writeFileSync(`${lastFile}.tmp`, JSON.stringify(keys), { mode: 0o600 })
     renameSync(`${lastFile}.tmp`, lastFile)

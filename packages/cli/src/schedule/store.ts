@@ -32,6 +32,10 @@ export interface ExportSchedule extends ScheduleBase {
   next?: string
   pages?: number
   max?: number
+  /** Kept, ordered and renamed columns (`--columns`). */
+  columns?: { name: string; from: string }[]
+  /** New rows are counted by this column's value (`--id`) instead of by every cell (`id` names the schedule). */
+  rowId?: string
   format: "csv" | "json" | "jsonl"
 }
 

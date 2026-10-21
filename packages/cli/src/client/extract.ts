@@ -18,6 +18,16 @@ export interface ExtractOpts {
   max?: number
   /** Stop paging once this much time has passed (an MCP call has a bound of its own). */
   budgetMs?: number
+  /** Keep only these columns, in this order, renamed (see {@link parseColumns}). */
+  columns?: ColumnSpec[]
+  /** A column whose value names a row (an order number): rows repeat by it, not by every cell. Named as in `columns`. */
+  id?: string
+}
+
+/** One output column: `name`, read from the extracted column `from`. */
+export interface ColumnSpec {
+  name: string
+  from: string
 }
 
 export interface Extracted {
@@ -42,6 +52,26 @@ const sleepMs = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 const rowKey = (r: Record<string, string>) => JSON.stringify(Object.entries(r).sort(([a], [b]) => a.localeCompare(b)))
 
 /**
+ * `"Order=order-id,Total=price,title"`: each comma-separated item is `name=from` (rename) or a bare column (kept as is).
+ * Names are trimmed; an empty item, a repeated name or an empty side is an error.
+ */
+export function parseColumns(spec: string): ColumnSpec[] {
+  const out: ColumnSpec[] = []
+  for (const item of spec.split(",")) {
+    const eq = item.indexOf("=")
+    const name = (eq < 0 ? item : item.slice(0, eq)).trim()
+    const from = (eq < 0 ? item : item.slice(eq + 1)).trim()
+    if (!name || !from) throw new KiteError("BAD_REQUEST", `columns: each item is name=column or column: "${item.trim()}" in ${spec}`)
+    if (out.some((c) => c.name === name)) throw new KiteError("BAD_REQUEST", `columns: "${name}" is named twice`)
+    out.push({ name, from })
+  }
+  return out
+}
+
+/** The extracted column `id` (an output name from `columns`) reads from. */
+const idSource = (id: string, columns?: ColumnSpec[]): string => columns?.find((c) => c.name === id)?.from ?? id
+
+/**
  * Reads the page's table or repeated list, then (with `next`) clicks next or scrolls and reads it again, up to `pages`.
  * Rows seen on an earlier page are not repeated (infinite lists keep the old ones). Columns are the union, in order.
  */
@@ -60,11 +90,13 @@ export async function extractPages(call: Call, o: ExtractOpts, sleep: (ms: numbe
   const columns = [...first.columns]
   const seen = new Set<string>()
   const rows: Record<string, string>[] = []
+  const idFrom = o.id !== undefined ? idSource(o.id, o.columns) : undefined
   const add = (r: ExtractResult): number => {
     for (const c of r.columns) if (!columns.includes(c)) columns.push(c)
     let n = 0
     for (const row of r.rows) {
-      const k = rowKey(row)
+      // A row without an id value falls back to all its cells.
+      const k = idFrom !== undefined && row[idFrom] ? `id:${row[idFrom]}` : rowKey(row)
       if (seen.has(k) || rows.length >= max) continue
       seen.add(k)
       rows.push(row)
@@ -116,7 +148,18 @@ export async function extractPages(call: Call, o: ExtractOpts, sleep: (ms: numbe
     }
   }
   if (!stopped && rows.length >= max && first.total > max) stopped = `reached ${max} rows`
-  return { key: first.key, source: first.source, columns, rows, pages: page, ...(stopped ? { stopped } : {}), others: first.others }
+  const missing = [...(o.columns ?? []).map((c) => c.from), ...(idFrom !== undefined ? [idFrom] : [])].filter((c) => !columns.includes(c))
+  if (missing.length) throw new KiteError("BAD_REQUEST", `no column ${missing.map((c) => `"${c}"`).join(", ")}; the columns are: ${columns.join(", ")}`)
+  const picked = o.columns ? project(o.columns, rows) : { columns, rows }
+  return { key: first.key, source: first.source, ...picked, pages: page, ...(stopped ? { stopped } : {}), others: first.others }
+}
+
+/** The rows with only `spec`'s columns, renamed and in its order; a cell a row lacks stays absent. */
+function project(spec: ColumnSpec[], rows: Record<string, string>[]): Pick<Extracted, "columns" | "rows"> {
+  return {
+    columns: spec.map((c) => c.name),
+    rows: rows.map((r) => Object.fromEntries(spec.filter((c) => r[c.from] !== undefined).map((c) => [c.name, r[c.from]!]))),
+  }
 }
 
 /** RFC 4180 CSV: a header line, then one line per row ("" for a column the row lacks). */
