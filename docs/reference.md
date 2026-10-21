@@ -33,7 +33,7 @@ the default is `agent`). It exposes 24 tools:
 | `browser_snapshot` | read the page as a compact tree with refs |
 | `browser_click`, `browser_fill`, `browser_select`, `browser_press`, `browser_scroll`, `browser_upload` | act on the page; each returns a diff of what changed |
 | `browser_batch` | run a list of steps in one call (see [Batches](#batches)) |
-| `browser_script` | run JavaScript that drives the tab through helpers: loops, branches and reads in one call (see [Scripts](#scripts)) |
+| `browser_script` | run JavaScript that drives the tab through helpers: loops, branches and reads in one call; `save` writes the rows it returns to a file (see [Scripts](#scripts)) |
 | `browser_console`, `browser_network` | recent console messages and network requests of the tab |
 | `browser_extract` | read the page's biggest table or repeated list (or the one holding `near` text, or `selector`'s items) as rows; `next` pages through (a button's text or `scroll`); `columns` keeps, orders and renames columns; `id` names the column rows repeat by; `save` writes every row to a .csv, .json or .jsonl file. See [Extracting data](#extracting-data) |
 | `browser_screenshot` | capture the tab (the viewport, the whole page, or one element by ref) |
@@ -108,7 +108,7 @@ line to add.
 | `kite scroll <up\|down> [px]` | scroll one viewport, or `px` pixels |
 | `kite upload <target> <files...>` | put files into a file input, a button that opens one, or a drop zone (see [Upload](#upload)) |
 | `kite batch <file\|->` `[--budget <ms>] [--allow-domain <domain>]...` | run steps from a JSON file or stdin (see [Batches](#batches)) |
-| `kite script <file\|->` `[--timeout <ms>]` | run JavaScript from a file or stdin (see [Scripts](#scripts)) |
+| `kite script <file\|->` `[--timeout <ms>] [--save <file>]` | run JavaScript from a file or stdin (see [Scripts](#scripts)) |
 
 Examples:
 
@@ -254,6 +254,14 @@ for the page to go idle, so the script says what it waits for. Guards apply as i
 that does not work throws an error whose `code` is the halt reason in capitals (`NOT_FOUND`, `AMBIGUOUS`, `EXPECT`,
 `RISKY`, ...; `candidates` on `AMBIGUOUS`); a script can catch it. The reply is the script's console output, its return
 value (`→ ...`) or error, and the number of browser calls. Steps a script runs are not remembered as plans.
+
+A script that reads data can return it as rows, an array of objects with one object per row, and pass `save`
+(`--save <file>`) to have them written to a `.csv`, `.json` or `.jsonl` file. The script itself cannot touch files;
+kite writes what it returned, with the same CSV rules as [Extracting data](#extracting-data). Columns are the objects'
+keys in the order first seen, and a value that is not a string is written as JSON (`null` as empty). The reply says
+how many rows went where, plus the first five, instead of the whole value. A return value that is not rows is an error
+and nothing is written. This suits pages whose cards differ too much for `extract` to line up, such as map results:
+read each field from its own element and return the rows.
 
 `goto` waits for the page's `load` event; `waitUntil: "domcontentloaded"` returns sooner and `"idle"` waits for the
 network and the DOM to go quiet as well.
@@ -427,7 +435,8 @@ share their tag and classes (product cards, search results, issue rows), whose t
 `near` takes the tightest one holding a text, `selector` names the items, and `pick` one of the other candidates the
 reply lists.
 
-With `next`, it clicks that button (or, with `scroll`, scrolls 2000 px) and reads the same table or list again by its
+With `next`, it clicks that button (or, with `scroll`, scrolls 2000 px: with the wheel over the list's own panel when the
+list scrolls inside one, such as results beside a map, else over the page) and reads the same table or list again by its
 key, up to `pages` (5 by default, 50 at most), stopping early when the next button is missing, a page brings no new
 rows (it waits up to 4 s for them), or `max` rows (500 by default, 5000 at most) are in. Rows already read are not
 repeated, which suits infinite lists that keep their old items. The MCP tool stops paging in time to answer inside its

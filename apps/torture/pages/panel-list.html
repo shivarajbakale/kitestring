@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>panel-list</title></head><body>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden }
+  #panel { position: fixed; left: 0; top: 0; bottom: 0; width: 320px; overflow-y: auto; border-right: 1px solid #ccc }
+  #map { position: fixed; left: 320px; right: 0; top: 0; bottom: 0; background: #dde8d0 }
+  .place { height: 90px; padding: 8px; border-bottom: 1px solid #eee }
+</style>
+<!-- Results in a panel that scrolls on its own beside a "map" that fills the rest (and the viewport's centre). -->
+<div id="panel" role="feed" aria-label="Results"></div>
+<div id="map" aria-label="Map"></div>
+<script>
+window.__result = undefined
+let n = 0, loading = false, wheels = 0
+const TOTAL = 45
+function add(){ for (let i = 0; i < 15 && n < TOTAL; i++){ n++; const d = document.createElement("div"); d.className = "place"; d.innerHTML = `<h3 class="name">Warehouse ${n}</h3><span class="kind">Storage</span><span class="phone">0836 ${String(1000000 + n).slice(1)}</span>`; panel.appendChild(d) } }
+add()
+map.addEventListener("wheel", () => { wheels++; window.__result = "map-zoomed:" + wheels })
+panel.addEventListener("scroll", () => {
+  if (loading || n >= TOTAL) return
+  if (panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 200){ loading = true; setTimeout(() => { add(); loading = false; if (n >= TOTAL) panel.insertAdjacentHTML("beforeend", "<p>You've reached the end of the list.</p>") }, 300) }
+})
+</script>
+</body></html>

@@ -17,7 +17,7 @@ afterAll(async () => {
 
 describe("torture server", () => {
   it("lists the pages in expected.md plus the navigation targets", () => {
-    expect(pages).toHaveLength(35)
+    expect(pages).toHaveLength(36)
   })
   it.each(pages)("serves /%s with 200", async (name) => {
     const res = await fetch(`${site.url}/${name}`)

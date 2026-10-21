@@ -84,13 +84,17 @@ export async function viewport(tabId: number): Promise<{ width: number; height: 
   return { width: m.cssLayoutViewport.clientWidth, height: m.cssLayoutViewport.clientHeight }
 }
 
-/** Mouse-wheel scroll by `dy` CSS pixels (negative = up) at the viewport centre. */
-export async function wheel(tabId: number, dy: number): Promise<void> {
-  const v = await viewport(tabId)
+/** Mouse-wheel scroll by `dy` CSS pixels (negative = up) at `at`, or at the viewport centre. */
+export async function wheel(tabId: number, dy: number, at?: { x: number; y: number }): Promise<void> {
+  let p = at
+  if (!p) {
+    const v = await viewport(tabId)
+    p = { x: v.width / 2, y: v.height / 2 }
+  }
   await send(tabId, "Input.dispatchMouseEvent", {
     type: "mouseWheel",
-    x: Math.round(v.width / 2),
-    y: Math.round(v.height / 2),
+    x: Math.round(p.x),
+    y: Math.round(p.y),
     deltaX: 0,
     deltaY: dy,
   })

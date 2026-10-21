@@ -134,6 +134,11 @@ export interface ExtractResult {
   total: number
   /** The other candidates, best first (at most 5). */
   others: ExtractCandidate[]
+  /**
+   * When the rows sit in a box that scrolls on its own (a results panel beside a map), a point over that box in
+   * viewport CSS pixels: a wheel there scrolls the list, where one at the viewport's centre would scroll something else.
+   */
+  scrollAt?: { x: number; y: number }
 }
 
 export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug"

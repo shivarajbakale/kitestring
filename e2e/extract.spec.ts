@@ -27,3 +27,28 @@ test.describe("extract to a clean CSV", () => {
     expect(r.stderr).toContain('no column "order-id"; the columns are: Order, Date, Status, Updated, Total')
   })
 })
+
+test.describe("lists in a panel of their own, and scripts that save", () => {
+  test("scroll paging wheels over the results panel, not the map at the viewport's centre", async ({ kite, torture, context, result }) => {
+    await kite("tab", "new", `${torture}/panel-list`)
+    const r = await kite("extract", "--next", "scroll", "--pages", "10")
+    expect(r.code).toBe(0)
+    expect(r.stderr).toMatch(/^45 rows × /)
+    expect(r.stdout).toContain("Warehouse 45")
+    const page = context.pages().find((p) => p.url().endsWith("/panel-list"))!
+    expect(await result(page)).toBe("undefined")
+  })
+
+  test("--save writes the rows a script returns; a value that is not rows is refused", async ({ kite, kiteStdin, kiteHome, torture }) => {
+    await kite("tab", "new", `${torture}/panel-list`)
+    const file = join(kiteHome, "places.csv")
+    const rows = `return await evaluate(() => [...document.querySelectorAll(".place")].slice(0, 3).map((p) => ({ Name: p.querySelector(".name").innerText, Phone: p.querySelector(".phone").innerText })))`
+    const r = await kiteStdin(rows, "script", "-", "--save", file)
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain(`→ 3 rows × 2 columns saved to ${file}`)
+    expect(readFileSync(file, "utf8")).toBe("Name,Phone\nWarehouse 1,0836 000001\nWarehouse 2,0836 000002\nWarehouse 3,0836 000003\n")
+    const bad = await kiteStdin(`return "done"`, "script", "-", "--save", join(kiteHome, "bad.csv"))
+    expect(bad.code).not.toBe(0)
+    expect(bad.stderr).toContain("save needs the script to return its rows: an array of objects, one per row (it returned string)")
+  })
+})
