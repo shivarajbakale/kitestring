@@ -6,7 +6,7 @@ import { EXTENSION_ID, HANDOFF_WAIT_MS, RECORD_NAME_RE, parseTarget, type BatchR
 import { KiteError, call } from "./client/rpc-client.js"
 import { human } from "./client/human.js"
 import { withoutStartUrl } from "./client/format.js"
-import { DEFAULT_MAX_ROWS, MAX_PAGES, MAX_ROWS, extractPages, extractSummary, formatOf, saveRows, toCsv } from "./client/extract.js"
+import { DEFAULT_MAX_ROWS, MAX_PAGES, MAX_ROWS, extractPages, extractSummary, formatOf, parseColumns, saveRows, toCsv, type ColumnSpec } from "./client/extract.js"
 import { installHost, legacyNotices } from "./install/host-manifest.js"
 import { kiteHome } from "./paths.js"
 import { resolveUploads } from "./upload-guard.js"
@@ -122,8 +122,10 @@ export async function main(argv: string[]): Promise<number> {
     .option("--next <target>", 'visible text or @ref of the next-page button, or "scroll" for infinite lists')
     .option("--pages <n>", "at most this many pages with --next", "5")
     .option("--max <n>", "at most this many rows", String(DEFAULT_MAX_ROWS))
+    .option("--columns <spec>", 'keep, order and rename columns: "Order=order-id,Total=price,title"')
+    .option("--id <column>", "rows repeat by this column (e.g. an order number), not by every cell")
     .option("-o, --output <file>", "write the rows to this .csv, .json or .jsonl file instead of printing CSV")
-    .action(async (o: { near?: string; selector?: string; pick?: string; next?: string; pages: string; max: string; output?: string }) => {
+    .action(async (o: { near?: string; selector?: string; pick?: string; next?: string; pages: string; max: string; columns?: string; id?: string; output?: string }) => {
       const int = (name: string, v: string, lo: number, hi: number): number => {
         if (!/^\d+$/.test(v) || Number(v) < lo || Number(v) > hi) throw new UsageError(`--${name} must be an integer from ${lo} to ${hi}: ${v}`)
         return Number(v)
@@ -135,8 +137,11 @@ export async function main(argv: string[]): Promise<number> {
           throw new UsageError((e as Error).message)
         }
       }
+      const columns = o.columns !== undefined ? columnsOption(o.columns) : undefined
       const session = sessionName()
       const x = await extractPages((method, params) => call(method, params, { session }), {
+        ...(columns ? { columns } : {}),
+        ...(o.id ? { id: o.id } : {}),
         ...(o.near ? { near: o.near } : {}),
         ...(o.selector ? { selector: o.selector } : {}),
         ...(o.pick !== undefined ? { pick: int("pick", o.pick, 0, 50) } : {}),
@@ -419,9 +424,11 @@ export async function main(argv: string[]): Promise<number> {
     .option("--next <target>", 'page with this button (visible text), or "scroll"; such runs wait until you are away')
     .option("--pages <n>", "at most this many pages with --next", "5")
     .option("--max <n>", "at most this many rows", String(DEFAULT_MAX_ROWS))
+    .option("--columns <spec>", 'keep, order and rename columns: "Order=order-id,Total=price,title"')
+    .option("--id <column>", "count new rows by this column (e.g. an order number), not by every cell")
     .option("--format <format>", "csv, json or jsonl", "csv")
     .option("--name <slug>", "the export's name (default: from the URL)")
-    .action(async (url: string, o: { every: string; near?: string; selector?: string; next?: string; pages: string; max: string; format: string; name?: string }) => {
+    .action(async (url: string, o: { every: string; near?: string; selector?: string; next?: string; pages: string; max: string; columns?: string; id?: string; format: string; name?: string }) => {
       const { addSchedule, exportDir, formatEvery, parseEvery } = await import("./schedule/store.js")
       if (!/^https?:\/\/[^\s]+$/.test(url)) throw new UsageError(`url must start with http:// or https://: ${url}`)
       if (o.format !== "csv" && o.format !== "json" && o.format !== "jsonl") throw new UsageError(`--format must be csv, json or jsonl: ${o.format}`)
@@ -432,6 +439,7 @@ export async function main(argv: string[]): Promise<number> {
       }
       const pages = int("pages", o.pages, MAX_PAGES)
       const max = int("max", o.max, MAX_ROWS)
+      const columns = o.columns !== undefined ? columnsOption(o.columns) : undefined
       let everyMs
       try {
         everyMs = parseEvery(o.every)
@@ -448,6 +456,8 @@ export async function main(argv: string[]): Promise<number> {
           ...(o.selector ? { selector: o.selector } : {}),
           ...(o.next ? { next: o.next, pages } : {}),
           ...(max !== DEFAULT_MAX_ROWS ? { max } : {}),
+          ...(columns ? { columns } : {}),
+          ...(o.id ? { rowId: o.id } : {}),
           format: o.format,
           everyMs,
           nextAt: Date.now(),
@@ -766,4 +776,13 @@ function tabId(s: string): number {
   const n = Number(s)
   if (!Number.isInteger(n)) throw new UsageError(`invalid tab id: ${s}`)
   return n
+}
+
+/** `--columns` parsed, its mistakes as usage errors. */
+function columnsOption(spec: string): ColumnSpec[] {
+  try {
+    return parseColumns(spec)
+  } catch (e) {
+    throw new UsageError(`--${(e as Error).message}`)
+  }
 }

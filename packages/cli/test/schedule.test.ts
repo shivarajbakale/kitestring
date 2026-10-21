@@ -281,7 +281,7 @@ describe("export", () => {
       if (method === "tab.new") return run++, { id: 7 }
       if (method === "page.extract") {
         const r = runs[Math.min(run, runs.length - 1)]!
-        return { key: "list:ul>li", source: `list of ${r.length} li`, columns: ["t"], rows: r, total: r.length, others: [] }
+        return { key: "list:ul>li", source: `list of ${r.length} li`, columns: [...new Set(r.flatMap((x) => Object.keys(x)))], rows: r, total: r.length, others: [] }
       }
       if (method === "act.click") return { ok: false, status: "not_found" }
       return null
@@ -311,6 +311,15 @@ describe("export", () => {
     await new Promise((r) => setTimeout(r, 1100))
     expect((await runSchedule(home, e, call, { sleep })).summary).toMatch(/^3 rows \(0 new\)/)
     expect(readdirSync(join(home, "exports", e.id)).filter((f) => f.endsWith(".csv"))).toHaveLength(3)
+  })
+
+  it("--columns shapes the file; --id counts a row whose other cells changed as old", async () => {
+    const e = add({ columns: [{ name: "Order", from: "id" }, { name: "Status", from: "s" }], rowId: "Order" })
+    const { call } = rows([[{ id: "1", s: "paid", x: "a" }], [{ id: "1", s: "shipped", x: "a" }, { id: "2", s: "paid", x: "b" }]])
+    const first = await runSchedule(home, e, call, { sleep })
+    expect(readFileSync(first.summary.split(" saved to ")[1]!, "utf8")).toBe("Order,Status\n1,paid\n")
+    await new Promise((r) => setTimeout(r, 1100))
+    expect((await runSchedule(home, e, call, { sleep })).summary).toMatch(/^2 rows \(1 new\)/)
   })
 
   it("paging needs a window in front: such an export waits for the person to be away", async () => {

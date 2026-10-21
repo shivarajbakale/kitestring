@@ -35,7 +35,7 @@ the default is `agent`). It exposes 24 tools:
 | `browser_batch` | run a list of steps in one call (see [Batches](#batches)) |
 | `browser_script` | run JavaScript that drives the tab through helpers: loops, branches and reads in one call (see [Scripts](#scripts)) |
 | `browser_console`, `browser_network` | recent console messages and network requests of the tab |
-| `browser_extract` | read the page's biggest table or repeated list (or the one holding `near` text, or `selector`'s items) as rows; `next` pages through (a button's text or `scroll`); `save` writes every row to a .csv, .json or .jsonl file. See [Extracting data](#extracting-data) |
+| `browser_extract` | read the page's biggest table or repeated list (or the one holding `near` text, or `selector`'s items) as rows; `next` pages through (a button's text or `scroll`); `columns` keeps, orders and renames columns; `id` names the column rows repeat by; `save` writes every row to a .csv, .json or .jsonl file. See [Extracting data](#extracting-data) |
 | `browser_screenshot` | capture the tab (the viewport, the whole page, or one element by ref) |
 | `browser_ask_human` | ask the person at the browser to do something only they should (captcha, 2FA code, password, login); waits up to 40 s per call and answers `waiting`, `done` or `declined` |
 | `browser_plan_find`, `browser_plan_run`, `browser_plan_save`, `browser_plan_discard` | find, replay, save and drop remembered tasks: plans built from the agent's batches, with every typed value a parameter |
@@ -92,7 +92,7 @@ line to add.
 | `kite tab close [id]` | close a tab (the active one without an id) |
 | `kite goto <url>` | navigate the active tab |
 | `kite snapshot [--full] [--scope <ref>]` | the visible page as a compact tree with refs; `--full` for everything, `--scope` to limit it to one ref |
-| `kite extract [--near <text>] [--selector <css>] [--pick <n>] [--next <target>\|scroll] [--pages <n>] [--max <n>] [-o <file>]` | the page's table or repeated list as CSV on stdout (the summary and other candidates on stderr), or saved to a .csv/.json/.jsonl file |
+| `kite extract [--near <text>] [--selector <css>] [--pick <n>] [--next <target>\|scroll] [--pages <n>] [--max <n>] [--columns <spec>] [--id <column>] [-o <file>]` | the page's table or repeated list as CSV on stdout (the summary and other candidates on stderr), or saved to a .csv/.json/.jsonl file |
 | `kite screenshot [--full] [--ref <ref>] [-o <file>]` | PNG of the active tab; prints the file path (default `$KITE_HOME/shots/<timestamp>.png`) |
 | `kite console [--errors] [--limit <n>] [--clear]` | console messages and uncaught errors (newest 50 by default) |
 | `kite network [--failed] [--filter <s>] [--limit <n>] [--clear]` | network requests; `--failed` keeps status ≥ 400 and requests with no response |
@@ -144,7 +144,7 @@ kite goto https://example.org
 | `kite run <plan> [--param name=value]... [--secret name=value]... [--dry-run]` | replay a plan (`<site>/<slug>`, or a bare slug when unique) |
 | `kite schedule add <plan> --every <30m\|6h\|1d\|1w> [--param name=value]... [--name <slug>]` | replay a plan on its own every so often while Chrome runs; the first run is as soon as you are away (plans with secret params are refused) |
 | `kite watch <url> --every <30m\|6h\|1d\|1w> [--ignore <regex>]... [--name <slug>]` | read a page on its own (logged-in pages too) and get a notification when its text changes; managed with `kite schedule list / run / remove` |
-| `kite export <url> --every <interval> [--near <text>] [--selector <css>] [--next <text>\|scroll] [--pages <n>] [--max <n>] [--format csv\|json\|jsonl] [--name <slug>]` | save a page's table or list to `$KITE_HOME/exports/<name>/` on its own and hear how many rows are new; managed with `kite schedule list / run / remove` |
+| `kite export <url> --every <interval> [--near <text>] [--selector <css>] [--next <text>\|scroll] [--pages <n>] [--max <n>] [--columns <spec>] [--id <column>] [--format csv\|json\|jsonl] [--name <slug>]` | save a page's table or list to `$KITE_HOME/exports/<name>/` on its own and hear how many rows are new; managed with `kite schedule list / run / remove` |
 | `kite schedule list` | schedules, watches and exports, their next run and how the last one went |
 | `kite schedule run <name>` | run a schedule now (its timer is unchanged) |
 | `kite schedule remove <name>` | delete a schedule (the plan stays) |
@@ -433,6 +433,20 @@ rows (it waits up to 4 s for them), or `max` rows (500 by default, 5000 at most)
 repeated, which suits infinite lists that keep their old items. The MCP tool stops paging in time to answer inside its
 call bound, returns the rows as CSV (the first ones when they pass 30,000 characters), and with `save` writes them all.
 CSV cells starting with `=`, `+`, `-` or `@` (not numbers) get a leading `'` so spreadsheets do not run them as formulas.
+
+The guessed column names can be replaced. `columns` (`--columns`) is a comma-separated list of `name=column` items,
+or bare columns kept as they are: only those columns are written, in that order, under those names.
+`"Order=order-id,Total=price,title"` makes a file with the columns `Order`, `Total` and `title`. A column that is not
+there is an error naming the ones that are, so a first read without `columns` shows what to pick from.
+
+`id` (`--id`) names a column whose value names a row, such as an order number (the new name, when `columns` renames
+it). Paging then counts a row as already read by that value alone, so a row whose other cells changed between pages
+(`2 min ago`, a status) is not read twice, and `kite export` counts new rows by it. A row with no value in the `id`
+column is compared by all its cells.
+
+```sh
+kite extract --near "Order #" --next "Next" --pages 20 --columns "Order=order-id,Date=date,Total=price" --id Order -o orders.csv
+```
 
 It reads only what the page shows you, in your own logged-in Chrome: fine for your own orders, statements, invoices and
 admin lists; collecting other people's data, or pages a site's terms forbid automating, is on you. Busy paging on

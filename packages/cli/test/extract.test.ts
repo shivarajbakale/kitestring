@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import type { ExtractResult } from "@kitestring/protocol"
 import { KiteError } from "../src/client/rpc-client.js"
-import { extractPages, extractSummary, saveRows, toCsv } from "../src/client/extract.js"
+import { extractPages, extractSummary, parseColumns, saveRows, toCsv } from "../src/client/extract.js"
 
 const page = (rows: Record<string, string>[], extra: Partial<ExtractResult> = {}): ExtractResult => ({
   key: "list:div>div.card",
@@ -76,6 +76,35 @@ describe("extractPages", () => {
     const x = await extractPages(f.call as never, { next: "Next", max: 3, pages: 5 }, noSleep)
     expect(x.rows.map((r) => r.t)).toEqual(["a", "b", "c"])
     expect(x.stopped).toBe("reached 3 rows")
+  })
+
+  it("columns keeps, orders and renames; a row lacking a cell leaves it out", async () => {
+    const f = fake([page([{ title: "a", price: "1", junk: "x" }, { title: "b", junk: "y" }])])
+    const x = await extractPages(f.call as never, { columns: parseColumns("Price=price, title") }, noSleep)
+    expect(x.columns).toEqual(["Price", "title"])
+    expect(x.rows).toEqual([{ Price: "1", title: "a" }, { title: "b" }])
+    expect(toCsv(x.columns, x.rows)).toBe("Price,title\n1,a\n,b\n")
+  })
+
+  it("a column that is not there names the ones that are", async () => {
+    const f = fake([page([{ title: "a", price: "1" }])])
+    await expect(extractPages(f.call as never, { columns: parseColumns("Cost=cost") }, noSleep)).rejects.toThrow('no column "cost"; the columns are: title, price')
+    await expect(extractPages(f.call as never, { id: "sku" }, noSleep)).rejects.toThrow(/no column "sku"/)
+  })
+
+  it("id: a row seen again with other cells changed is not repeated; id may be a renamed column", async () => {
+    const f = fake([page([{ n: "1", seen: "1m ago" }]), page([{ n: "1", seen: "2m ago" }, { n: "2", seen: "now" }])])
+    const x = await extractPages(f.call as never, { next: "scroll", pages: 2, columns: parseColumns("Order=n"), id: "Order" }, noSleep)
+    expect(x.rows).toEqual([{ Order: "1" }, { Order: "2" }])
+    const g = fake([page([{ n: "", t: "a" }, { n: "", t: "b" }])])
+    expect((await extractPages(g.call as never, { id: "n" }, noSleep)).rows).toHaveLength(2) // no id value: all cells count
+  })
+
+  it("parseColumns refuses empty items and repeated names", () => {
+    expect(parseColumns("A=a,b")).toEqual([{ name: "A", from: "a" }, { name: "b", from: "b" }])
+    expect(() => parseColumns("A=a,,b")).toThrow(/name=column/)
+    expect(() => parseColumns("A=")).toThrow(/name=column/)
+    expect(() => parseColumns("A=a,A=b")).toThrow(/"A" is named twice/)
   })
 
   it("a page with no data is the caller's error", async () => {

@@ -36,3 +36,4 @@ Serve with `pnpm --filter torture dev` (default http://127.0.0.1:4173). Each pag
 | `toggle` | `kite script`: `await click("Notifications")` | `flips:1` (`flips:2` = sent twice) |
 | `late-list` | `kite script`: `waitFor({text: "@", within: "Timeline"})`, `waitFor({count: {selector: "article", min: 5}})` (the sidebar's "@" is there from the start) | `loaded` |
 | `navigate-later` | `kite script`: `waitFor({text: "Arrived"})` across the navigation 300 ms after load | `arrived` |
+| `orders-table` | `kite extract --next Next --columns "Order=Order,Total=Total" --id Order -o orders.csv`: two pages of a table; order `1003` is on both with its `Updated` cell changed, and its `Total` is `=1+1` | `page:2`; `orders.csv` has orders 1001–1004 once each, `Order,Total` columns, and `'=1+1` |
