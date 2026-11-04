@@ -55,10 +55,10 @@ test("MCP agent probes a maps-like page, dry-runs a spec, and runs it as a job t
     }
     await call("browser_tab_new", { url: `${torture}/places` })
     const probe = await call("browser_probe", {})
-    expect(probe).toContain('items: "#panel > div.card"')
+    expect(probe).toContain('items: "#panel div[role=\\"article\\"].card"')
     expect(probe).toContain("network JSON: GET")
     const spec = {
-      list: { items: "#panel > div.card", fields: { name: "h3.title", link: "a.place-link@href" }, more: "scroll" },
+      list: { items: "#panel div.card", fields: { name: "h3.title", link: "a.place-link@href" }, more: "scroll" },
       detail: { fields: { phone: '[data-item-id^="phone"]' }, wait: "h1" },
     }
     const dry = await call("browser_job_start", { spec, dry_run: true })

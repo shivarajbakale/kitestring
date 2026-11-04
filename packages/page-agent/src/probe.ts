@@ -35,20 +35,53 @@ function commonCss(els: Element[]): string | undefined {
 }
 
 /**
+ * What most of the elements share (a role, classes held by at least 3 in 4 of them), as CSS, and the ones that match
+ * it: a list with an odd one out (a separator, an "end of results" row) still has a selector for its records.
+ */
+function majorityCss(els: Element[]): { css: string; els: Element[] } | undefined {
+  const first = els[0]
+  if (!first) return undefined
+  const need = Math.ceil(els.length * 0.75)
+  const tag = first.tagName
+  const roles = new Map<string, number>()
+  const classes = new Map<string, number>()
+  for (const e of els) {
+    if (e.tagName !== tag) continue
+    const r = e.getAttribute("role")
+    if (r) roles.set(r, (roles.get(r) ?? 0) + 1)
+    for (const c of meaningfulClasses(e)) classes.set(c, (classes.get(c) ?? 0) + 1)
+  }
+  const role = [...roles].find(([, n]) => n >= need)?.[0]
+  const cls = [...classes].filter(([, n]) => n >= need).map(([c]) => c).sort().slice(0, 2)
+  if (!role && !cls.length) return undefined
+  const css = tag.toLowerCase() + (role ? `[role="${role}"]` : "") + cls.map((c) => `.${cssIdent(c)}`).join("")
+  const matching = els.filter((e) => e.matches(css))
+  return matching.length >= need ? { css, els: matching } : undefined
+}
+
+/**
  * The record inside each item, when every item only wraps one element (a bare `<div>` around the real card): the
  * card has the class or role that names it, and fields read relative to it.
  */
 function descend(items: Element[]): Element[] {
   let cur = items
   for (let i = 0; i < 4; i++) {
-    const kids = cur.map((el) => {
-      const k = Array.from(el.children).filter((c) => !hidden(c))
-      return k.length === 1 ? k[0]! : null
-    })
-    if (kids.some((k) => !k) || !commonCss(kids as Element[])) break
-    // Only when the wrapper itself says nothing (no class, no role): a card with parts is not a wrapper.
+    // Only when the wrappers themselves say nothing (no class, no role): a card with parts is not a wrapper.
     if (cur.some((el) => meaningfulClasses(el).length || el.getAttribute("role"))) break
-    cur = kids as Element[]
+    const held = cur
+      .map((el) => {
+        const k = Array.from(el.children).filter((c) => !hidden(c))
+        return k.length === 1 ? k[0]! : null
+      })
+      .filter((k): k is Element => !!k)
+    if (held.length === cur.length && commonCss(held)) {
+      cur = held
+      continue
+    }
+    // Most wrap one card, a few wrap something else (an "end of results" note): step into the cards.
+    const m = held.length >= Math.ceil(cur.length * 0.75) ? majorityCss(held) : undefined
+    if (!m) break
+    cur = m.els
   }
   return cur
 }
@@ -93,7 +126,8 @@ function itemSelector(doc: Document, items: Element[], outer: Element[]): string
   const parent = first?.parentElement
   if (!first || !parent) return undefined
   const inner = items !== outer
-  const sig = commonCss(items) ?? sigCss(items[0]!)
+  const common = commonCss(items)
+  const sig = common && /[.[]/.test(common) ? common : (majorityCss(items)?.css ?? common ?? sigCss(items[0]!))
   const tries: string[] = []
   const p = uniqueCss(doc, parent)
   if (p) tries.push(inner ? `${p} ${sig}` : `${p} > ${sig}`)
@@ -105,7 +139,8 @@ function itemSelector(doc: Document, items: Element[], outer: Element[]): string
     } catch {
       continue
     }
-    if (items.every((it) => found.includes(it)) && found.length <= items.length * 1.2 + 1) return s
+    const covered = items.filter((it) => found.includes(it)).length
+    if (covered >= Math.ceil(items.length * 0.75) && found.length <= items.length * 1.2 + 1) return s
   }
   return undefined
 }

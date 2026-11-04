@@ -21,12 +21,13 @@ async function more() {
   const text = await (await fetch(`/api/places?page=${page}`)).text()
   const data = JSON.parse(text.replace(/^\)\]\}'\n/, ""))
   for (const p of data.results) {
+    // As on Google Maps: a bare wrapper div around each card (div[role=article]), a separator div after it.
     const d = document.createElement("div")
-    d.className = "card"
-    d.innerHTML = `<a class="place-link" href="/place-detail?id=${p.id}" aria-label="${p.name}"><h3 class="title">${p.name}</h3></a><span class="category">${p.category}</span> · <span class="rating">${p.rating}</span>`
+    d.innerHTML = `<div role="article" class="card Nv2PK"><a class="place-link" href="/place-detail?id=${p.id}" aria-label="${p.name}"><h3 class="title">${p.name}</h3></a><span class="category">${p.category}</span> · <span class="rating">${p.rating}</span></div>`
     panel.appendChild(d)
+    panel.insertAdjacentHTML("beforeend", '<div class="sep"></div>')
   }
-  if (!data.next) { done = true; panel.insertAdjacentHTML("beforeend", "<p>You've reached the end of the list.</p>") }
+  if (!data.next) { done = true; panel.insertAdjacentHTML("beforeend", "<div><p class=\"end\">You've reached the end of the list.</p></div>") }
   loading = false
 }
 more()

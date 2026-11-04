@@ -6,7 +6,7 @@ import { expect, test, type KiteRun } from "./fixtures"
 // whose phone, website and address are only on each place's own page (built by JavaScript).
 
 const SPEC = {
-  list: { items: '[role="feed"] > div.card', fields: { name: "h3.title", link: "a.place-link@href", category: ".category" }, more: "scroll" },
+  list: { items: '#panel div.card', fields: { name: "h3.title", link: "a.place-link@href", category: ".category" }, more: "scroll" },
   detail: { link: "link", fields: { phone: '[data-item-id^="phone"]', website: '[data-item-id="authority"]@href', address: '[data-item-id="address"]' }, wait: "h1", concurrency: 4 },
 }
 
@@ -28,7 +28,7 @@ test.describe("bulk extraction", () => {
     await kite("tab", "new", `${torture}/places`)
     const r = await kite("probe")
     expect(r.code).toBe(0)
-    expect(r.stdout).toContain('items: "#panel > div.card"')
+    expect(r.stdout).toContain('items: "#panel div[role=\\"article\\"].card"')
     expect(r.stdout).not.toContain('"card":"."')
     expect(r.stdout).toMatch(/fields: \{.*"title":"[^"]*h3\.title"/)
     expect(r.stdout).toContain("detail link column: link")
