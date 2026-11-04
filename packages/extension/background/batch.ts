@@ -367,6 +367,7 @@ export async function runBatch(
         ...(ran.detail ? { detail: ran.detail } : {}),
         ms: Date.now() - t,
         ...(res?.cached ? { cached: true } : {}),
+        ...(res?.via ? { via: res.via } : {}),
         ...(res?.resolved ? { resolved: res.resolved } : {}),
         ...(res?.secret ? { secret: true as const } : {}),
         ...(res?.chosen !== undefined ? { chosen: res.chosen } : {}),

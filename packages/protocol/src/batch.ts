@@ -91,6 +91,8 @@ export interface StepResult {
   ms: number
   /** The element FIND matched is where the action cache last found it (the full search still ran). */
   cached?: boolean
+  /** The step went as page events: its tab was hidden (see ActionResult.via). */
+  via?: "page"
   /** Internal: the pipeline's resolved target, used to write stored plans (refs are never stored). */
   resolved?: { role: string; name: string; within?: string }
   /** Internal: the resolved field was a password / cc-* / one-time-code input (its value becomes a secret plan param). */

@@ -52,7 +52,8 @@ vi.mock("../background/cdp", () => ({
 }))
 vi.mock("../background/input", () => ({ click: vi.fn(async () => {}), press: vi.fn(async () => {}), keyDef: vi.fn() }))
 vi.mock("../background/network-idle", () => ({ trackNetwork: () => ({ stop() {}, waitIdle: async () => true, sent: () => agent.sent }) }))
-vi.mock("../background/sessions", () => ({ activeTab: vi.fn(), agentActing: vi.fn(() => () => {}) }))
+const agentWindows = new Set<number>()
+vi.mock("../background/sessions", () => ({ activeTab: vi.fn(), agentActing: vi.fn(() => () => {}), isAgentWindow: (w: number) => agentWindows.has(w) }))
 vi.mock("../background/control", () => ({ assertNotPaused: vi.fn() }))
 
 const s = { name: "a", groupId: null, activeTabId: 1, tabs: new Set([1]), opener: new Map(), adoptedAt: new Map() }
@@ -60,12 +61,21 @@ const s = { name: "a", groupId: null, activeTabId: 1, tabs: new Set([1]), opener
 beforeEach(() => {
   ;(globalThis as { chrome?: unknown }).chrome = {
     tabs: {
-      get: vi.fn(async (id: number) => ({ id, url: "https://a.example/", title: "A" })),
+      get: vi.fn(async (id: number) => ({ id, url: "https://a.example/", title: "A", windowId: 9, active: tabActive })),
+      update: vi.fn(async () => {
+        tabActive = true
+        pageVisible = true
+      }),
       onCreated: { addListener: vi.fn(), removeListener: vi.fn() },
     },
     storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) } },
+    windows: { get: vi.fn(async (id: number) => ({ id, state: windowState })) },
   }
 })
+/** The tab's state in its window, for the hidden-tab tests. */
+let tabActive = true
+let pageVisible = true
+let windowState = "normal"
 afterEach(() => {
   agent.extra = {}
   vi.clearAllMocks()
@@ -420,14 +430,60 @@ describe("runStep without the idle wait", () => {
     expect(r.status).toBe("done")
   })
 
-  it("a hidden tab fails at once with why, before any input", async () => {
+  const hiddenPage = async () => {
     const cdp = await import("../background/cdp")
-    ;(cdp.send as any).mockImplementation(async (_t: number, m: string) =>
-      m === "Page.getFrameTree" ? { frameTree: { frame: { id: "F" } } } : m === "Runtime.evaluate" ? { result: { value: "hidden" } } : { result: {} },
+    ;(cdp.send as any).mockImplementation(async (_t: number, m: string, p?: { expression?: string }) =>
+      m === "Page.getFrameTree"
+        ? { frameTree: { frame: { id: "F" } } }
+        : m === "Runtime.evaluate" && p?.expression === "document.visibilityState"
+          ? { result: { value: pageVisible ? "visible" : "hidden" } }
+          : { result: {} },
     )
+  }
+
+  it("a hidden tab in the person's window is clicked with page events, never brought forward, and says so", async () => {
+    ;[tabActive, pageVisible, windowState] = [false, false, "normal"]
+    agentWindows.clear()
+    await hiddenPage()
+    const dom: unknown[] = []
+    agent.extra.domClick = (args) => (dom.push(args[0]), true)
     const r = await fast()
     expect(clicks).toBe(0)
-    expect(r).toMatchObject({ status: "error", acted: false, detail: expect.stringMatching(/tab is hidden/) })
+    expect(dom).toEqual(["@e00001"])
+    expect(r).toMatchObject({ status: "done", via: "page", acted: true })
+    expect((globalThis as any).chrome.tabs.update).not.toHaveBeenCalled()
+    ;[tabActive, pageVisible] = [true, true]
+  })
+
+  it("a press in a hidden tab fails at once, naming the tab selected over it", async () => {
+    ;[tabActive, pageVisible, windowState] = [false, false, "normal"]
+    agentWindows.clear()
+    await hiddenPage()
+    const r = await (await import("../background/pipeline")).runStep(s, 1, { kind: "press", key: "Enter" }, { capMs: 15_000, idle: false })
+    expect(r).toMatchObject({ status: "error", acted: false, detail: expect.stringMatching(/^the tab is hidden: another tab is selected in its window/) })
+    ;[tabActive, pageVisible] = [true, true]
+  })
+
+  it("a hidden tab in a window Kitestring opened is brought forward there, and clicked", async () => {
+    ;[tabActive, pageVisible, windowState] = [false, false, "normal"]
+    agentWindows.clear()
+    agentWindows.add(9)
+    await hiddenPage()
+    const r = await fast()
+    expect((globalThis as any).chrome.tabs.update).toHaveBeenCalledWith(1, { active: true })
+    expect(clicks).toBe(1)
+    expect(r.status).toBe("done")
+    agentWindows.clear()
+  })
+
+  it("a scroll in a minimized window, or one off screen, says which", async () => {
+    ;[tabActive, pageVisible, windowState] = [true, false, "minimized"]
+    await hiddenPage()
+    const scroll = async () => (await import("../background/pipeline")).runStep(s, 1, { kind: "scroll", direction: "down" }, { capMs: 15_000, idle: false })
+    expect((await scroll()).detail).toMatch(/^the tab is hidden: its window is minimized/)
+    windowState = "normal"
+    expect((await scroll()).detail).toMatch(/^the tab is hidden: its window is not on screen/)
+    ;[tabActive, pageVisible] = [true, true]
   })
 
   it("an element covered at the last check is blocked, not clicked", async () => {

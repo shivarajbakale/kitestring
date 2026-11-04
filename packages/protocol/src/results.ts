@@ -57,6 +57,11 @@ export interface ActionResult {
   uploaded?: string[]
   /** The element FIND matched is where the action cache last found it (the full search still ran). */
   cached?: boolean
+  /**
+   * `page`: the tab was hidden (Chrome delivers no real input there), so the click or typing went as the page's own DOM
+   * events. Most sites take them; one that only accepts real input may not have reacted.
+   */
+  via?: "page"
   page: string
 }
 
