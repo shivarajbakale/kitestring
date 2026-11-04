@@ -27,7 +27,7 @@ async function main(): Promise<void> {
   })
   log("host started")
   // Saved plans on a timer: they run through this host's own socket, like any kite client.
-  startScheduler(kiteHome(), (method, params, session) => call(method, params, { session }), log)
+  startScheduler(kiteHome(), (method, params, session, timeoutMs) => call(method, params, { session, ...(timeoutMs ? { timeoutMs } : {}) }), log)
 
   const decoder = new FrameDecoder((e) => log(`bad frame: ${e.message}`))
   process.stdin.on("data", (chunk: Buffer) => {

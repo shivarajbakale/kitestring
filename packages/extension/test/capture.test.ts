@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { MAX_TEXT, RING_SIZE, TabCapture, pngSize } from "../background/capture"
+import { BODY_MAX_CHARS, BODY_RING, MAX_TEXT, RING_SIZE, TabCapture, pngSize } from "../background/capture"
 
 const api = (type: string, args: object[], url = "https://s.test/app.js", lineNumber = 11) => [
   "Runtime.consoleAPICalled",
@@ -134,5 +134,53 @@ describe("pngSize", () => {
     b.writeUInt32BE(1280, 16)
     b.writeUInt32BE(3050, 20)
     expect(pngSize(b.toString("base64"))).toEqual({ width: 1280, height: 3050 })
+  })
+})
+
+describe("response bodies", () => {
+  const request = (c: TabCapture, id: string, url: string, type = "Fetch", mimeType = "application/json") => {
+    c.onEvent("Network.requestWillBeSent", { requestId: id, request: { url, method: "GET" }, type, timestamp: 1 })
+    c.onEvent("Network.responseReceived", { requestId: id, type, response: { status: 200, mimeType } })
+    c.onEvent("Network.loadingFinished", { requestId: id, timestamp: 2 })
+  }
+
+  it("asks for the body of a finished JSON fetch, not of scripts, images or failed requests, and keeps it numbered", () => {
+    const c = new TabCapture()
+    const wanted: string[] = []
+    c.wantBody = (id, e) => {
+      wanted.push(id)
+      c.keepBody(e, `{"id":"${id}"}`)
+    }
+    request(c, "a", "https://s.test/api/items?page=1")
+    request(c, "b", "https://s.test/app.js", "Script", "text/javascript")
+    request(c, "c", "https://s.test/logo.png", "Image", "image/png")
+    request(c, "d", "https://s.test/api/text", "XHR", "text/plain")
+    c.onEvent("Network.requestWillBeSent", { requestId: "e", request: { url: "https://s.test/api/broken", method: "GET" }, type: "Fetch" })
+    c.onEvent("Network.responseReceived", { requestId: "e", type: "Fetch", response: { status: 500, mimeType: "application/json" } })
+    c.onEvent("Network.loadingFinished", { requestId: "e" })
+    expect(wanted).toEqual(["a", "d"])
+    const listed = c.networkEntries({ bodies: 5 })
+    expect(listed.map((e) => [e.url, e.bodyId, e.body, e.mime])).toEqual([
+      ["https://s.test/api/items?page=1", 1, '{"id"…', "application/json"],
+      ["https://s.test/api/text", 2, '{"id"…', "text/plain"],
+    ])
+    expect(c.body(1)).toEqual({ url: "https://s.test/api/items?page=1", method: "GET", status: 200, mime: "application/json", body: '{"id":"a"}' })
+    // The plain listing has no bodies, only their ids and sizes.
+    expect(c.networkEntries().find((e) => e.bodyId === 1)).toMatchObject({ bodyChars: 10 })
+    expect(c.networkEntries().find((e) => e.bodyId === 1)?.body).toBeUndefined()
+  })
+
+  it("keeps only the newest bodies, drops one too large, and forgets them on clear", () => {
+    const c = new TabCapture()
+    c.wantBody = (id, e) => c.keepBody(e, id === "big" ? "x".repeat(BODY_MAX_CHARS + 1) : "[]")
+    for (let i = 0; i < BODY_RING + 5; i++) request(c, `r${i}`, `https://s.test/api/${i}`)
+    request(c, "big", "https://s.test/api/big")
+    const kept = c.networkEntries({ bodies: 0, limit: 500 })
+    expect(kept).toHaveLength(BODY_RING)
+    expect(kept[0]!.url).toBe("https://s.test/api/5")
+    expect(c.body(1)).toBeUndefined()
+    expect(c.networkEntries({ limit: 500 }).find((e) => e.url.endsWith("/big"))?.bodyId).toBeUndefined()
+    c.networkEntries({ clear: true })
+    expect(c.body(BODY_RING + 5)).toBeUndefined()
   })
 })

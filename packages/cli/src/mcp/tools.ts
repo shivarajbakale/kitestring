@@ -4,14 +4,20 @@ import { z } from "zod"
 import { KiteError, call } from "../client/rpc-client.js"
 import { human } from "../client/human.js"
 import { formatReplay } from "../client/format.js"
-import { DEFAULT_MAX_ROWS, MAX_PAGES, MAX_ROWS, extractPages, extractSummary, formatOf, parseColumns, rowsOfValue, saveRows, toCsv } from "../client/extract.js"
+import { DEFAULT_MAX_ROWS, MAX_PAGES, MAX_ROWS, extractPages, extractSummary, formatOf, parseColumns, rowsOfValue, saveRows, toCsv, toTable } from "../client/extract.js"
 import { appendPending, discardPending, recordReplayStop, savePending } from "../memory/pending.js"
 import { runPlan } from "../memory/replay.js"
 import { findAnyPlan, planById } from "../memory/store.js"
 import { staleSkillNote } from "../record/write-skill.js"
 import { kiteHome } from "../paths.js"
 import { resolveUploads } from "../upload-guard.js"
-import { SCRIPT_MAX_CHARS, formatScript, runScript } from "../script/run.js"
+import { SCRIPT_MAX_CHARS, formatScript, runScript, type ScriptResult } from "../script/run.js"
+import { RowSet } from "../client/collect.js"
+import { formatProbe, runProbe } from "../client/probe.js"
+import { dryRunCode, prepareDryRun, startJob } from "../job/start.js"
+import { parseSpec, specId } from "../job/spec.js"
+import { formatJob, stopJob } from "../job/run.js"
+import { listJobs } from "../job/store.js"
 
 export type ToolContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: "image/png" }
 export interface ToolResult {
@@ -106,6 +112,13 @@ const EXTRACT_REPLY_CHARS = 30_000
 /** A script answers this long before the MCP call's own bound. */
 const SCRIPT_MARGIN_MS = 5_000
 
+const BULK_HELPERS = [
+  "Bulk helpers: collect({items?, fields?, near?, more?: 'scroll'|nextButtonText, limit?, id?, emit?}) -> rows of a list, scrolling (the page or its own panel) or clicking next until no new rows; fields map name -> 'css' (text), 'css@attr' or '.' (item itself), relative to each item (browser_probe gives items and fields).",
+  "readEach(urlsOrRows, reader, {concurrency?: 1-8, mode?: 'tab'|'fetch', wait?: css, link?, emit?}) -> one row per detail page, read in background tabs (or by fetching the HTML); reader is (doc, url) => row run in the page, a {name: 'css'} map, or 'auto' (title, phone, email, address, JSON-LD); rows from collect get the page's fields joined.",
+  "fetchJson(url, init?) -> the JSON a URL returns, fetched in the page with its cookies (an API the page uses). responses({filter?, since?}) -> JSON the page itself fetched ({id, url, json}). probe() -> the page's lists and where its data is.",
+  "emit(rowOrRows) keeps rows as they are found, each once (by id), and they are what save writes; checkpoint(state) keeps progress, which a resumed job gets back as resume. params holds the job's parameter values.",
+].join(" ")
+
 const SCRIPT_DESCRIPTION = [
   "Run JavaScript that drives the active tab, for a task you can write as code: several actions, loops over rows or pages, branches on what the page shows, reading values out.",
   "One call replaces many tool calls. Actions do not wait for the page to go idle: each waits up to 3 s for its target to appear, so after a step that changes the page, wait for what you need next (waitFor, or the expect option). Scope text waits with within: page-wide text is often already on the page elsewhere.",
@@ -116,8 +129,31 @@ const SCRIPT_DESCRIPTION = [
   "tabs(), newTab(url), useTab(id), closeTab(id?), sleep(ms), console.log(...).",
   "target is visible text or an @ref from a snapshot taken in the same page state. opts: within, role, wait (ms), if_present, expect ({text}|{url}), dialog ('accept'|'dismiss').",
   "A failed action throws (err.code NOT_FOUND, AMBIGUOUS, BLOCKED, DISABLED, EXPECT, ...; err.candidates on AMBIGUOUS); catch it to branch. The script has no files, network or require: only these helpers.",
+  BULK_HELPERS,
+  "This call ends after about 40 s: for many pages or many rows (more than about 50 detail pages, long infinite lists) start it as a job with browser_job_start instead, which runs for hours and streams rows to a file.",
   "Return a value or console.log what you need; end with `return await snapshot()` when you will act on the page next.",
 ].join(" ")
+
+/** The calls of a script run inside this tool call: its readEach workers get sessions of their own. */
+function inlineScript(session: string, timeoutMs: number) {
+  return {
+    call: (method: Method, params: Record<string, unknown>, t: number) => call(method, params, { session, timeoutMs: t }),
+    worker: (n: number) => (method: Method, params: Record<string, unknown>, t: number) => call(method, params, { session: `${session}~r${n}`, timeoutMs: t }),
+    timeoutMs: Math.max(5_000, timeoutMs),
+    resolveFiles: (files: string[]) => resolveUploads(files, { cwd: process.cwd(), home: homedir(), kiteHome: kiteHome(), env: process.env }),
+  }
+}
+
+/** A script's reply; with `save`, its emitted rows (else the rows it returned) go to the file and a few are shown. */
+function scriptReply(r: ScriptResult, save?: string): { text: string; isError: boolean } {
+  if (r.error) return { text: formatScript(r), isError: true }
+  const x = r.emitted ? toTable(r.emitted) : save ? rowsOfValue(r.value) : undefined
+  if (!x) return { text: formatScript(r), isError: false }
+  const head = toCsv(x.columns, x.rows.slice(0, 5))
+  const where = save ? ` saved to ${saveRows(x, save, process.cwd())}` : ""
+  const value = `${x.rows.length} row${x.rows.length === 1 ? "" : "s"} × ${x.columns.length} columns${where}${x.rows.length ? `; first ${Math.min(5, x.rows.length)}:\n${head.trimEnd()}` : ""}`
+  return { text: formatScript({ ...r, value, emitted: undefined }), isError: false }
+}
 
 function batchBudget(): { budget_ms?: number } {
   const n = Number(process.env.KITE_BATCH_BUDGET_MS)
@@ -199,10 +235,22 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "browser_network",
-    description: "Read network requests of the active tab (newest entries).",
+    description:
+      "Read network requests of the active tab (newest entries). With bodies, only fetch/XHR responses whose JSON or text was kept, each with the start of its body (body_max characters); body (an entry's bodyId) returns one whole.",
     method: "page.network",
-    shape: { failed: z.boolean().optional(), filter: z.string().optional(), limit: z.number().int().positive().optional(), clear: z.boolean().optional() },
-    params: (a) => ({ failed: !!a.failed, ...(a.filter ? { filter: a.filter } : {}), limit: a.limit ?? 50, clear: !!a.clear }),
+    shape: {
+      failed: z.boolean().optional(),
+      filter: z.string().optional(),
+      limit: z.number().int().positive().optional(),
+      clear: z.boolean().optional(),
+      bodies: z.boolean().optional().describe("list responses with a kept body, and their first body_max characters"),
+      body_max: z.number().int().min(0).max(100_000).optional(),
+      body: z.number().int().positive().optional().describe("bodyId of an entry: its whole body"),
+    },
+    params: (a) =>
+      a.body !== undefined
+        ? { body: a.body }
+        : { failed: !!a.failed, ...(a.filter ? { filter: a.filter } : {}), limit: a.limit ?? 50, clear: !!a.clear, ...(a.bodies ? { bodies: true, body_max: a.body_max ?? 500 } : {}) },
   },
   {
     name: "browser_screenshot",
@@ -248,22 +296,124 @@ export const TOOLS: ToolDef[] = [
         .string()
         .min(1)
         .optional()
-        .describe("file (.csv, .json or .jsonl, relative to the working directory) to write the rows the script returns: an array of objects, one per row"),
+        .describe("file (.csv, .json or .jsonl, relative to the working directory) to write the rows the script emitted, else the ones it returns (an array of objects, one per row)"),
+      id: z.string().min(1).optional().describe("the column that names a row: emitted rows repeat by it, not by every cell"),
+      params: z.record(z.string()).optional().describe("values the script reads as params"),
     },
-    run: async (a: { code: string; save?: string }, session) => {
+    run: async (a: { code: string; save?: string; id?: string; params?: Record<string, string> }, session) => {
       if (a.save) formatOf(a.save)
       const r = await runScript(a.code, {
-        call: (method, params, timeoutMs) => call(method, params, { session, timeoutMs }),
-        timeoutMs: Math.max(5_000, mcpTimeout() - SCRIPT_MARGIN_MS),
-        resolveFiles: (files) => resolveUploads(files, { cwd: process.cwd(), home: homedir(), kiteHome: kiteHome(), env: process.env }),
+        ...inlineScript(session, mcpTimeout() - SCRIPT_MARGIN_MS),
+        ...(a.params ? { params: a.params } : {}),
+        sink: { seen: new RowSet(a.id) },
       })
-      if (!a.save || r.error) return { text: formatScript(r), isError: !!r.error }
-      // The script's sandbox has no files: the rows it returned are written here. The reply shows a few, not all.
-      const x = rowsOfValue(r.value)
-      const path = saveRows(x, a.save, process.cwd())
-      const head = toCsv(x.columns, x.rows.slice(0, 5))
-      const value = `${x.rows.length} row${x.rows.length === 1 ? "" : "s"} × ${x.columns.length} columns saved to ${path}${x.rows.length ? `; first ${Math.min(5, x.rows.length)}:\n${head.trimEnd()}` : ""}`
-      return { text: formatScript({ ...r, value }), isError: false }
+      return scriptReply(r, a.save)
+    },
+  },
+  {
+    name: "browser_probe",
+    description:
+      "Before reading many records from a page (results, listings, contacts, products), probe it once: its repeated lists with a CSS selector for the items and one per field (ready for collect), sample rows and the first item's HTML, how it shows more (next button or scrolling), and whether the same records are in embedded JSON or in JSON the page fetched (then read that instead). Ends with the shortest way to read them all.",
+    shape: { reload: z.boolean().optional().describe("load the page again first, so the JSON it fetches while loading is kept") },
+    run: async (a: { reload?: boolean }, session) => formatProbe(await runProbe((method, params) => call(method, params, { session, timeoutMs: mcpTimeout() }), { reload: !!a.reload })),
+  },
+  {
+    name: "browser_job_start",
+    description: [
+      "Read many records in the background: a job runs for up to hours in a tab of its own (a window in front when it scrolls or clicks), writes rows to a file as it finds them, each once, and survives this session. Returns its id at once: check it with browser_job_status.",
+      "Give one of: spec (data: list/api + detail), code (a script, as for browser_script, with the bulk helpers; emit rows as you find them), or recipe (one saved with save_as). It starts on url, the spec's start, or this session's page.",
+      'spec: {start?: "https://…/search?q={query}", params?: {query: "…"}, inputs?: [{query: "…"}, …] (once per set), list?: {items?, fields?, near?, more?: "scroll"|"Next"}, api?: {url: "…page={page}", rows: "data.items", fields?: {name: "path"}, pages?}, detail?: {link: "link", fields: {name: "css"}|"auto", wait?, mode?: "tab"|"fetch", concurrency?}, id?, limit?}.',
+      "Try first with dry_run: true (a few rows, here, in about 40 s), then start it. Read only what the user asked for; respect the site's terms and keep concurrency low.",
+    ].join(" "),
+    shape: {
+      spec: z.record(z.unknown()).optional().describe("what to read, as data (see the description)"),
+      code: z.string().min(1).max(SCRIPT_MAX_CHARS).optional().describe("a script body, as for browser_script"),
+      recipe: z.string().min(1).optional().describe("name of a recipe saved before"),
+      params: z.record(z.string()).optional().describe("values of the spec's {placeholders} / the script's params"),
+      save: z.string().min(1).optional().describe("file for every row at the end (.csv, .json or .jsonl), relative to the working directory"),
+      id: z.string().min(1).optional().describe("the column that names a row (an id, a link): rows repeat by it"),
+      url: z.string().optional().describe("page to start on"),
+      window: z.enum(["front", "background"]).optional().describe("front (default when it scrolls or clicks) or background (reading only)"),
+      timeout_min: z.number().positive().max(1_440).optional().describe("stop after this many minutes (default 120)"),
+      save_as: z.string().min(1).optional().describe("also save it as a recipe under this name, to run again (kite job start --recipe) or on a schedule"),
+      dry_run: z.boolean().optional().describe("run it here for at most 3 rows and show them, instead of starting a job"),
+    },
+    run: async (
+      a: { spec?: Record<string, unknown>; code?: string; recipe?: string; params?: Record<string, string>; save?: string; id?: string; url?: string; window?: "front" | "background"; timeout_min?: number; save_as?: string; dry_run?: boolean },
+      session,
+    ) => {
+      if (a.dry_run) {
+        if (a.recipe !== undefined) throw new KiteError("BAD_REQUEST", "dry_run takes a spec or code")
+        const spec = a.spec !== undefined ? parseSpec(a.spec) : undefined
+        if (!spec && a.code === undefined) throw new KiteError("BAD_REQUEST", "pass spec or code")
+        await prepareDryRun((method, params) => call(method, params, { session, timeoutMs: mcpTimeout() }), spec, { ...(a.url ? { url: a.url } : {}), ...(a.params ? { params: a.params } : {}) })
+        const r = await runScript(spec ? dryRunCode(spec) : a.code!, {
+          ...inlineScript(session, mcpTimeout() - SCRIPT_MARGIN_MS),
+          ...(a.params ? { params: a.params } : {}),
+          sink: { seen: new RowSet(a.id ?? (spec ? specId(spec) : undefined)) },
+        })
+        const out = scriptReply(r)
+        return { text: `dry run (${spec ? "at most 3 rows" : "the script as written"}):\n${out.text}${out.isError ? "" : "\nlooks right? start it without dry_run"}`, isError: out.isError }
+      }
+      let currentUrl: string | undefined
+      try {
+        const t = (await call("tab.list", {}, { session, timeoutMs: mcpTimeout() })) as { tabs?: { url?: string; active?: boolean }[] }
+        currentUrl = t.tabs?.find((x) => x.active)?.url
+      } catch {
+        /* no tab: the spec's start or url */
+      }
+      const def = startJob(
+        kiteHome(),
+        {
+          ...(a.spec !== undefined ? { spec: a.spec } : {}),
+          ...(a.code !== undefined ? { code: a.code } : {}),
+          ...(a.recipe !== undefined ? { recipe: a.recipe } : {}),
+          ...(a.params ? { params: a.params } : {}),
+          ...(a.save ? { save: a.save } : {}),
+          ...(a.id ? { id: a.id } : {}),
+          ...(a.url ? { url: a.url } : {}),
+          ...(a.window ? { window: a.window } : {}),
+          ...(a.timeout_min !== undefined ? { timeoutMin: a.timeout_min } : {}),
+          ...(a.save_as ? { saveAs: a.save_as } : {}),
+        },
+        { cwd: process.cwd(), ...(currentUrl ? { currentUrl } : {}) },
+      )
+      return [
+        `started job ${def.id} on ${def.startUrl} (${def.window === "front" ? "in a window of its own, in front: leave it visible" : "in a background tab"})`,
+        `rows stream to ${kiteHome()}/jobs/${def.id}/rows.jsonl${def.save ? ` and go to ${def.save} at the end` : ""}${a.save_as ? `; saved as recipe ${a.save_as}` : ""}`,
+        `check it with browser_job_status {id: "${def.id}"}; stop it with browser_job_stop`,
+      ].join("\n")
+    },
+  },
+  {
+    name: "browser_job_status",
+    description: "How a job is doing: its state (running, done, error, stopped), rows so far, the last rows and log lines. Without id: the recent jobs.",
+    shape: { id: z.string().min(1).optional(), rows: z.number().int().min(0).max(50).optional().describe("show this many of the last rows (default 3)") },
+    run: async (a: { id?: string; rows?: number }) => {
+      if (a.id) {
+        try {
+          return formatJob(kiteHome(), a.id, { rows: a.rows ?? 3 })
+        } catch (e) {
+          throw new KiteError("BAD_REQUEST", (e as Error).message)
+        }
+      }
+      const jobs = listJobs(kiteHome()).slice(0, 10)
+      if (!jobs.length) return "no jobs"
+      return jobs.map((j) => `${j.def.id}: ${j.status?.state ?? "not started"}, ${j.status?.rows ?? 0} rows`).join("\n")
+    },
+  },
+  {
+    name: "browser_job_stop",
+    description: "Stop a running job; the rows it has are kept and saved. It can be resumed later (kite job resume <id>).",
+    shape: { id: z.string().min(1) },
+    run: async (a: { id: string }) => {
+      let stopped
+      try {
+        stopped = stopJob(kiteHome(), a.id)
+      } catch (e) {
+        throw new KiteError("BAD_REQUEST", (e as Error).message)
+      }
+      return stopped ? `stopping ${a.id}: it saves its rows and ends` : `${a.id} is not running`
     },
   },
   {

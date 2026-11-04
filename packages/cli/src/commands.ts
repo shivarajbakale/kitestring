@@ -6,7 +6,7 @@ import { EXTENSION_ID, HANDOFF_WAIT_MS, RECORD_NAME_RE, parseTarget, type BatchR
 import { KiteError, call } from "./client/rpc-client.js"
 import { human } from "./client/human.js"
 import { withoutStartUrl } from "./client/format.js"
-import { DEFAULT_MAX_ROWS, MAX_PAGES, MAX_ROWS, extractPages, extractSummary, formatOf, parseColumns, rowsOfValue, saveRows, toCsv, type ColumnSpec } from "./client/extract.js"
+import { DEFAULT_MAX_ROWS, MAX_PAGES, MAX_ROWS, extractPages, extractSummary, formatOf, parseColumns, rowsOfValue, saveRows, toCsv, toTable, type ColumnSpec } from "./client/extract.js"
 import { installHost, legacyNotices } from "./install/host-manifest.js"
 import { kiteHome } from "./paths.js"
 import { resolveUploads } from "./upload-guard.js"
@@ -89,14 +89,34 @@ export async function main(argv: string[]): Promise<number> {
     .option("--filter <s>", "only URLs containing this text")
     .option("--limit <n>", "how many entries (newest)", "50")
     .option("--clear", "empty the buffer after reading")
-    .action((o: { failed?: boolean; filter?: string; limit: string; clear?: boolean }) =>
-      run("page.network", {
+    .option("--bodies", "only fetch/XHR responses whose JSON or text was kept, with the start of each body")
+    .option("--body <id>", "print the whole kept body of the entry with this bodyId")
+    .action(async (o: { failed?: boolean; filter?: string; limit: string; clear?: boolean; bodies?: boolean; body?: string }) => {
+      if (o.body !== undefined) {
+        if (!/^[1-9]\d*$/.test(o.body)) throw new UsageError(`--body must be a bodyId: ${o.body}`)
+        const r = (await call("page.network", { body: Number(o.body) }, { session: sessionName() })) as { body: string }
+        if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(r) + "\n")
+        else process.stdout.write(r.body + (r.body.endsWith("\n") ? "" : "\n"))
+        return
+      }
+      await run("page.network", {
         failed: !!o.failed,
         ...(o.filter ? { filter: o.filter } : {}),
         limit: limitOpt(o.limit),
         clear: !!o.clear,
-      }),
-    )
+        ...(o.bodies ? { bodies: true, body_max: 300 } : {}),
+      })
+    })
+  program
+    .command("probe")
+    .description("describe the active page's data for a bulk extraction: lists with item and field selectors, paging, and embedded or fetched JSON holding the same records")
+    .option("--reload", "load the page again first, so the JSON it fetches while loading is kept")
+    .action(async (o: { reload?: boolean }) => {
+      const { formatProbe, runProbe } = await import("./client/probe.js")
+      const session = sessionName()
+      const p = await runProbe((method, params) => call(method, params, { session }), { reload: !!o.reload })
+      process.stdout.write((program.opts<Globals>().json ? JSON.stringify(p) : formatProbe(p)) + "\n")
+    })
   program
     .command("screenshot")
     .description("PNG of the active tab; prints the file path")
@@ -219,8 +239,10 @@ export async function main(argv: string[]): Promise<number> {
     .command("script <file>")
     .description("run JavaScript from a file (or - for stdin) that drives the active tab through helpers (see docs/reference.md)")
     .option("--timeout <ms>", "kill the script after this long (default 120000)")
-    .option("--save <file>", "write the rows the script returns (an array of objects) to this .csv, .json or .jsonl file")
-    .action(async (file: string, o: { timeout?: string; save?: string }) => {
+    .option("--save <file>", "write the rows the script emitted (else the array of objects it returns) to this .csv, .json or .jsonl file")
+    .option("--id <column>", "emitted rows repeat by this column, not by every cell")
+    .option("--param <name=value>", "a value the script reads as params.<name> (repeatable)", collect, [] as string[])
+    .action(async (file: string, o: { timeout?: string; save?: string; id?: string; param: string[] }) => {
       if (o.timeout !== undefined && !/^[1-9]\d*$/.test(o.timeout)) throw new UsageError(`--timeout must be a positive integer (ms): ${o.timeout}`)
       if (o.save) {
         try {
@@ -233,13 +255,17 @@ export async function main(argv: string[]): Promise<number> {
       const { SCRIPT_MAX_CHARS, formatScript, runScript } = await import("./script/run.js")
       if (!code.trim() || code.length > SCRIPT_MAX_CHARS) throw new UsageError(`the script must be 1 to ${SCRIPT_MAX_CHARS} characters`)
       const session = sessionName()
+      const { RowSet } = await import("./client/collect.js")
       const r = await runScript(code, {
         call: (method, params, timeoutMs) => call(method, params, { session, timeoutMs }),
+        worker: (n) => (method, params, timeoutMs) => call(method, params, { session: `${session}~r${n}`, timeoutMs }),
         timeoutMs: o.timeout !== undefined ? Number(o.timeout) : 120_000,
         resolveFiles: (files) => resolveUploads(files, { cwd: process.cwd(), home: homedir(), kiteHome: kiteHome(), env: process.env }),
+        params: paramsOption(o.param),
+        sink: { seen: new RowSet(o.id) },
       })
-      // The script's sandbox has no files: kite writes the rows it returned.
-      const saved = o.save && !r.error ? saveScriptRows(r.value, o.save) : undefined
+      // The script's sandbox has no files: kite writes the rows it emitted, or returned.
+      const saved = o.save && !r.error ? (r.emitted ? saveEmitted(r.emitted, o.save) : saveScriptRows(r.value, o.save)) : undefined
       if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(saved ? { ...r, saved } : r) + "\n")
       else process.stdout.write(formatScript(saved ? { ...r, value: savedLine(saved) } : r) + "\n")
       if (r.error) exitCode = 1
@@ -400,6 +426,35 @@ export async function main(argv: string[]): Promise<number> {
       if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(s) + "\n")
       process.stdout.write(`scheduled ${s.id}: plan ${stored.id} every ${formatEvery(s.everyMs)}; first run once you are away from the computer for a minute, while Chrome runs\n`)
     })
+  scheduleCmd
+    .command("add-job <recipe>")
+    .description("run a saved recipe on its own every so often while Chrome runs; each run writes a new file and you hear how many rows are new")
+    .requiredOption("--every <interval>", "how often: 30m, 6h, 1d, 1w (at least 5m)")
+    .option("--param <name=value>", "a parameter value (repeatable)", collect, [] as string[])
+    .option("--format <format>", "csv, json or jsonl (default: the recipe's)")
+    .option("--name <slug>", "the schedule's name (default: the recipe's)")
+    .action(async (name: string, o: { every: string; param: string[]; format?: string; name?: string }) => {
+      const { loadRecipe } = await import("./job/store.js")
+      const { addSchedule, exportDir, formatEvery, parseEvery } = await import("./schedule/store.js")
+      let r, everyMs
+      try {
+        r = loadRecipe(kiteHome(), name)
+        everyMs = parseEvery(o.every)
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      const format = o.format ?? r.format
+      if (format !== "csv" && format !== "json" && format !== "jsonl") throw new UsageError(`--format must be csv, json or jsonl: ${format}`)
+      let s
+      try {
+        s = addSchedule(kiteHome(), { id: o.name ?? r.name, kind: "job", recipe: r.name, params: paramsOption(o.param), format, window: r.window, everyMs, nextAt: Date.now(), createdAt: new Date().toISOString() })
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(s) + "\n")
+      const first = r.window === "front" ? "the first run is once you are away from the computer for a minute" : "the first run is within a minute"
+      process.stdout.write(`scheduled ${s.id}: recipe ${r.name} every ${formatEvery(s.everyMs)}, files in ${exportDir(kiteHome(), s.id)}; ${first} (kite schedule list / remove ${s.id})\n`)
+    })
   program
     .command("watch <url>")
     .description("read a page every so often while Chrome runs (logged-in pages too) and get a notification when its text changes")
@@ -506,11 +561,191 @@ export async function main(argv: string[]): Promise<number> {
       const { runSchedule } = await import("./schedule/runner.js")
       const s = loadSchedules(kiteHome()).find((x) => x.id === name)
       if (!s) throw new UsageError(`no such schedule: ${name}`)
-      const run = await runSchedule(kiteHome(), s, (method, params, session) => call(method, params, { session }))
+      const run = await runSchedule(kiteHome(), s, (method, params, session, timeoutMs) => call(method, params, { session, ...(timeoutMs ? { timeoutMs } : {}) }))
       updateSchedule(kiteHome(), s.id, { last: run })
       if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(run) + "\n")
       else process.stdout.write(`${run.status === "done" ? "✓" : run.status === "changed" ? "●" : "✗"} ${run.status}: ${run.summary}\n`)
       if (run.status !== "done" && run.status !== "changed") exitCode = 1
+    })
+  const jobCmd = program
+    .command("job")
+    .description("bulk extraction in the background: a script or spec runs for up to hours in a tab of its own, rows streaming to a file")
+  jobCmd
+    .command("start [file]")
+    .description("start a job from a script file, a spec (--spec file, JSON) or a recipe (--recipe); - reads stdin")
+    .option("--spec <file>", "a spec (JSON; - for stdin): list/api, detail, inputs (see docs/reference.md)")
+    .option("--recipe <name>", "a recipe saved before (kite job recipes)")
+    .option("--param <name=value>", "a parameter value (repeatable)", collect, [] as string[])
+    .option("--save <file>", "write every row to this .csv, .json or .jsonl file at the end")
+    .option("--id <column>", "the column that names a row: rows repeat by it")
+    .option("--url <url>", "the page to start on (default: the spec's start, else this session's page)")
+    .option("--window <where>", "front (a window of its own; needed to scroll or click) or background (reading only)")
+    .option("--timeout <minutes>", "stop after this long (default 120)")
+    .option("--save-as <name>", "also save it as a recipe under this name")
+    .option("--dry-run", "run it here for at most 3 rows (a spec) and print them, instead of starting a job")
+    .action(async (file: string | undefined, o: { spec?: string; recipe?: string; param: string[]; save?: string; id?: string; url?: string; window?: string; timeout?: string; saveAs?: string; dryRun?: boolean }) => {
+      const { startJob, dryRunCode, prepareDryRun } = await import("./job/start.js")
+      const { parseSpec, specId } = await import("./job/spec.js")
+      if (o.window !== undefined && o.window !== "front" && o.window !== "background") throw new UsageError(`--window must be front or background: ${o.window}`)
+      if (o.timeout !== undefined && !/^\d+(\.\d+)?$/.test(o.timeout)) throw new UsageError(`--timeout must be minutes: ${o.timeout}`)
+      const read = async (f: string) => (f === "-" ? await readStdin() : readFileSync(f, "utf8"))
+      const code = file !== undefined ? await read(file) : undefined
+      const specText = o.spec !== undefined ? await read(o.spec) : undefined
+      const params = paramsOption(o.param)
+      const session = sessionName()
+      if (o.dryRun) {
+        const { RowSet } = await import("./client/collect.js")
+        const { formatScript, runScript } = await import("./script/run.js")
+        const spec = specText !== undefined ? parseSpec(specText) : undefined
+        if (!spec && code === undefined) throw new UsageError("--dry-run takes a script file or --spec")
+        await prepareDryRun((method, p) => call(method, p, { session }), spec, { ...(o.url ? { url: o.url } : {}), params })
+        const r = await runScript(spec ? dryRunCode(spec) : code!, {
+          call: (method, p, timeoutMs) => call(method, p, { session, timeoutMs }),
+          worker: (n) => (method, p, timeoutMs) => call(method, p, { session: `${session}~r${n}`, timeoutMs }),
+          timeoutMs: 120_000,
+          resolveFiles: () => {
+            throw new UsageError("a dry run cannot upload files")
+          },
+          params,
+          sink: { seen: new RowSet(o.id ?? (spec ? specId(spec) : undefined)) },
+        })
+        if (program.opts<Globals>().json) process.stdout.write(JSON.stringify(r) + "\n")
+        else {
+          process.stdout.write(formatScript({ ...r, emitted: undefined }) + "\n")
+          for (const row of r.emitted ?? []) process.stdout.write(`row: ${JSON.stringify(row)}\n`)
+        }
+        if (r.error) exitCode = 1
+        return
+      }
+      let currentUrl: string | undefined
+      if (!o.url) {
+        try {
+          const t = (await call("tab.list", {}, { session })) as { tabs?: { url?: string; active?: boolean }[] }
+          currentUrl = t.tabs?.find((x) => x.active)?.url
+        } catch {
+          /* no browser yet: the spec's start or --url */
+        }
+      }
+      let def
+      try {
+        def = startJob(
+          kiteHome(),
+          {
+            ...(code !== undefined ? { code } : {}),
+            ...(specText !== undefined ? { spec: specText } : {}),
+            ...(o.recipe ? { recipe: o.recipe } : {}),
+            params,
+            ...(o.save ? { save: o.save } : {}),
+            ...(o.id ? { id: o.id } : {}),
+            ...(o.url ? { url: o.url } : {}),
+            ...(o.window ? { window: o.window as "front" | "background" } : {}),
+            ...(o.timeout !== undefined ? { timeoutMin: Number(o.timeout) } : {}),
+            ...(o.saveAs ? { saveAs: o.saveAs } : {}),
+          },
+          { cwd: process.cwd(), ...(currentUrl ? { currentUrl } : {}) },
+        )
+      } catch (e) {
+        if (e instanceof KiteError && e.code === "BAD_REQUEST") throw new UsageError(e.message)
+        throw e
+      }
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(def) + "\n")
+      process.stdout.write(`started job ${def.id} on ${def.startUrl}; rows stream to ${kiteHome()}/jobs/${def.id}/rows.jsonl${def.save ? ` and go to ${def.save} at the end` : ""} (kite job status ${def.id})\n`)
+    })
+  jobCmd
+    .command("status [id]")
+    .description("a job's state, rows so far, last rows and log lines (without id: kite job list)")
+    .option("--rows <n>", "show this many of the last rows", "3")
+    .action(async (id: string | undefined, o: { rows: string }) => {
+      const { formatJob } = await import("./job/run.js")
+      const { listJobs, loadJob, readStatus } = await import("./job/store.js")
+      if (!id) {
+        const latest = listJobs(kiteHome())[0]
+        if (!latest) return void process.stdout.write("no jobs\n")
+        id = latest.def.id
+      }
+      if (!/^\d+$/.test(o.rows)) throw new UsageError(`--rows must be a number: ${o.rows}`)
+      try {
+        if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify({ job: loadJob(kiteHome(), id), status: readStatus(kiteHome(), id) ?? null }) + "\n")
+        process.stdout.write(formatJob(kiteHome(), id, { rows: Number(o.rows) }) + "\n")
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+    })
+  jobCmd
+    .command("list")
+    .description("jobs, newest first")
+    .action(async () => {
+      const { listJobs } = await import("./job/store.js")
+      const jobs = listJobs(kiteHome())
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(jobs) + "\n")
+      if (!jobs.length) return void process.stdout.write("no jobs\n")
+      for (const j of jobs) process.stdout.write(`${j.def.id}  ${j.status?.state ?? "not started"}  ${j.status?.rows ?? 0} rows  ${j.def.startUrl ?? ""}\n`)
+    })
+  jobCmd
+    .command("stop <id>")
+    .description("stop a running job; the rows it has are saved")
+    .action(async (id: string) => {
+      const { stopJob } = await import("./job/run.js")
+      let ok
+      try {
+        ok = stopJob(kiteHome(), id)
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      process.stdout.write(ok ? `stopping ${id}\n` : `${id} is not running\n`)
+    })
+  jobCmd
+    .command("resume <id>")
+    .description("run a stopped or failed job again from its last checkpoint; rows it already has are not added again")
+    .action(async (id: string) => {
+      const { spawnJob } = await import("./job/run.js")
+      const { loadJob, readStatus } = await import("./job/store.js")
+      try {
+        loadJob(kiteHome(), id)
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      if (readStatus(kiteHome(), id)?.state === "running") throw new UsageError(`${id} is still running`)
+      spawnJob(kiteHome(), id)
+      process.stdout.write(`resumed ${id} (kite job status ${id})\n`)
+    })
+  jobCmd
+    .command("rows <id>")
+    .description("print a job's rows so far as CSV (or save them with -o)")
+    .option("-o, --output <file>", "write them to this .csv, .json or .jsonl file")
+    .action(async (id: string, o: { output?: string }) => {
+      const { loadJob, readRows } = await import("./job/store.js")
+      try {
+        loadJob(kiteHome(), id)
+      } catch (e) {
+        throw new UsageError((e as Error).message)
+      }
+      const { toTable } = await import("./client/extract.js")
+      const x = toTable(readRows(kiteHome(), id))
+      if (o.output) return void process.stdout.write(`${x.rows.length} rows saved to ${saveRows(x, o.output, process.cwd())}\n`)
+      process.stdout.write(toCsv(x.columns, x.rows))
+    })
+  jobCmd
+    .command("recipes")
+    .description("saved recipes (jobs saved with --save-as), to run with kite job start --recipe or kite schedule add-job")
+    .action(async () => {
+      const { listRecipes } = await import("./job/store.js")
+      const list = listRecipes(kiteHome())
+      if (program.opts<Globals>().json) return void process.stdout.write(JSON.stringify(list) + "\n")
+      if (!list.length) return void process.stdout.write("no recipes\n")
+      for (const r of list) process.stdout.write(`${r.name}  ${r.kind}  params: ${Object.keys(r.params).join(", ") || "none"}  ${r.startUrl ?? r.spec?.start ?? ""}\n`)
+    })
+  jobCmd
+    .command("_run <id>", { hidden: true })
+    .description("run a job in this process (kite job start does this in the background)")
+    .action(async (id: string) => {
+      const { runJob } = await import("./job/run.js")
+      const ac = new AbortController()
+      process.on("SIGTERM", () => ac.abort())
+      process.on("SIGINT", () => ac.abort())
+      const st = await runJob(kiteHome(), id, (method, params, session, timeoutMs) => call(method, params, { session, timeoutMs }), { signal: ac.signal })
+      // Nothing of the run may linger (a reader still waiting on a page): the job is over.
+      process.exit(st.state === "error" ? 1 : 0)
     })
   const recordCmd = program.command("record").description("record a task you do in Chrome once; replay it as a skill")
   recordCmd
@@ -806,6 +1041,24 @@ function saveScriptRows(value: string | undefined, file: string): { path: string
     throw new UsageError((e as Error).message)
   }
   return { path: saveRows(x, file, process.cwd()), rows: x.rows.length, columns: x.columns }
+}
+
+/** Writes the rows a script emitted. */
+function saveEmitted(rows: Record<string, unknown>[], file: string): { path: string; rows: number; columns: string[] } {
+  const x = toTable(rows)
+  return { path: saveRows(x, file, process.cwd()), rows: x.rows.length, columns: x.columns }
+}
+
+/** `--param name=value` (repeatable) as an object; a repeated or malformed one is a usage error. */
+function paramsOption(list: string[]): Record<string, string> {
+  const params: Record<string, string> = {}
+  for (const kv of list) {
+    const m = /^([^=]+)=(.*)$/s.exec(kv)
+    if (!m) throw new UsageError(`expected name=value: ${kv}`)
+    if (Object.hasOwn(params, m[1]!)) throw new UsageError(`parameter given twice: ${m[1]}`)
+    params[m[1]!] = m[2]!
+  }
+  return params
 }
 
 const savedLine = (s: { path: string; rows: number; columns: string[] }): string =>

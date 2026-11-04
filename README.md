@@ -9,7 +9,7 @@
 
 <p>
   <img alt="Chrome MV3" src="https://img.shields.io/badge/Chrome-MV3-D63B1F?style=flat-square">
-  <img alt="MCP: 24 tools" src="https://img.shields.io/badge/MCP-24%20tools-16181D?style=flat-square">
+  <img alt="MCP: 28 tools" src="https://img.shields.io/badge/MCP-28%20tools-16181D?style=flat-square">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-1F8A4C?style=flat-square"></a>
   <img alt="macOS | Linux" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-5F646C?style=flat-square">
@@ -50,6 +50,9 @@ and replays.
   flow that took ~22 s as a batch takes ~4 s. A task that worked before replays with one `kite run`.
 - **Fast without being sloppy.** Fast steps skip the wait for the page to go idle, but every click checks that it
   landed. One that missed is sent again; one that may have done something is never sent twice.
+- **Reads in bulk without a call per record.** The agent probes a page once (its lists, selectors, paging and the
+  JSON behind it), writes a short spec, and starts a background job: it scrolls the list, opens every result's own
+  page a few at a time, and streams the rows to a file, for hours if it has to.
 - **Stops where it should.** Clicks on buttons such as pay, publish or submit for review halt the batch, and a
   Pause switch stops every agent at once.
 - **Asks you when it is stuck.** At a captcha, a 2FA code, a password or a login, the agent asks you through a
@@ -142,6 +145,23 @@ and notifies you of a real change. `kite export` saves a page's rows every day a
 ### Remembered tasks and recording
 A batch that worked becomes a plan with `{{params}}` in place of every typed value; `kite run` replays it. Or
 `kite record start`, do the task yourself, `kite record stop`: your agents get a skill. Values are never stored.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### Bulk extraction jobs
+`browser_probe` (`kite probe`) shows where a page's records are: item and field selectors, paging, and embedded or
+fetched JSON. A spec or script then runs as a job (`kite job start`): the list, every detail page in background tabs,
+or the site's own API, rows streaming to a file, each once. Stop, resume, save as a recipe, schedule.
+
+</td>
+<td valign="top">
+
+### Network responses, kept
+The JSON and text a page fetches are kept per tab, so `kite network --bodies` and a script's `responses()` read the
+data an app loads instead of its rendered cards.
 
 </td>
 </tr>

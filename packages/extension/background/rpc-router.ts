@@ -10,6 +10,7 @@ import {
   type DialogEvent,
   type ExtractResult,
   type Method,
+  type ProbeResult,
   type RpcResponse,
   type Target,
 } from "@kitestring/protocol"
@@ -212,6 +213,13 @@ const handlers: Partial<Record<Method, Handler>> = {
     }
   },
 
+  "page.probe": async (_params, s) =>
+    bounded(
+      callAgent<ProbeResult>(sessions.activeTab(s), "probe", []),
+      SNAPSHOT_CAP_MS,
+      `TIMEOUT: page not probed within ${SNAPSHOT_CAP_MS} ms (page still loading?)`,
+    ),
+
   "page.eval": async (params, s) => {
     const expression = stringParam(params, "expression")
     if (!expression.trim() || expression.length > EVAL_EXPRESSION_MAX) badRequest(`params.expression must be 1 to ${EVAL_EXPRESSION_MAX} characters`)
@@ -273,8 +281,18 @@ const handlers: Partial<Record<Method, Handler>> = {
     if (filter !== undefined && typeof filter !== "string") badRequest("params.filter must be a string")
     const tabId = sessions.activeTab(s)
     await capture.ensureCapturing(tabId)
+    const body = params.body
+    if (body !== undefined) {
+      if (typeof body !== "number" || !Number.isInteger(body)) badRequest("params.body must be the bodyId of an entry")
+      const b = capture.responseBody(tabId, body)
+      if (b === undefined) badRequest(`no kept response body ${body} (bodies are kept for the last ${capture.BODY_RING} JSON or text responses)`)
+      return b
+    }
+    const bodyMax = params.body_max ?? 2_000
+    if (typeof bodyMax !== "number" || !Number.isInteger(bodyMax) || bodyMax < 0) badRequest("params.body_max must be a non-negative integer")
     return {
       entries: capture.networkEntries(tabId, {
+        ...(params.bodies === true ? { bodies: bodyMax } : {}),
         failed: params.failed === true,
         ...(filter ? { filter } : {}),
         limit: limitParam(params),
@@ -398,7 +416,7 @@ const actsInTab = (m: Method): boolean => m.startsWith("act.") || m === "page.go
  * Methods that read the session's tab: refused while the human is recording it (R13), since a snapshot shows field values
  * and console / network entries can carry form posts. (A screenshot is also refused by the tab lock it takes.)
  */
-const READS_TAB = new Set<Method>(["page.snapshot", "page.text", "page.extract", "page.eval", "page.wait", "page.console", "page.network", "page.screenshot"])
+const READS_TAB = new Set<Method>(["page.snapshot", "page.text", "page.extract", "page.probe", "page.eval", "page.wait", "page.console", "page.network", "page.screenshot"])
 
 /** Methods that change something: recorded in the activity log, successful or not. */
 function isRecorded(m: Method): boolean {

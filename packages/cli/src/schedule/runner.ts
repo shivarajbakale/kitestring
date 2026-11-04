@@ -13,13 +13,14 @@ import {
   updateSchedule,
   writeWatchText,
   type ExportSchedule,
+  type JobSchedule,
   type PlanSchedule,
   type Schedule,
   type ScheduleRun,
   type WatchSchedule,
 } from "./store.js"
 
-export type SessionCall = (method: Method, params: object, session: string) => Promise<unknown>
+export type SessionCall = (method: Method, params: object, session: string, timeoutMs?: number) => Promise<unknown>
 
 /** How often the host looks for due schedules. */
 export const TICK_MS = 60_000
@@ -69,7 +70,13 @@ export async function runSchedule(home: string, s: Schedule, call: SessionCall, 
   const release = lockRun(home, s.id)
   if (!release) return { at: new Date().toISOString(), status: "skipped", summary: "another run of it is still going" }
   try {
-    return await (s.kind === "watch" ? runWatch(home, s, call, opts) : s.kind === "export" ? runExport(home, s, call, opts) : runPlanSchedule(home, s, call))
+    return await (s.kind === "watch"
+      ? runWatch(home, s, call, opts)
+      : s.kind === "export"
+        ? runExport(home, s, call, opts)
+        : s.kind === "job"
+          ? runJobSchedule(home, s, call)
+          : runPlanSchedule(home, s, call))
   } finally {
     release()
   }
@@ -265,6 +272,55 @@ async function runExport(home: string, s: ExportSchedule, call: SessionCall, opt
   if (run.status !== "skipped" && (run.status !== "error" || s.last?.status !== "error")) {
     const title = run.status === "error" ? `${s.id}: could not save the rows` : `${s.id}: ${run.summary.split(" saved to ")[0]}`
     await call("notify", { title, message: run.summary, url: s.url }, session).catch(() => {})
+  }
+  return run
+}
+
+/**
+ * Runs the schedule's recipe as a job in this process (its own window or background tab, as the recipe says), then
+ * writes its rows to `exports/<id>/<time>.<format>` and tells the person how many are new since the last run (by the
+ * recipe's row id, else every cell). The job itself stays in `kite job list` for its log.
+ */
+async function runJobSchedule(home: string, s: JobSchedule, call: SessionCall): Promise<ScheduleRun> {
+  const at = new Date().toISOString()
+  const session = `schedule-${s.id}`
+  let run: ScheduleRun
+  try {
+    const { createJob, readRows } = await import("../job/store.js")
+    const { jobWork } = await import("../job/start.js")
+    const { runJob, saveJobRows } = await import("../job/run.js")
+    const { work, recipe } = jobWork(home, { recipe: s.recipe, params: s.params })
+    if (!work.startUrl) throw new Error(`recipe ${s.recipe} has no page to start on`)
+    const def = createJob(home, { ...work, ...(recipe ? { recipe } : {}), name: `schedule-${s.id}` })
+    const st = await runJob(home, def.id, (method, params, sess, timeoutMs) => call(method, params, sess, timeoutMs), { quiet: true })
+    if (st.state === "error") throw new Error(st.error ?? "the job failed")
+    const dir = exportDir(home, s.id)
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    chmodSync(dir, 0o700)
+    const file = join(dir, `${at.replace(/:/g, "-").replace(/\.\d+Z$/, "Z")}.${s.format}`)
+    saveJobRows(home, def, file)
+    const rows = readRows(home, def.id)
+    const lastFile = join(dir, ".last-rows.json")
+    let before: Set<string> | undefined
+    try {
+      before = new Set(JSON.parse(readFileSync(lastFile, "utf8")) as string[])
+    } catch {
+      /* first run */
+    }
+    const { RowSet } = await import("../client/collect.js")
+    const set = new RowSet(work.rowId)
+    const keys = rows.map((r) => set.key(r))
+    const fresh = before ? keys.filter((k) => !before.has(k)).length : undefined
+    writeFileSync(`${lastFile}.tmp`, JSON.stringify(keys), { mode: 0o600 })
+    renameSync(`${lastFile}.tmp`, lastFile)
+    run = { at, status: fresh ? "changed" : "done", summary: `${rows.length} rows${fresh !== undefined ? ` (${fresh} new)` : ""} saved to ${file}${st.state === "stopped" ? "; stopped early" : ""}` }
+  } catch (e) {
+    if (e instanceof KiteError && e.code === "PAUSED") return { at, status: "skipped", summary: "Kitestring was paused" }
+    run = { at, status: "error", summary: message(e) }
+  }
+  if (run.status !== "error" || s.last?.status !== "error") {
+    const title = run.status === "error" ? `${s.id}: the job failed` : `${s.id}: ${run.summary.split(" saved to ")[0]}`
+    await call("notify", { title, message: run.summary }, session).catch(() => {})
   }
   return run
 }

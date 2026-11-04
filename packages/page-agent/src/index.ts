@@ -12,6 +12,7 @@ import { pressTarget } from "./submit.js"
 import { elementLine } from "./snapshot.js"
 import { roleOf } from "./roles.js"
 import { extract, type ExtractOpts, type ExtractResult } from "./extract.js"
+import { probe, type ProbeResult } from "./probe.js"
 import { ClickReceipts, type ArmResult, type Receipt } from "./receipt.js"
 import { waitFor, type WaitCondition, type WaitResult } from "./wait.js"
 
@@ -32,6 +33,8 @@ export interface PageAgent {
   text(max: number): string
   /** Rows of the page's best (or chosen) table or repeated list (browser_extract). */
   extract(opts?: ExtractOpts): ExtractResult
+  /** The page's repeated lists with item and field selectors, how it shows more, and values to search JSON for. */
+  probe(): ProbeResult
   /** The last check before a click (attached, still, not covered), and start listening for what the click does. */
   armClick(ref: string): Promise<ArmResult>
   /** Whether the armed element received the press, and DOM changes since arming; null when nothing is armed. */
@@ -86,6 +89,7 @@ export function createAgent(win: Window): PageAgent {
     hasText: (text) => fold(doc.body?.innerText ?? "").includes(fold(text)),
     text: (max) => (doc.body?.innerText ?? "").slice(0, max),
     extract: (opts) => extract(doc, opts),
+    probe: () => probe(doc),
     armClick: (ref) => receipts.arm(reg.resolve(ref)),
     clickReceipt: (disarm) => receipts.receipt(disarm),
     waitFor: (cond, ms) => waitFor(doc, reg, cond, ms),
@@ -147,6 +151,7 @@ export { RefRegistry } from "./refs.js"
 export { norm } from "./normalize.js"
 export type { SnapshotOpts } from "./snapshot.js"
 export type { ExtractOpts, ExtractResult, ExtractCandidate } from "./extract.js"
+export type { ProbeResult, ProbeList } from "./probe.js"
 export type { ArmResult, Receipt } from "./receipt.js"
 export type { WaitCondition, WaitResult } from "./wait.js"
 export { find } from "./find.js"

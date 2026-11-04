@@ -207,11 +207,20 @@ export function rowsOfValue(value: string | undefined): Pick<Extracted, "columns
   if (!Array.isArray(v) || v.some((r) => typeof r !== "object" || r === null || Array.isArray(r))) {
     throw new KiteError("BAD_REQUEST", `save needs the script to return its rows: an array of objects, one per row (it returned ${what})`)
   }
+  return toTable(v as Record<string, unknown>[])
+}
+
+/** Row objects as a table: columns are every key in the order first seen; a cell not a string is its JSON ("" for null). */
+export function toTable(objs: Record<string, unknown>[]): Pick<Extracted, "columns" | "rows"> {
   const columns: string[] = []
-  const rows = (v as Record<string, unknown>[]).map((r) => {
+  const known = new Set<string>()
+  const rows = objs.map((r) => {
     const row: Record<string, string> = {}
     for (const [k, c] of Object.entries(r)) {
-      if (!columns.includes(k)) columns.push(k)
+      if (!known.has(k)) {
+        known.add(k)
+        columns.push(k)
+      }
       row[k] = typeof c === "string" ? c : c === null || c === undefined ? "" : JSON.stringify(c)
     }
     return row

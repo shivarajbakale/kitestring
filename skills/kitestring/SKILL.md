@@ -1,6 +1,6 @@
 ---
 name: kitestring
-description: Use when a task needs a real web page in the user's own Chrome - reading or operating a site the user is logged into, filling a form, clicking through a web app, checking how a page looks or behaves, or verifying UI on localhost. Also use when a kite command or a browser_* tool returns a status other than done, or an error such as NOT_CONNECTED, PAUSED, NO_TAB, NOT_OWNER or RESTRICTED.
+description: Use when a task needs a real web page in the user's own Chrome - reading or operating a site the user is logged into, filling a form, clicking through a web app, reading many records from a site (search results, listings, contacts, products) into a file, checking how a page looks or behaves, or verifying UI on localhost. Also use when a kite command or a browser_* tool returns a status other than done, or an error such as NOT_CONNECTED, PAUSED, NO_TAB, NOT_OWNER or RESTRICTED.
 ---
 
 # Kitestring: drive the user's real Chrome
@@ -26,7 +26,9 @@ Two equivalent surfaces. Use MCP tools if your harness has them, else the `kite`
 | Loops, branches, reading values between steps | `browser_script` | `kite script task.js` (or `-` for stdin; `--save rows.csv` writes the rows it returns) |
 | Key | `browser_press` | `kite press Enter` |
 | Scroll | `browser_scroll` | `kite scroll down [px]` |
-| Console / network | `browser_console` / `browser_network` | `kite console --errors` / `kite network --failed` |
+| Console / network | `browser_console` / `browser_network` | `kite console --errors` / `kite network --failed` (`--bodies` for the JSON responses the page fetched) |
+| What a page's data looks like (lists, selectors, paging, its JSON) before reading many records | `browser_probe` | `kite probe` (`--reload` to keep the JSON the page fetches while loading) |
+| Many records in the background (hundreds of rows, a detail page per row, every search term) | `browser_job_start` / `browser_job_status` / `browser_job_stop` | `kite job start --spec spec.json --save rows.csv` (or a script file; `--dry-run` first) / `kite job status [id]` / `kite job stop <id>` / `kite job resume <id>` |
 | Rows of a table or list (results, orders, cards) | `browser_extract` | `kite extract` (`--near "<text in a row>"`, `--next "Next"` or `--next scroll`, `--pages <n>`, `--columns "Name=col,..."`, `--id <column>`, `-o rows.csv`) |
 | Picture | `browser_screenshot` | `kite screenshot` (`--full`, `--ref @ref`) |
 | Need the human in Chrome (captcha, 2FA, password, login) | `browser_ask_human` | `kite ask "Solve the captcha on the login page"` (waits; `--timeout <s>`, 600 by default) |
@@ -68,6 +70,30 @@ When the next steps depend on what the page shows (page through results until a 
 4. `evaluate` is for reading the page (values, app state, attributes). Never use it to click, submit or change anything: that skips the risky-action halt and the safety rules below.
 5. Script steps are not remembered as plans; use `browser_batch` for a task you will save.
 
+## Bulk extraction: many records in one go
+
+Never read records one call at a time ("open place 1, read it, go back, open place 2…"). When the human wants more than a handful of rows, or a field that is only on each item's own page (a phone, a website, specs), do this:
+
+1. **Probe once.** Open the page that lists the records (the search, the category), then `browser_probe` (`kite probe`). It returns the lists with an `items` selector and `fields` (one selector per column, relative to an item), sample rows and the first item's HTML, how more appear (`next button "Next"`, `scroll the panel`, `scroll the page`), the column with each item's link, and whether the same records are in embedded JSON or in JSON the page fetched. It ends with `suggest:` the shortest way to read them all. No network JSON listed and the page loads its data while opening? Probe with `reload`.
+2. **Choose the source, cheapest first.** JSON the page fetched (`network JSON`): read it with an `api` spec or `fetchJson` (page after page by changing its `page`/`offset`/`cursor` parameter), no scrolling at all. Embedded JSON: `evaluate` reads it. Otherwise the list on screen, with `collect`, then `readEach` for detail pages.
+3. **Write it as data (a spec) when it fits**, a script when it does not:
+
+   ```json
+   {"start": "https://site/search?q={q}", "params": {"q": "dentists in Pune"},
+    "list": {"items": "#panel > div.card", "fields": {"name": "h3", "link": "a@href"}, "more": "scroll"},
+    "detail": {"fields": {"phone": "[data-item-id^=phone]", "website": "a[data-item-id=authority]@href"}, "wait": "h1", "concurrency": 3},
+    "limit": 500}
+   ```
+
+   A field is `css` (its text), `css@attr` (`@href` links come back absolute) or `.` (the item itself). `detail.fields: "auto"` reads a title, phones, emails, an address and JSON-LD from any page. `"inputs": [{"q": "dentists in Pune"}, {"q": "dentists in Goa"}]` runs it once per set and adds the values as columns. `api` instead of `list`: `{"url": "https://site/api?page={page}", "rows": "data.items", "fields": {"name": "title"}}` (paths as the probe prints them). `detail.mode: "fetch"` downloads each page's HTML instead of opening a tab: much faster, but only for pages that have their content in the HTML (not ones that build themselves with JavaScript).
+4. **Dry-run it**: `browser_job_start {spec, dry_run: true}` (`kite job start --spec spec.json --dry-run`) reads 3 rows here. Check the columns are right and filled. Fix selectors from the probe's item HTML, not by guessing.
+5. **Start it as a job**: `browser_job_start {spec, save: "/abs/path/rows.csv"}`. It runs in a window of its own (one that scrolls or clicks must stay visible; the human hears if it gets covered), for up to hours, writes each row once as it is found, and survives your session. Tell the human the job id and the file. Check with `browser_job_status {id}` now and then, not in a tight loop. A job that stopped or failed resumes with `kite job resume <id>` without repeating rows.
+6. Want it again later or regularly? Start it with `save_as: "<name>"` (a recipe); the human runs `kite job start --recipe <name> --param q=...` or schedules it: `kite schedule add-job <name> --every 1d`.
+
+In a `browser_script` (or a job's `code`) the same parts are helpers: `collect({items, fields, more, limit, id, emit})`, `readEach(rowsOrUrls, reader, {concurrency, wait, mode, emit})` (reader: `(doc, url) => ({...})` run in the page, a field map, or `"auto"`), `fetchJson(url)`, `responses({filter})` (JSON the page fetched), `emit(rows)` to keep rows as you go (each once, by `id`), `checkpoint(state)` / `resume` to go on after a stop, `params`. A `browser_script` call ends after about 40 s: anything bigger is a job.
+
+Read only what the human asked for, keep `concurrency` at 3 or less on sites you do not own, and respect the site's terms. Logged-in reads run as the human: heavy crawling can get their account limited.
+
 ## Remembered tasks
 
 Kitestring remembers your batches so a repeat task replays without you planning each step again. It never stores the values you typed: each one becomes a param you pass on every run.
@@ -87,7 +113,7 @@ Upload paths: relative paths resolve against the working directory of the `kite`
 - Same label twice (two "Save" buttons)? `--within "<section/dialog name>"`, then `--role`, then a ref.
 - No snapshot after every action. The diff is the snapshot delta.
 - Fewest round trips wins: predictable steps go in one `browser_batch` (`fast: true` with an `expect` where the page changes), steps that depend on the page go in one `browser_script`.
-- Reading many rows (a table, search results, a long list)? `browser_extract`, not snapshots and scrolling: one call per page, `next` to page, `save` for a file. Cards too uneven for `extract` (map results, mixed layouts)? A `browser_script` that reads each field and returns an array of row objects, with `save`. For a file the human will open, read once, then pass `columns` to keep and name the useful columns, and `id` when rows have a number of their own. Paging an infinite list (`next: "scroll"`)? Pass `id: "link"` when rows have a link: a row read again with other cells changed is then not repeated. Read only what the human asked for.
+- Reading many rows (a table, search results, a long list)? `browser_extract`, not snapshots and scrolling: one call per page, `next` to page, `save` for a file. Cards too uneven for `extract` (map results, mixed layouts), a detail page per row, or more than a few hundred rows? Probe, then a spec or script job (see Bulk extraction), never a call per record. For a file the human will open, read once, then pass `columns` to keep and name the useful columns, and `id` when rows have a number of their own. Paging an infinite list (`next: "scroll"`)? Pass `id: "link"` when rows have a link: a row read again with other cells changed is then not repeated. Read only what the human asked for.
 - Snapshots show headings, controls, landmarks and lists, not body text. Screenshot only when the question is visual (layout, colors, rendered text).
 - Never retry the same failing action unchanged. Read the status and recover.
 - Setup problem (not connected, tools missing)? Run `kite doctor` and show the human the failing `fix:` lines; `kite init` is something only the human runs.
@@ -127,6 +153,9 @@ Upload paths: relative paths resolve against the working directory of the `kite`
 | `TIMEOUT` | Browser did not answer. `kite status`; retry once; then tell the human. |
 | `INTERNAL` | Retry once; then report the message to the human. |
 | `PAUSED` | Stop. Tell the human. Wait. |
+| job `error` | `browser_job_status` shows the error and last log lines. Fix the spec or script (dry-run it), then start it again, or `kite job resume <id>` when the cause was outside it (Chrome closed, the human paused). |
+| job waiting for its window | Its window is covered or minimized, so scrolling and clicking wait. Ask the human to bring it to the front. |
+| dry run rows with empty columns | The selectors are wrong: read the probe's item HTML (or `kite probe` on a detail page) and fix them. |
 
 ## Red flags: stop and re-read the safety rules
 

@@ -10,6 +10,9 @@ uploads, memory, recording, and the build notes. For problems, see [troubleshoot
 - [Output and exit codes](#output-and-exit-codes)
 - [Environment variables](#environment-variables)
 - [Batches](#batches)
+- [Scripts](#scripts)
+- [Extracting data](#extracting-data)
+- [Bulk extraction](#bulk-extraction)
 - [Guards](#guards)
 - [Upload](#upload)
 - [Remembered tasks and memory](#remembered-tasks-and-memory)
@@ -23,7 +26,7 @@ uploads, memory, recording, and the build notes. For problems, see [troubleshoot
 ## MCP tools
 
 `kite mcp` serves MCP over stdio. The session name comes from `KITE_SESSION` (`kite init` sets one per agent;
-the default is `agent`). It exposes 24 tools:
+the default is `agent`). It exposes 28 tools:
 
 | Tool | What it does |
 | --- | --- |
@@ -33,8 +36,10 @@ the default is `agent`). It exposes 24 tools:
 | `browser_snapshot` | read the page as a compact tree with refs |
 | `browser_click`, `browser_fill`, `browser_select`, `browser_press`, `browser_scroll`, `browser_upload` | act on the page; each returns a diff of what changed |
 | `browser_batch` | run a list of steps in one call (see [Batches](#batches)) |
-| `browser_script` | run JavaScript that drives the tab through helpers: loops, branches and reads in one call; `save` writes the rows it returns to a file (see [Scripts](#scripts)) |
-| `browser_console`, `browser_network` | recent console messages and network requests of the tab |
+| `browser_script` | run JavaScript that drives the tab through helpers: loops, branches and reads in one call; `save` writes the rows it emits (or returns) to a file (see [Scripts](#scripts)) |
+| `browser_console`, `browser_network` | recent console messages and network requests of the tab; `browser_network` with `bodies` lists the fetch/XHR responses whose JSON or text was kept, and `body` returns one whole |
+| `browser_probe` | describe the page's data for a bulk read: its lists with an item selector and one selector per field, sample rows, how it shows more, and embedded or fetched JSON holding the same records (see [Bulk extraction](#bulk-extraction)) |
+| `browser_job_start`, `browser_job_status`, `browser_job_stop` | run a spec, a script or a recipe as a background job that streams rows to a file, check on it, stop it; `dry_run` tries a spec here for 3 rows |
 | `browser_extract` | read the page's biggest table or repeated list (or the one holding `near` text, or `selector`'s items) as rows; `next` pages through (a button's text or `scroll`); `columns` keeps, orders and renames columns; `id` names the column rows repeat by; `save` writes every row to a .csv, .json or .jsonl file. See [Extracting data](#extracting-data) |
 | `browser_screenshot` | capture the tab (the viewport, the whole page, or one element by ref) |
 | `browser_ask_human` | ask the person at the browser to do something only they should (captcha, 2FA code, password, login); waits up to 40 s per call and answers `waiting`, `done` or `declined` |
@@ -95,7 +100,8 @@ line to add.
 | `kite extract [--near <text>] [--selector <css>] [--pick <n>] [--next <target>\|scroll] [--pages <n>] [--max <n>] [--columns <spec>] [--id <column>] [-o <file>]` | the page's table or repeated list as CSV on stdout (the summary and other candidates on stderr), or saved to a .csv/.json/.jsonl file |
 | `kite screenshot [--full] [--ref <ref>] [-o <file>]` | PNG of the active tab; prints the file path (default `$KITE_HOME/shots/<timestamp>.png`) |
 | `kite console [--errors] [--limit <n>] [--clear]` | console messages and uncaught errors (newest 50 by default) |
-| `kite network [--failed] [--filter <s>] [--limit <n>] [--clear]` | network requests; `--failed` keeps status ≥ 400 and requests with no response |
+| `kite network [--failed] [--filter <s>] [--limit <n>] [--clear] [--bodies] [--body <id>]` | network requests; `--failed` keeps status ≥ 400 and requests with no response; `--bodies` lists the fetch/XHR responses whose JSON or text was kept (the start of each), `--body <id>` prints one whole |
+| `kite probe [--reload]` | the page's lists (item and field selectors, samples, the first item's HTML), how it shows more, and embedded or fetched JSON holding the same records; ends with the shortest way to read them all (see [Bulk extraction](#bulk-extraction)) |
 
 ### Actions
 
@@ -108,7 +114,7 @@ line to add.
 | `kite scroll <up\|down> [px]` | scroll one viewport, or `px` pixels |
 | `kite upload <target> <files...>` | put files into a file input, a button that opens one, or a drop zone (see [Upload](#upload)) |
 | `kite batch <file\|->` `[--budget <ms>] [--allow-domain <domain>]...` | run steps from a JSON file or stdin (see [Batches](#batches)) |
-| `kite script <file\|->` `[--timeout <ms>] [--save <file>]` | run JavaScript from a file or stdin (see [Scripts](#scripts)) |
+| `kite script <file\|->` `[--timeout <ms>] [--save <file>] [--id <column>] [--param name=value]...` | run JavaScript from a file or stdin (see [Scripts](#scripts)) |
 
 Examples:
 
@@ -121,6 +127,18 @@ kite press Enter
 kite scroll down                   # one viewport; or: kite scroll up 400
 kite goto https://example.org
 ```
+
+### Bulk extraction jobs
+
+| Command | What it does |
+| --- | --- |
+| `kite job start [file\|-] [--spec <file\|->] [--recipe <name>] [--param name=value]... [--save <file>] [--id <column>] [--url <url>] [--window front\|background] [--timeout <minutes>] [--save-as <name>] [--dry-run]` | start a script, a spec or a recipe as a job in its own process; prints its id (see [Bulk extraction](#bulk-extraction)) |
+| `kite job status [id] [--rows <n>]` | a job's state, rows so far, last rows and log lines (the newest job without an id) |
+| `kite job list` | jobs, newest first |
+| `kite job stop <id>` | stop a running job; it saves the rows it has |
+| `kite job resume <id>` | run a stopped or failed job again from its last checkpoint, without repeating rows |
+| `kite job rows <id> [-o <file>]` | a job's rows so far, as CSV or to a file |
+| `kite job recipes` | recipes saved with `--save-as` |
 
 ### Control
 
@@ -145,7 +163,8 @@ kite goto https://example.org
 | `kite schedule add <plan> --every <30m\|6h\|1d\|1w> [--param name=value]... [--name <slug>]` | replay a plan on its own every so often while Chrome runs; the first run is as soon as you are away (plans with secret params are refused) |
 | `kite watch <url> --every <30m\|6h\|1d\|1w> [--ignore <regex>]... [--name <slug>]` | read a page on its own (logged-in pages too) and get a notification when its text changes; managed with `kite schedule list / run / remove` |
 | `kite export <url> --every <interval> [--near <text>] [--selector <css>] [--next <text>\|scroll] [--pages <n>] [--max <n>] [--columns <spec>] [--id <column>] [--format csv\|json\|jsonl] [--name <slug>]` | save a page's table or list to `$KITE_HOME/exports/<name>/` on its own and hear how many rows are new; managed with `kite schedule list / run / remove` |
-| `kite schedule list` | schedules, watches and exports, their next run and how the last one went |
+| `kite schedule add-job <recipe> --every <interval> [--param name=value]... [--format csv\|json\|jsonl] [--name <slug>]` | run a recipe on its own; each run writes `$KITE_HOME/exports/<name>/<time>.<format>` and you hear how many rows are new |
+| `kite schedule list` | schedules, watches, exports and recipe jobs, their next run and how the last one went |
 | `kite schedule run <name>` | run a schedule now (its timer is unchanged) |
 | `kite schedule remove <name>` | delete a schedule (the plan stays) |
 | `kite record start --name <slug>` | record what you do by hand in this session's active tab |
@@ -246,7 +265,9 @@ The code is the body of an async function. Its helpers: `goto(url, {waitUntil?})
 `upload(target, files, opts)`, `waitFor(cond, {timeout?})` (see below), `snapshot({full?, scope?})`, `text({max?})`,
 `extract({near?, selector?, max?})`,
 `evaluate(fn, arg?)` (runs `fn` in the page and returns its JSON value), `tabs()`, `newTab(url)`, `useTab(id)`,
-`closeTab(id?)`, `sleep(ms)` and `console.log`. `opts` are a batch step's `within`, `role`, `wait`, `if_present`,
+`closeTab(id?)`, `sleep(ms)` and `console.log`. For reading many records there are also `collect`, `readEach`,
+`fetchJson`, `responses`, `probe`, `emit`, `checkpoint`, and the values `params` and `resume`: see
+[Bulk extraction](#bulk-extraction). `opts` are a batch step's `within`, `role`, `wait`, `if_present`,
 `expect` and `dialog`.
 
 Each action is a one-step batch with `wait_idle: "never"`: it waits for its target (up to 3 s) and its `expect`, not
@@ -255,8 +276,9 @@ that does not work throws an error whose `code` is the halt reason in capitals (
 `RISKY`, ...; `candidates` on `AMBIGUOUS`); a script can catch it. The reply is the script's console output, its return
 value (`→ ...`) or error, and the number of browser calls. Steps a script runs are not remembered as plans.
 
-A script that reads data can return it as rows, an array of objects with one object per row, and pass `save`
-(`--save <file>`) to have them written to a `.csv`, `.json` or `.jsonl` file. The script itself cannot touch files;
+A script that reads data can return it as rows, an array of objects with one object per row, or pass them to `emit`
+as it finds them, and pass `save` (`--save <file>`) to have them written to a `.csv`, `.json` or `.jsonl` file (the
+emitted rows when it emitted any, else the ones it returned). The script itself cannot touch files;
 kite writes what it returned, with the same CSV rules as [Extracting data](#extracting-data). Columns are the objects'
 keys in the order first seen, and a value that is not a string is written as JSON (`null` as empty). The reply says
 how many rows went where, plus the first five, instead of the whole value. A return value that is not rows is an error
@@ -460,6 +482,109 @@ kite extract --near "Order #" --next "Next" --pages 20 --columns "Order=order-id
 It reads only what the page shows you, in your own logged-in Chrome: fine for your own orders, statements, invoices and
 admin lists; collecting other people's data, or pages a site's terms forbid automating, is on you. Busy paging on
 large consumer sites can get your own account flagged.
+
+## Bulk extraction
+
+Reading hundreds of records, or a field that is only on each record's own page (a place's phone, a product's specs),
+takes three calls instead of one per record: probe the page, try a spec (or script) on a few rows, start it as a job.
+
+### Probe
+
+`browser_probe` (`kite probe`) waits for the page to go quiet, then reports:
+
+- **lists**, best first: what each is (`list of 20 div.card in #panel`), `items` (a CSS selector matching one element
+  per row), `fields` (per column, a selector relative to an item), the column with each item's link, two sample rows,
+  and the first item's HTML cut down to what helps write selectors.
+- **more**: a next button's text, scrolling the list's own panel, or scrolling the page.
+- **embedded data**: arrays of records in JSON-LD, `<script type="application/json">` (such as `__NEXT_DATA__`) and
+  state globals (`window.__INITIAL_STATE__` and the like), with their path and how many of the list's visible values
+  they hold.
+- **network JSON**: the same for the fetch/XHR responses the tab kept (anti-hijacking prefixes such as `)]}'` are
+  stripped). Pass `reload` when the page fetched its data before Kitestring was watching the tab.
+- **suggest**: the cheapest way to read every record: the endpoint, the embedded path, or `collect` (and `readEach`).
+
+Kitestring keeps the bodies of the last 40 fetch/XHR responses per tab whose type is JSON or text (up to 2 MB each,
+8 MB in all), in memory only, while it is attached to the tab; they are gone when the tab closes. `browser_network {bodies: true}` lists them.
+
+### Specs
+
+A spec says where the records are and how to reach them all, as JSON:
+
+```json
+{
+  "start": "https://maps.example/search/{q}",
+  "params": { "q": "dentists in Pune" },
+  "list": { "items": "#panel > div.card", "fields": { "name": "h3", "link": "a.place@href" }, "more": "scroll" },
+  "detail": { "link": "link", "fields": { "phone": "[data-item-id^=phone]", "website": "a[data-item-id=authority]@href" }, "wait": "h1", "concurrency": 3 },
+  "limit": 500
+}
+```
+
+| Key | Means |
+| --- | --- |
+| `start` | URL to open, with `{name}` placeholders (URL-encoded); without it the job starts on the page it was started from |
+| `params` | default values for the placeholders (a job's `params` win) |
+| `inputs` | a list of value sets: everything runs once per set, its values added to its rows as columns; a finished set is checkpointed |
+| `list` | `items` (CSS of one row) with `fields`, or neither (the list `extract` picks, or the one holding `near`); `more`: `"scroll"` or a next button's visible text; `rounds` caps the scrolls or pages (300); `waitMs` how long to wait for new rows after each (4000) |
+| `api` | instead of `list`: `url` with `{page}` (from `first`, default 1) or `{offset}` (0, `step`, 2×`step`, …), fetched in the page with its cookies; `rows`, the path to the records (`data.items`, `[0][1]`, as the probe prints it); `fields`, name to path inside one record; `pages` (20) |
+| `detail` | open each row's `link` column and read `fields` there (or `"auto"`: title, description, phones, emails, address and JSON-LD values); `wait` for a selector first; `mode` `"tab"` (default: background tabs, for pages that build themselves) or `"fetch"` (download the HTML, much faster where the content is in it); `concurrency` 1 to 8 (3); `delayMs` between pages of one worker (300) |
+| `id` | the column rows repeat by (default with `detail`: the link) |
+| `limit` | at most this many rows |
+
+A field is `css` (the element's visible text), `css@attr` (an attribute; `href`, `src` and `action` come back
+absolute), `@attr` or `.` (the item itself). A spec compiles to a script on the helpers below, so specs and scripts
+run, save, resume and schedule the same way.
+
+### Script helpers
+
+| Helper | Does |
+| --- | --- |
+| `collect({items?, fields?, near?, more?, limit?, id?, rounds?, waitMs?, emit?})` | reads a list, then scrolls (the page, or the box the list scrolls in) or clicks next until two scrolls (one next) bring no new rows, the limit (1000; at most 50000) or the deadline; each row once, by `id`; `emit: true` keeps rows as they come |
+| `readEach(rowsOrUrls, reader, {concurrency?, mode?, wait?, link?, timeoutMs?, delayMs?, emit?})` | reads each URL with `reader`: a function `(doc, url) => row` run in the page, a field map, or `"auto"`. Given rows (from `collect`), it reads each one's `link` column (or `link`) and joins the page's fields to the row. A failed page gives `{url, error}`; when the first five all fail it throws (the reader is wrong). A resumed job skips the pages it has |
+| `fetchJson(url, init?)` | the JSON a URL returns, fetched in the page with its cookies (text when it is not JSON); an HTTP error throws `HTTP_<status>` |
+| `responses({filter?, since?, limit?})` | the JSON (or text) the page itself fetched, newest last: `{id, url, method, status, json}`; pass the last `id` as `since` to get only newer ones |
+| `probe()` | what `browser_probe` returns, as an object |
+| `emit(rowOrRows)` | keeps rows not seen before (by the job's or `save`'s `id`, else by every cell) -> `{added, total}` |
+| `checkpoint(state)` | keeps a JSON state (at most 1 MB); a resumed job's script gets it back as `resume` (`null` on a first run) |
+| `params` | the job's parameter values (`--param name=value`) |
+
+In `tab` mode each worker is a session of its own (`<session>~r<n>`) with one background tab it reuses; the tabs close
+at the end. Reading works in background tabs; clicking and scrolling do not, which is why the list is read in the
+job's own front window and the detail pages in the background.
+
+### Jobs
+
+`browser_job_start` (`kite job start`) runs a spec, a script or a recipe in a process of its own, so it outlives the
+agent's call and session. It opens its own tab in session `job-<id>`: a window of its own in front when it scrolls or
+clicks (`window: "front"`, the default for scripts and for specs with `more`), else a background tab. Its files are
+in `$KITE_HOME/jobs/<id>/` (owner only):
+
+| File | Holds |
+| --- | --- |
+| `job.json` | what it runs, its params, start page, row id, save file |
+| `status.json` | `running`, `done`, `error` or `stopped`; rows so far; the error or the script's return value |
+| `rows.jsonl` | every row, once, as it was found |
+| `state.json` | the last checkpoint |
+| `log.txt` | what the script printed, and each run's start and end |
+
+At the end the rows go to the `save` file (format from its extension), the tab closes (a failed front-window job
+leaves its window open to look at) and the person gets a notification. A job covered by another window waits for it
+to be visible again (Chrome delivers no input to hidden tabs) and says so once. The default limit is 2 hours
+(`timeout_min`, at most 24 hours).
+
+`kite job stop <id>` (`browser_job_stop`) ends it and saves what it has; `kite job resume <id>` runs it again: rows it
+has are not added again, a spec skips the input sets it finished and the detail pages it read, and a script gets its
+checkpoint as `resume`. A job whose process died (the computer restarted) shows as `error` and resumes the same way.
+
+`dry_run: true` (`--dry-run`) runs a spec in the caller's own tab for at most 3 rows (the first input set only), so
+the agent can check its columns before starting the real thing.
+
+### Recipes
+
+`save_as: "<name>"` (`--save-as <name>`) also saves what a job runs, with its params, start page and row id, as
+`$KITE_HOME/recipes/<name>.json`. Run it again with other values (`kite job start --recipe <name> --param q=vets`), or
+on a timer: `kite schedule add-job <name> --every 1d` runs it while Chrome runs (a front-window recipe once you are
+away, like a plan), writes `$KITE_HOME/exports/<name>/<time>.<format>` and tells you how many rows are new.
 
 ## Recording a task
 

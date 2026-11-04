@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>place</title></head><body>
+<!-- One place's page: empty until its script fetches the place and draws it (a page read by fetching its HTML has nothing). -->
+<main id="place"><p class="loading">Loading…</p></main>
+<script>
+window.__result = undefined
+const id = new URLSearchParams(location.search).get("id")
+setTimeout(async () => {
+  const p = await (await fetch(`/api/place?id=${id}`)).json()
+  document.title = p.name
+  place.innerHTML = `<h1>${p.name}</h1>
+    <div class="info"><button data-item-id="address" aria-label="Address: ${p.address}"><span class="value">${p.address}</span></button>
+    <button data-item-id="phone:tel:${p.phone.replace(/\s/g, "")}" aria-label="Phone: ${p.phone}"><span class="value">${p.phone}</span></button>
+    <a data-item-id="authority" href="${p.website}">${p.website.replace(/^https?:\/\//, "")}</a></div>`
+}, 300)
+</script>
+</body></html>
