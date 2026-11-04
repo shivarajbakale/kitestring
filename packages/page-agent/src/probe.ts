@@ -21,6 +21,38 @@ function sigCss(el: Element): string {
   return el.tagName.toLowerCase() + meaningfulClasses(el).sort().slice(0, 2).map((c) => `.${cssIdent(c)}`).join("")
 }
 
+/** What elements have in common, as CSS: their tag, a role they share, and up to two classes they all have. */
+function commonCss(els: Element[]): string | undefined {
+  const first = els[0]
+  if (!first || !els.every((e) => e.tagName === first.tagName)) return undefined
+  const role = first.getAttribute("role")
+  const shared = meaningfulClasses(first).filter((c) => els.every((e) => e.classList.contains(c))).sort().slice(0, 2)
+  return (
+    first.tagName.toLowerCase() +
+    (role && els.every((e) => e.getAttribute("role") === role) ? `[role="${role}"]` : "") +
+    shared.map((c) => `.${cssIdent(c)}`).join("")
+  )
+}
+
+/**
+ * The record inside each item, when every item only wraps one element (a bare `<div>` around the real card): the
+ * card has the class or role that names it, and fields read relative to it.
+ */
+function descend(items: Element[]): Element[] {
+  let cur = items
+  for (let i = 0; i < 4; i++) {
+    const kids = cur.map((el) => {
+      const k = Array.from(el.children).filter((c) => !hidden(c))
+      return k.length === 1 ? k[0]! : null
+    })
+    if (kids.some((k) => !k) || !commonCss(kids as Element[])) break
+    // Only when the wrapper itself says nothing (no class, no role): a card with parts is not a wrapper.
+    if (cur.some((el) => meaningfulClasses(el).length || el.getAttribute("role"))) break
+    cur = kids as Element[]
+  }
+  return cur
+}
+
 const count = (doc: Document, sel: string): number => {
   try {
     return doc.querySelectorAll(sel).length
@@ -52,16 +84,20 @@ function uniqueCss(doc: Document, el: Element): string | undefined {
   return count(doc, s) === 1 ? s : undefined
 }
 
-/** A CSS selector that matches exactly the candidate's items (or, failing that, every one of them and few others). */
-function itemSelector(doc: Document, c: Candidate): string | undefined {
-  const first = c.items[0]
+/**
+ * A CSS selector that matches exactly the items (or, failing that, every one of them and few others). `outer` are the
+ * candidate's own items when `items` are the records inside them.
+ */
+function itemSelector(doc: Document, items: Element[], outer: Element[]): string | undefined {
+  const first = outer[0]
   const parent = first?.parentElement
   if (!first || !parent) return undefined
-  const sig = sigCss(first)
+  const inner = items !== outer
+  const sig = commonCss(items) ?? sigCss(items[0]!)
   const tries: string[] = []
   const p = uniqueCss(doc, parent)
-  if (p) tries.push(`${p} > ${sig}`)
-  if (sig.includes(".")) tries.push(sig)
+  if (p) tries.push(inner ? `${p} ${sig}` : `${p} > ${sig}`)
+  if (sig.includes(".") || sig.includes("[")) tries.push(sig)
   for (const s of tries) {
     let found: Element[]
     try {
@@ -69,7 +105,7 @@ function itemSelector(doc: Document, c: Candidate): string | undefined {
     } catch {
       continue
     }
-    if (c.items.every((it) => found.includes(it)) && found.length <= c.items.length * 1.2 + 1) return s
+    if (items.every((it) => found.includes(it)) && found.length <= items.length * 1.2 + 1) return s
   }
   return undefined
 }
@@ -109,12 +145,18 @@ function relativeCss(item: Element, path: string): string | undefined {
     if (all.length > 1) s += `:nth-of-type(${same.indexOf(el) + 1})`
     chain.unshift(s)
   }
-  const sel = `:scope > ${chain.join(" > ")}`
-  try {
-    return item.querySelector(sel) === target ? sel : undefined
-  } catch {
-    return undefined
+  // The shortest tail of the path that still finds this element first: short selectors survive layout changes.
+  for (let k = 1; k <= chain.length; k++) {
+    const tail = chain.slice(-k).join(" > ")
+    for (const sel of k === chain.length ? [`:scope > ${tail}`, tail] : [tail]) {
+      try {
+        if (item.querySelector(sel) === target) return sel
+      } catch {
+        /* not valid: try a longer one */
+      }
+    }
   }
+  return undefined
 }
 
 /** One field per column: `css` (its text) or `css@attr`, relative to an item; empty css is the item itself. */
@@ -191,11 +233,12 @@ function needlesOf(rows: Record<string, string>[]): string[] {
 }
 
 function listInfo(doc: Document, c: Candidate, index: number): ProbeList {
-  const data = c.table ? { ...tableExtract(doc, c.table, SAMPLE_ROWS), paths: {} as Record<string, string> } : listExtract(doc, c.items, 50)
-  const selector = c.table ? undefined : itemSelector(doc, c)
+  const items = c.table ? c.items : descend(c.items)
+  const data = c.table ? { ...tableExtract(doc, c.table, SAMPLE_ROWS), paths: {} as Record<string, string> } : listExtract(doc, items, 50)
+  const selector = c.table ? undefined : itemSelector(doc, items, c.items)
   // A column of separators ("·", "|") is markup, not data: no field for it.
   const paths = Object.fromEntries(Object.entries(data.paths).filter(([col]) => data.rows.some((r) => /[\p{L}\p{N}]/u.test(r[col] ?? ""))))
-  const fields = c.table ? {} : fieldSelectors(c.items, paths)
+  const fields = c.table ? {} : fieldSelectors(items, paths)
   const at = innerScrollPoint(doc, c.table ?? c.items[0]!)
   const linkCol = data.columns.find((col) => col === "link" || col.startsWith("link "))
   return {
@@ -208,7 +251,7 @@ function listInfo(doc: Document, c: Candidate, index: number): ProbeList {
     ...(Object.keys(fields).length ? { fields } : {}),
     sample: data.rows.slice(0, SAMPLE_ROWS),
     ...(linkCol ? { link: linkCol } : {}),
-    ...(c.items[0] && !c.table ? { itemHtml: itemHtml(c.items[0]) } : {}),
+    ...(items[0] && !c.table ? { itemHtml: itemHtml(items[0]) } : {}),
     ...(at ? { scrollAt: at } : {}),
   }
 }

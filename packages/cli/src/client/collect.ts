@@ -60,7 +60,8 @@ export function readListInPage(items: string, fields: Record<string, string>, ma
       const v = el.getAttribute(m[2]!) ?? ""
       return /^(href|src|action|data-href)$/i.test(m[2]!) && v ? abs(v) : v.trim()
     }
-    return ((el as HTMLElement).innerText ?? el.textContent ?? "").replace(/\s+/g, " ").trim()
+    // Icon fonts draw with private-use characters (a phone glyph before the number): not text.
+    return ((el as HTMLElement).innerText ?? el.textContent ?? "").replace(/[\uE000-\uF8FF]/g, "").replace(/\s+/g, " ").trim()
   }
   const els = Array.from(document.querySelectorAll(items))
   const rows = els.slice(0, max).map((el) => {
@@ -101,7 +102,7 @@ export function fieldsReader(fields: Record<string, string> | "auto"): string {
       const el = !css || css === "." ? doc.documentElement : doc.querySelector(css)
       if (!el) return ""
       if (m) { const v = el.getAttribute(m[2]) || ""; return /^(href|src|action|data-href)$/i.test(m[2]) && v ? abs(v) : v.trim() }
-      return (el.innerText || el.textContent || "").replace(/\\s+/g, " ").trim()
+      return (el.innerText || el.textContent || "").replace(/[\\uE000-\\uF8FF]/g, "").replace(/\\s+/g, " ").trim()
     }
     const out = {}
     for (const [k, s] of Object.entries(${JSON.stringify(f)})) out[k] = one(s)

@@ -7,6 +7,8 @@ export interface RecordArray {
   keys: string[]
   /** How many of the needles appear inside it. */
   hits: number
+  /** How many of its items hold one of them: a list of records spreads them over many items, a state blob does not. */
+  spread: number
   /** Its first item as JSON, cut short. */
   sample: string
 }
@@ -37,10 +39,12 @@ export function findRecordArrays(root: unknown, needles: string[], max = 5): Rec
       if (v.length >= 2 && recs.length >= Math.max(2, v.length * 0.6)) {
         const text = unescape(textOf(v))
         const hits = folded.filter((n) => text.includes(n)).length
+        let spread = 0
+        if (hits) for (const it of v.slice(0, 500)) if (folded.some((n) => unescape(textOf(it)).includes(n))) spread++
         const keys: string[] = []
         for (const it of recs.slice(0, 3)) for (const k of Object.keys(it as object)) if (!keys.includes(k) && keys.length < 25) keys.push(k)
         const first = textOf(recs[0])
-        found.push({ path, count: v.length, keys, hits, sample: first.length > 600 ? `${first.slice(0, 599)}…` : first })
+        found.push({ path, count: v.length, keys, hits, spread, sample: first.length > 600 ? `${first.slice(0, 599)}…` : first })
       }
       v.forEach((x, i) => walk(x, `${path}[${i}]`, depth + 1))
       return
@@ -51,16 +55,18 @@ export function findRecordArrays(root: unknown, needles: string[], max = 5): Rec
   // Of an array and one inside it (or around it) holding no more of the needles, keep the first ranked: the list,
   // not each item's own little lists, nor the wrapper around the list.
   const ranked = found
-    .filter((a) => folded.length === 0 || a.hits > 0)
-    // Equal hits: the deeper array is the list itself, the shallower a wrapper around it (`[meta, [records…]]`).
-    .sort((a, b) => b.hits - a.hits || depth(b.path) - depth(a.path) || b.count - a.count)
+    // With two or more needles, a list holds them in two or more of its items.
+    .filter((a) => folded.length === 0 || (a.hits > 0 && (folded.length < 2 || a.spread >= 2)))
+    // The list spreads the values over its items; equal spread: the deeper array is the list itself, the shallower a
+    // wrapper around it (`[meta, [records…]]`).
+    .sort((a, b) => b.spread - a.spread || b.hits - a.hits || depth(b.path) - depth(a.path) || b.count - a.count)
   function depth(p: string): number {
     return (p.match(/[.[]/g) ?? []).length + (p ? 1 : 0)
   }
   const within = (inner: string, outer: string) => inner.length > outer.length && inner.startsWith(outer) && /^[[.]/.test(inner.slice(outer.length))
   const out: RecordArray[] = []
   for (const a of ranked) {
-    if (out.some((o) => (within(a.path, o.path) || within(o.path, a.path)) && o.hits >= a.hits)) continue
+    if (out.some((o) => (within(a.path, o.path) || within(o.path, a.path)) && o.hits >= a.hits && o.spread >= a.spread)) continue
     out.push(a)
     if (out.length >= max) break
   }

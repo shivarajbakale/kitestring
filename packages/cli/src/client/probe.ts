@@ -96,10 +96,10 @@ export function formatProbe(p: Probe): string {
     }
   }
   L.push(`more: ${p.more.next ? `next button ${JSON.stringify(p.more.next)}` : p.more.scroll ? `scroll the ${p.more.scroll}` : "none seen (one page)"}`)
-  for (const e of p.embedded) for (const a of e.arrays.slice(0, 2)) L.push(`embedded data: ${e.source} ${a.path}: ${a.count} records {${a.keys.slice(0, 12).join(", ")}}${n ? `, holds ${a.hits}/${n} visible values` : ""}; first: ${cut(a.sample, 240)}`)
+  for (const e of p.embedded) for (const a of e.arrays.slice(0, 2)) L.push(`embedded data: ${e.source} ${a.path}: ${a.count} records {${a.keys.slice(0, 12).join(", ")}}${n ? `, holds ${a.hits}/${n} visible values in ${a.spread} records` : ""}; first: ${cut(a.sample, 240)}`)
   for (const r of p.responses) {
     const a = r.arrays[0]!
-    L.push(`network JSON: ${r.method} ${cut(r.url, 160)} (${r.status ?? "?"}, ${Math.round(r.chars / 1024)} KB) at ${a.path}: ${a.count} records${n ? `, holds ${a.hits}/${n} visible values` : ""}; first: ${cut(a.sample, 240)}`)
+    L.push(`network JSON: ${r.method} ${cut(r.url, 160)} (${r.status ?? "?"}, ${Math.round(r.chars / 1024)} KB) at ${a.path}: ${a.count} records${n ? `, holds ${a.hits}/${n} visible values in ${a.spread} records` : ""}; first: ${cut(a.sample, 240)}`)
   }
   if (!p.responses.length && !p.reloaded) L.push("network JSON: none kept (pass reload to capture the page's first load)")
   L.push(`suggest: ${suggest(p)}`)
@@ -109,10 +109,10 @@ export function formatProbe(p: Probe): string {
 /** The cheapest way to read every record, from what the probe found. */
 export function suggest(p: Probe): string {
   const n = p.needles.length
-  const strong = (hits: number) => n > 0 && hits >= Math.max(2, Math.ceil(n * 0.6))
-  const res = p.responses.find((r) => strong(r.arrays[0]!.hits))
+  const strong = (a: RecordArray) => n > 0 && a.hits >= Math.max(2, Math.ceil(n * 0.6)) && a.spread >= Math.max(2, Math.ceil(n * 0.5))
+  const res = p.responses.find((r) => strong(r.arrays[0]!))
   if (res) return `the records come from ${res.method} ${cut(res.url, 120)}: read them with responses({filter}) after each scroll, or call it for every page with fetchJson (change its page/offset/cursor parameter); spec "api"`
-  const emb = p.embedded.find((e) => strong(e.arrays[0]!.hits))
+  const emb = p.embedded.find((e) => strong(e.arrays[0]!))
   if (emb) return `the records are embedded in ${emb.source} at ${emb.arrays[0]!.path}: read them with evaluate, no scrolling`
   const top = p.lists[0]
   if (!top) return "no records on screen: open the page that lists them (a search, a category), then probe again"

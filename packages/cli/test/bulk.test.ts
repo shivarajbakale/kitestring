@@ -40,9 +40,14 @@ describe("finding records in JSON", () => {
     expect(found.some((a) => a.path === "other")).toBe(false)
   })
 
+  it("passes over a state blob that holds the values in one place, not spread over records", () => {
+    const blob = [[1, 2], ["x"], { all: "Warehouse 1 Warehouse 2 Warehouse 3" }]
+    expect(findRecordArrays(blob, ["Warehouse 1", "Warehouse 2", "Warehouse 3"])).toEqual([])
+  })
+
   it("reads arrays of arrays (APIs with no keys) and gives their path from the root", () => {
     const v = [["meta"], [["Warehouse 1", 12], ["Warehouse 2", 13]]]
-    expect(findRecordArrays(v, ["Warehouse 2"])[0]).toMatchObject({ path: "[1]", count: 2, keys: ["0", "1"], hits: 1 })
+    expect(findRecordArrays(v, ["Warehouse 2"])[0]).toMatchObject({ path: "[1]", count: 2, keys: ["0", "1"], hits: 1, spread: 1 })
     expect(atPath(v, "[1][0][1]")).toBe(12)
     expect(atPath(json, "data.items[2].name")).toBe("Warehouse 3")
     expect(atPath(json, "(root)")).toBe(json)
@@ -59,7 +64,7 @@ describe("finding records in JSON", () => {
   it("suggests the network JSON when it holds most visible values, else the list with its link", () => {
     const base: Probe = { url: "", title: "", lists: [{ index: 0, key: "k", source: "list", count: 3, selector: "#p > div.c", columns: ["name", "link"], sample: [], link: "link" }], more: { scroll: "panel" }, needles: ["a", "b", "c"], embedded: [], responses: [] }
     expect(suggest(base)).toBe('collect({items: "#p > div.c", more: "scroll"}) for the links, then readEach(links, fn) for each detail page; spec "list" + "detail"')
-    const arrays = [{ path: "results", count: 3, keys: [], hits: 3, sample: "" }]
+    const arrays = [{ path: "results", count: 3, keys: [], hits: 3, spread: 3, sample: "" }]
     expect(suggest({ ...base, responses: [{ method: "GET", url: "https://s/api?page=1", bodyId: 1, chars: 10, arrays }] })).toMatch(/^the records come from GET https:\/\/s\/api\?page=1/)
     expect(suggest({ ...base, embedded: [{ source: "script#__NEXT_DATA__", arrays }] })).toMatch(/^the records are embedded in script#__NEXT_DATA__ at results/)
   })
