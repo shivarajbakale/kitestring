@@ -162,3 +162,72 @@ describe("tab watcher", () => {
     expect(sessions.findSession("a")).toBeDefined()
   })
 })
+
+describe("where a session's tabs open", () => {
+  async function setup() {
+    vi.resetModules()
+    let nextTab = 100
+    let nextWin = 50
+    const tabs = new Map<number, { id: number; windowId: number; status: string; url: string }>()
+    const windows = new Map<number, { id: number; type: string; state: string }>()
+    const created: { how: string; opts: Record<string, unknown> }[] = []
+    const newTabIn = (windowId: number) => {
+      const t = { id: nextTab++, windowId, status: "complete", url: "about:blank" }
+      tabs.set(t.id, t)
+      return t
+    }
+    const ev = { addListener: vi.fn(), removeListener: vi.fn() }
+    ;(globalThis as { chrome?: unknown }).chrome = {
+      storage: { session: { get: vi.fn().mockResolvedValue({}), set: vi.fn().mockResolvedValue(undefined) } },
+      tabs: {
+        query: vi.fn(async () => [...tabs.values()]),
+        get: vi.fn(async (id: number) => tabs.get(id)),
+        create: vi.fn(async (o: { windowId?: number }) => {
+          created.push({ how: "tab", opts: o })
+          return newTabIn(o.windowId ?? 1)
+        }),
+        group: vi.fn().mockResolvedValue(7),
+        onUpdated: ev,
+        onRemoved: ev,
+        onCreated: ev,
+      },
+      windows: {
+        create: vi.fn(async (o: Record<string, unknown>) => {
+          created.push({ how: "window", opts: o })
+          const w = { id: nextWin++, type: "normal", state: "normal" }
+          windows.set(w.id, w)
+          return { id: w.id, tabs: [newTabIn(w.id)] }
+        }),
+        get: vi.fn(async (id: number) => {
+          const w = windows.get(id)
+          if (!w) throw new Error("No window with id")
+          return w
+        }),
+      },
+      tabGroups: { update: vi.fn().mockResolvedValue(undefined), get: vi.fn(async () => ({ windowId: 50 })) },
+      debugger: { attach: vi.fn().mockResolvedValue(undefined), sendCommand: vi.fn().mockResolvedValue({}), onEvent: ev, onDetach: ev },
+    }
+    const sessions = await import("../background/sessions")
+    await sessions.loadSessions()
+    return { sessions, created, windows }
+  }
+
+  it("an agent's tab opens in the person's window; a job's own window counts as the agent's, and its group stays in it", async () => {
+    const { sessions, created } = await setup()
+    const s = sessions.getOrCreateSession("a")
+    await sessions.newTab(s)
+    expect(created[0]).toEqual({ how: "tab", opts: { url: "about:blank", active: true } })
+    expect(s.windowId).toBeNull()
+    expect(sessions.isAgentWindow(1)).toBe(false)
+    const job = sessions.getOrCreateSession("job-x")
+    await sessions.newTab(job, undefined, { ownWindow: true })
+    expect(created[1]).toMatchObject({ how: "window", opts: { focused: true } })
+    expect(job.windowId).toBe(50)
+    expect(sessions.isAgentWindow(50)).toBe(true)
+    // A new group goes in the tab's own window (Chrome would put it in the focused one, moving the tab there).
+    const group = (globalThis as any).chrome.tabs.group
+    expect(group).toHaveBeenLastCalledWith({ tabIds: [101], createProperties: { windowId: 50 } })
+    await sessions.newTab(sessions.getOrCreateSession("w"), undefined, { background: true })
+    expect(created[2]).toEqual({ how: "tab", opts: { url: "about:blank", active: false } })
+  })
+})

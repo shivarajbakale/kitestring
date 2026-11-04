@@ -22,6 +22,7 @@ import { setFiles } from "./upload"
 import { withTabLock, type TabLock } from "./serial"
 import { activeTab, agentActing, type Session } from "./sessions"
 import { TAB_CLOSED_ITSELF } from "./tab-closed"
+import { hiddenDetail, pageHidden, reveal } from "./visibility"
 
 /** `nocache`: the target came from a plan param (plan replay), so the action cache neither looks it up nor keeps it. */
 export type Action =
@@ -58,8 +59,6 @@ const APP_READY_WAIT_MS = 5_000
 const APP_READY_POLL_MS = 200
 /** Times a click that provably did nothing (its press never reached the element) is sent again. */
 const CLICK_RETRIES = 2
-export const HIDDEN_TAB_DETAIL =
-  "the tab is hidden (its window is minimized, covered or in the background), and Chrome does not deliver input to hidden tabs: bring its window to the front"
 const EMPTY: Diff = { added: [], removed: [] }
 
 /** What the pipeline has learned so far, for the timeout answer. */
@@ -491,9 +490,12 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   const guard = () => {
     if (p.expired) throw new Expired()
   }
-  // The idle path waits out a hidden tab (its own timeouts say so); a fast step says why at once.
-  if (!r.idle && (await pageHidden(tabId))) return early(r, "error", { detail: HIDDEN_TAB_DETAIL })
+  // Chrome delivers no real input to a hidden tab. In a window Kitestring opened (a job's), the tab is brought forward
+  // there. Else a click or a fill goes as the page's own events (`via: "page"`); a press, a scroll or a file chooser
+  // cannot, and fails at once saying why.
+  const hidden = (await pageHidden(tabId)) && !(await reveal(tabId))
   guard()
+  if (hidden && (action.kind === "press" || action.kind === "scroll")) return early(r, "error", { detail: await hiddenDetail(tabId) })
 
   if (action.kind === "press" || action.kind === "scroll") {
     if (action.kind === "press" && hooks.beforeAct) {
@@ -554,7 +556,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
         detail: `${f.candidates.length} elements match ${targetText(action.target)}`,
         candidates: f.candidates,
       })
-    } else if (attempt >= FIND_RETRIES || "ref" in action.target) {
+    } else if (attempt >= FIND_RETRIES || "ref" in action.target || hidden) {
       return early(r, "not_found", { detail: `no element matches ${targetText(action.target)}` })
     } else {
       await scrollAndSettle(tabId, (await input.viewport(tabId)).height)
@@ -587,7 +589,8 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     const cc = closer && (await callAgent<CheckResult>(tabId, "check", [closer.ref]))
     guard()
     if (closer && cc && cc.kind === "ok") {
-      await input.click(tabId, cc.x, cc.y)
+      if (hidden) await callAgent(tabId, "domClick", [closer.ref])
+      else await input.click(tabId, cc.x, cc.y)
       closedPopups.push(`${closer.kind} "${/^\S+ "(.*)" \[@/.exec(closer.line)?.[1] ?? closer.line}"`)
       await settle(tabId, r.watch, r.net, p)
       guard()
@@ -619,6 +622,18 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   guard()
 
   // ACT
+  if (hidden && action.kind === "upload") return early(r, "error", { detail: await hiddenDetail(tabId) })
+  if (hidden && action.kind === "click") {
+    hooks.acted = true
+    if (!(await callAgent<boolean>(tabId, "domClick", [found.ref]))) return early(r, "not_found", { detail: "element gone before the click" })
+    return { ...(await finish(r, before, {})), via: "page" }
+  }
+  if (hidden && action.kind === "fill") {
+    hooks.acted = true
+    const text = action.value ?? ""
+    if ((await callAgent<string | null>(tabId, "domFill", [found.ref, text])) === null) return early(r, "error", { detail: `${found.line} takes no typing` })
+    return { ...(await finish(r, before, { fill: { ref: found.ref, text } })), via: "page" }
+  }
   if (action.kind === "upload") {
     // No input is associated with the target: click it and answer the file chooser the page opens.
     hooks.acted = true
@@ -660,14 +675,6 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   return finish(r, before, {})
 }
 
-async function pageHidden(tabId: number): Promise<boolean> {
-  try {
-    const r = await send<{ result: { value?: unknown } }>(tabId, "Runtime.evaluate", { expression: "document.visibilityState", returnByValue: true })
-    return r.result.value === "hidden"
-  } catch {
-    return false
-  }
-}
 
 /**
  * A click that does not wait for the page to go idle checks that it landed instead. `armClick` re-checks the element

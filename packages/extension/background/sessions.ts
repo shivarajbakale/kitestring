@@ -12,6 +12,11 @@ export interface Session {
   opener: Map<number, number>
   /** tabId -> epoch ms when the watcher adopted it. */
   adoptedAt: Map<number, number>
+  /**
+   * The window Kitestring opened for this session (a scheduled run's or a job's): a tab of it hidden behind another one
+   * there is brought forward for input, which is never done in the person's own windows.
+   */
+  windowId?: number | null
 }
 
 export interface TabInfo {
@@ -28,6 +33,7 @@ interface StoredSession {
   tabs: number[]
   opener?: [number, number][]
   adoptedAt?: [number, number][]
+  windowId?: number | null
 }
 
 const STORAGE_KEY = "kite.sessions"
@@ -53,6 +59,7 @@ export function loadSessions(): Promise<void> {
         tabs,
         opener: new Map((s.opener ?? []).filter(([id]) => tabs.has(id))),
         adoptedAt: new Map((s.adoptedAt ?? []).filter(([id]) => tabs.has(id))),
+        windowId: s.windowId ?? null,
       })
     }
   })().catch((e: unknown) => {
@@ -70,6 +77,7 @@ function persist(): Promise<void> {
     tabs: [...s.tabs],
     opener: [...s.opener],
     adoptedAt: [...s.adoptedAt],
+    windowId: s.windowId ?? null,
   }))
   return chrome.storage.session.set({ [STORAGE_KEY]: data })
 }
@@ -89,7 +97,7 @@ export function findSession(name: string): Session | undefined {
 
 /** A throwaway, unregistered session (owns nothing). */
 export function emptySession(name: string): Session {
-  return { name, groupId: null, activeTabId: null, tabs: new Set(), opener: new Map(), adoptedAt: new Map() }
+  return { name, groupId: null, activeTabId: null, tabs: new Set(), opener: new Map(), adoptedAt: new Map(), windowId: null }
 }
 
 export function getOrCreateSession(name: string): Session {
@@ -161,7 +169,9 @@ async function addToGroup(s: Session, tabId: number, ownWindow = false): Promise
       s.groupId = null // the group disappeared (e.g. the user closed all its tabs), or is in another window
     }
   }
-  const groupId = await chrome.tabs.group({ tabIds: [tabId] })
+  // A new group goes in the focused window unless told otherwise, and takes the tab with it: keep it in the tab's own.
+  const windowId = (await chrome.tabs.get(tabId).catch(() => undefined))?.windowId
+  const groupId = await chrome.tabs.group({ tabIds: [tabId], ...(windowId !== undefined ? { createProperties: { windowId } } : {}) })
   await chrome.tabGroups.update(groupId, { title: `kite:${s.name}`, color: colorOf(s) })
   s.groupId = groupId
 }
@@ -173,21 +183,27 @@ const info = (t: chrome.tabs.Tab): TabInfo => ({ id: t.id!, url: t.url || t.pend
  * first load's console and network traffic is captured. Falls back to opening the URL directly when the
  * debugger can't attach.
  *
- * `ownWindow`: open it in a new window in front (a scheduled run; closing its tab closes the window). Never behind
- * the person's windows or in a background tab: Chrome stops drawing those, and mouse and wheel input never completes.
+ * `ownWindow`: open it in a new window in front (a scheduled run or a job; closing its tab closes the window). That
+ * window counts as the session's: a tab of it that is hidden behind another one there is brought forward for input.
  * `background`: open it without bringing it to the front, for reading only (a watch): reading works there, input does not.
+ * Otherwise it opens as the active tab of the person's current window. (A window of its own behind theirs would not
+ * help: Chrome on macOS hides a fully covered window, and a hidden tab gets no real input.)
  */
 export async function newTab(s: Session, url?: string, opts: { ownWindow?: boolean; background?: boolean } = {}): Promise<TabInfo> {
   const target = url && !isRestrictedUrl(url) ? url : undefined
   const first = target ? "about:blank" : (url ?? "about:blank")
-  const tab = opts.ownWindow
-    ? (await chrome.windows.create({ url: first, focused: true, width: 1280, height: 900 })).tabs![0]!
-    : await chrome.tabs.create({ url: first, active: !opts.background })
+  const ownWindow = !!opts.ownWindow
+  let tab: chrome.tabs.Tab
+  if (ownWindow) {
+    const w = await chrome.windows.create({ url: first, focused: true, width: 1280, height: 900 })
+    tab = w.tabs![0]!
+    s.windowId = w.id ?? null
+  } else tab = await chrome.tabs.create({ url: first, active: !opts.background })
   const id = tab.id!
   s.tabs.add(id)
   s.activeTabId = id
   await persist()
-  await addToGroup(s, id, opts.ownWindow)
+  await addToGroup(s, id, ownWindow)
   await persist()
   let navigated = false
   if (target) {
@@ -269,6 +285,11 @@ export async function closeTab(s: Session, tabId?: number): Promise<void> {
   await chrome.tabs.remove(id)
 }
 
+/** Whether `windowId` is a window Kitestring opened for one of its sessions (not one of the person's). */
+export function isAgentWindow(windowId: number): boolean {
+  return [...sessions.values()].some((s) => s.windowId === windowId)
+}
+
 export async function listTabs(s: Session): Promise<TabInfo[]> {
   const out: TabInfo[] = []
   for (const id of s.tabs) {
@@ -322,7 +343,10 @@ function forget(tabId: number): boolean {
     if (s.activeTabId === tabId) s.activeTabId = opener !== undefined && s.tabs.has(opener) ? opener : null
     s.opener.delete(tabId)
     s.adoptedAt.delete(tabId)
-    if (s.tabs.size === 0) s.groupId = null
+    if (s.tabs.size === 0) {
+      s.groupId = null
+      s.windowId = null
+    }
   }
   return changed
 }

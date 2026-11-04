@@ -2,9 +2,12 @@ import type { ActionResult, ActivityEntry, BatchResult, ConsoleEntry, NetworkEnt
 import type { ReplayResult } from "../memory/replay.js"
 import { formatEvery, needsWindow, type Schedule } from "../schedule/store.js"
 
+/** A step sent as page events in a hidden tab: done, but a site that only takes real input may have ignored it. */
+const VIA_PAGE = " (tab hidden: sent as page events; check the page reacted)"
+
 export function formatResult(r: ActionResult): string {
   const lines: string[] = []
-  lines.push(r.status === "done" ? "✓ done" : `✗ ${r.status}${r.detail ? `: ${r.detail}` : ""}`)
+  lines.push(r.status === "done" ? `✓ done${r.via === "page" ? VIA_PAGE : ""}` : `✗ ${r.status}${r.detail ? `: ${r.detail}` : ""}`)
   for (const a of r.diff?.added ?? []) lines.push(`+ ${a}`)
   for (const d of r.diff?.removed ?? []) lines.push(`- ${d}`)
   if (r.navigation) lines.push(`→ navigated ${r.navigation.url}`)
@@ -29,7 +32,7 @@ export function formatBatch(r: BatchResult): string {
   const lines: string[] = []
   for (const s of r.steps) {
     const what = `${s.action}${s.target ? ` ${s.target}` : ""}`
-    if (s.status === "done") lines.push(`✓ ${s.i + 1} ${what}`)
+    if (s.status === "done") lines.push(`✓ ${s.i + 1} ${what}${s.via === "page" ? VIA_PAGE : ""}`)
     else if (s.status === "no_effect") lines.push(`✓ ${s.i + 1} ${what} (no effect)`)
     else if (s.status === "skipped") lines.push(`· ${s.i + 1} skipped${s.target ? ` ${s.target}` : ` ${s.action}`}`)
     else lines.push(`✗ ${s.i + 1} ${what}: ${s.detail ?? s.status}`)
