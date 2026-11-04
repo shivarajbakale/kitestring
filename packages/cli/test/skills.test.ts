@@ -108,10 +108,10 @@ describe("skills pack", () => {
         if (cmd === "tab") {
           expect(tabCommands.has(toks[1] ?? ""), `${where}: \`${mention}\` — no tab subcommand "${toks[1]}"`).toBe(true)
           path = ["tab", toks[1]!]
-        } else if (cmd === "schedule") {
-          const sub = commandsOf(help(["schedule"]))
-          expect(sub.has(toks[1] ?? ""), `${where}: \`${mention}\` — no schedule subcommand "${toks[1]}"`).toBe(true)
-          path = ["schedule", toks[1]!]
+        } else if (cmd === "schedule" || cmd === "job") {
+          const sub = commandsOf(help([cmd]))
+          expect(sub.has(toks[1] ?? ""), `${where}: \`${mention}\` — no ${cmd} subcommand "${toks[1]}"`).toBe(true)
+          path = [cmd, toks[1]!]
         }
         const key = path.join(" ")
         if (!cmdHelp.has(key)) cmdHelp.set(key, help(path))

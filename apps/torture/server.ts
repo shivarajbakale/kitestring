@@ -44,6 +44,29 @@ export async function startTorture(port = 4173): Promise<{ url: string; close():
       res.write("<!doctype html><title>Hang</title><h1>Loading forever</h1>\n")
       return
     }
+    // A maps-like search API (places.html): 45 places, 15 a page, behind an anti-hijacking prefix; and one place.
+    if (path === "/api/places" || path === "/api/place") {
+      const q = new URL(req.url ?? "/", "http://localhost").searchParams
+      const place = (n: number) => ({
+        id: n,
+        name: `Warehouse ${n}`,
+        category: n % 3 ? "Storage" : "Logistics",
+        rating: (3 + (n % 20) / 10).toFixed(1),
+        phone: `0836 ${String(1000000 + n).slice(1)}`,
+        website: `https://warehouse-${n}.example`,
+        address: `${n} Dock Road, Hubli`,
+      })
+      if (path === "/api/place") {
+        const n = Number(q.get("id"))
+        if (!Number.isInteger(n) || n < 1 || n > 45) return void res.writeHead(404, { "content-type": "application/json" }).end("{}")
+        return void res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(JSON.stringify(place(n)))
+      }
+      const page = Math.max(1, Number(q.get("page")) || 1)
+      const ids = Array.from({ length: 15 }, (_, i) => (page - 1) * 15 + i + 1).filter((n) => n <= 45)
+      const body = { results: ids.map((n) => { const { phone: _p, website: _w, address: _a, ...card } = place(n); return card }), next: page < 3 ? page + 1 : null }
+      setTimeout(() => res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }).end(`)]}'\n${JSON.stringify(body)}`), 100)
+      return
+    }
     const name = path.slice(1)
     if (!/^[a-z0-9-]+$/.test(name)) {
       res.writeHead(404).end("not found")

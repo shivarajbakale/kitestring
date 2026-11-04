@@ -3,7 +3,7 @@ import { join } from "node:path"
 import { slug } from "@kitestring/protocol"
 
 /** Something the native host does on its own every `everyMs` while Chrome runs: replay a plan, watch a page, or save its rows. */
-export type Schedule = PlanSchedule | WatchSchedule | ExportSchedule
+export type Schedule = PlanSchedule | WatchSchedule | ExportSchedule | JobSchedule
 
 /** A saved plan replayed on its own. Schedules from before watches have no `kind`: they are plan schedules. */
 export interface PlanSchedule extends ScheduleBase {
@@ -39,6 +39,17 @@ export interface ExportSchedule extends ScheduleBase {
   format: "csv" | "json" | "jsonl"
 }
 
+/** A saved recipe (a job's script or spec) run on its own: each run's rows go to a new file, and the person hears how many are new. */
+export interface JobSchedule extends ScheduleBase {
+  kind: "job"
+  recipe: string
+  /** Values over the recipe's own. */
+  params: Record<string, string>
+  format: "csv" | "json" | "jsonl"
+  /** Copied from the recipe when added: a front-window run waits for the person to be away. */
+  window?: "front" | "background"
+}
+
 interface ScheduleBase {
   /** Lowercase slug, unique; the run's session is `schedule-<id>`. */
   id: string
@@ -57,7 +68,8 @@ export interface ScheduleRun {
 }
 
 /** Runs that click or scroll need a window in front (Chrome only draws visible ones), so they wait for the person to be away. */
-export const needsWindow = (s: Schedule): boolean => s.kind === undefined || s.kind === "plan" || (s.kind === "export" && s.next !== undefined)
+export const needsWindow = (s: Schedule): boolean =>
+  s.kind === undefined || s.kind === "plan" || (s.kind === "export" && s.next !== undefined) || (s.kind === "job" && s.window !== "background")
 
 export const MIN_EVERY_MS = 5 * 60_000
 const UNITS: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 7 * 86_400_000 }
@@ -98,10 +110,11 @@ function saveSchedules(home: string, list: Schedule[]): void {
   renameSync(tmp, file(home))
 }
 
-type NewSchedule = (Omit<PlanSchedule, "id"> | Omit<WatchSchedule, "id"> | Omit<ExportSchedule, "id">) & { id?: string }
+type NewSchedule = (Omit<PlanSchedule, "id"> | Omit<WatchSchedule, "id"> | Omit<ExportSchedule, "id"> | Omit<JobSchedule, "id">) & { id?: string }
 
 /** The name a schedule gets when none is given: the plan's slug, or the page's host and path. */
 function defaultName(s: NewSchedule): string {
+  if (s.kind === "job") return s.recipe
   if (s.kind !== "watch" && s.kind !== "export") return (s as Omit<PlanSchedule, "id">).plan.split("/").pop() ?? ""
   try {
     const u = new URL(s.url)

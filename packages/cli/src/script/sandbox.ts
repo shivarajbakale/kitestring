@@ -33,6 +33,14 @@ export function sandboxMain(): void {
     extract: (opts?: object) => call("extract", opts),
     evaluate: (fn: unknown, arg?: unknown) =>
       call("evaluate", typeof fn === "function" ? `(${fn.toString()})(${arg === undefined ? "" : JSON.stringify(arg)})` : String(fn)),
+    emit: (rows: unknown) => call("emit", rows),
+    checkpoint: (state: unknown) => call("checkpoint", state),
+    collect: (opts?: object) => call("collect", opts),
+    // A reader function can't cross the IPC channel: send its source (a field map or "auto" goes as is).
+    readEach: (urls: unknown, fn: unknown, opts?: object) => call("readEach", urls, typeof fn === "function" ? fn.toString() : fn, opts),
+    fetchJson: (url: string, init?: object) => call("fetchJson", url, init),
+    responses: (opts?: object) => call("responses", opts),
+    probe: () => call("probe"),
     tabs: () => call("tabs"),
     newTab: (url?: string) => call("newTab", url),
     useTab: (id: number) => call("useTab", id),
@@ -53,6 +61,8 @@ export function sandboxMain(): void {
     if (m?.type !== "run") return
     const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
     let body: (...a: unknown[]) => Promise<unknown>
+    helpers.params = Object.freeze({ ...(m.params ?? {}) })
+    helpers.resume = m.resume ?? null
     try {
       body = new AsyncFunction(...Object.keys(helpers), m.code)
     } catch (e) {

@@ -141,6 +141,36 @@ export interface ExtractResult {
   scrollAt?: { x: number; y: number }
 }
 
+/** One repeated list on a page, as `page.probe` describes it. */
+export interface ProbeList {
+  index: number
+  key: string
+  source: string
+  count: number
+  /** CSS selector matching the items (one per row), when a short one was found: `collect({items})`. */
+  selector?: string
+  columns: string[]
+  /** Per column, a selector relative to an item: `css` (its text), `css@attr`, or `.` (the item's own text). */
+  fields?: Record<string, string>
+  sample: Record<string, string>[]
+  /** The column holding each item's link (a detail page). */
+  link?: string
+  /** The first item's markup, trimmed (no scripts, short text). */
+  itemHtml?: string
+  scrollAt?: { x: number; y: number }
+}
+
+/** What a page's data looks like: its lists, how it shows more, and values to look for in its JSON. */
+export interface ProbeResult {
+  url: string
+  title: string
+  lists: ProbeList[]
+  /** A next button's text, or scrolling of the page or of the list's own panel; empty when neither. */
+  more: { next?: string; scroll?: "page" | "panel" }
+  /** Visible values from the best list (names, titles): where they also appear in JSON, the data is there. */
+  needles: string[]
+}
+
 export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug"
 
 export interface ConsoleEntry {
@@ -164,6 +194,14 @@ export interface NetworkEntry {
   failed: boolean
   error?: string
   nav: number
+  /** The response's MIME type. */
+  mime?: string
+  /** Kept response bodies are numbered: `page.network {body: id}` returns one whole. */
+  bodyId?: number
+  /** Size in characters of the kept body. */
+  bodyChars?: number
+  /** The kept body (cut to `body_max`), when asked for with `bodies`. */
+  body?: string
 }
 
 export interface ScreenshotResult {

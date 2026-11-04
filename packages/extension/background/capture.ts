@@ -13,6 +13,13 @@ import { withTabLock } from "./serial"
 
 export const RING_SIZE = 500
 export const MAX_TEXT = 2000
+/** Response bodies kept per tab (JSON and text from fetch / XHR), newest; a larger one is not kept. */
+export const BODY_RING = 40
+export const BODY_MAX_CHARS = 2_000_000
+const BODY_TOTAL_CHARS = 8_000_000
+/** Responses worth keeping: what an app fetches its data as. */
+const BODY_TYPES = new Set(["Fetch", "XHR"])
+const BODY_MIME = /json|javascript|text\/plain|text\/html|x-protobuf-json/i
 
 type Params = Record<string, unknown>
 
@@ -75,6 +82,40 @@ export class TabCapture {
    */
   private seen = new Set<string>()
   private seenOrder: string[] = []
+  /** Called when a finished response's body is worth keeping; the owner fetches it and hands it to keepBody. */
+  wantBody?: (requestId: string, e: NetworkEntry) => void
+  private bodies = new Map<number, { e: NetworkEntry; text: string }>()
+  private bodyChars = 0
+  private bodySeq = 0
+
+  /** Keeps a response body for `e` (dropping the oldest past BODY_RING / the total budget). */
+  keepBody(e: NetworkEntry, text: string): void {
+    if (text.length > BODY_MAX_CHARS || !this.network.includes(e)) return
+    const id = ++this.bodySeq
+    e.bodyId = id
+    e.bodyChars = text.length
+    this.bodies.set(id, { e, text })
+    this.bodyChars += text.length
+    for (const [old, b] of this.bodies) {
+      if (this.bodies.size <= BODY_RING && this.bodyChars <= BODY_TOTAL_CHARS) break
+      this.bodies.delete(old)
+      this.bodyChars -= b.text.length
+      delete b.e.bodyId
+      delete b.e.bodyChars
+    }
+  }
+
+  /** One kept body, whole. */
+  body(id: number): { url: string; method: string; status?: number; mime?: string; body: string } | undefined {
+    const b = this.bodies.get(id)
+    if (!b) return undefined
+    return { url: b.e.url, method: b.e.method, ...(b.e.status !== undefined ? { status: b.e.status } : {}), ...(b.e.mime ? { mime: b.e.mime } : {}), body: b.text }
+  }
+
+  private clearBodies(): void {
+    this.bodies.clear()
+    this.bodyChars = 0
+  }
 
   private firstSeen(key: string): boolean {
     if (this.seen.has(key)) return false
@@ -118,6 +159,7 @@ export class TabCapture {
           this.console.length = 0
           this.network.length = 0
           this.open.clear()
+          this.clearBodies()
         }
         break
       }
@@ -142,7 +184,8 @@ export class TabCapture {
       case "Network.responseReceived": {
         const o = this.open.get(p.requestId as string)
         if (!o) break
-        const r = (p.response ?? {}) as { status?: number }
+        const r = (p.response ?? {}) as { status?: number; mimeType?: string }
+        if (typeof r.mimeType === "string" && r.mimeType) o.e.mime = r.mimeType
         if (typeof r.status === "number") {
           o.e.status = r.status
           o.e.failed = r.status >= 400
@@ -150,9 +193,12 @@ export class TabCapture {
         if (typeof p.type === "string") o.e.type = p.type
         break
       }
-      case "Network.loadingFinished":
+      case "Network.loadingFinished": {
+        const o = this.open.get(p.requestId as string)
         this.settle(p.requestId as string, p.timestamp as number | undefined)
+        if (o && this.wantBody && BODY_TYPES.has(o.e.type) && BODY_MIME.test(o.e.mime ?? "") && !o.e.failed) this.wantBody(p.requestId as string, o.e)
         break
+      }
       case "Network.loadingFailed": {
         const o = this.open.get(p.requestId as string)
         if (!o) break
@@ -190,6 +236,13 @@ export class TabCapture {
 
   private evict(gone: NetworkEntry | undefined): void {
     if (!gone) return
+    if (gone.bodyId !== undefined) {
+      const b = this.bodies.get(gone.bodyId)
+      if (b) {
+        this.bodies.delete(gone.bodyId)
+        this.bodyChars -= b.text.length
+      }
+    }
     for (const [id, o] of this.open) if (o.e === gone) this.open.delete(id)
   }
 
@@ -202,13 +255,20 @@ export class TabCapture {
     return out
   }
 
-  networkEntries(opts: { failed?: boolean; filter?: string; limit?: number; clear?: boolean } = {}): NetworkEntry[] {
+  /** `bodies`: entries with a kept body carry it, cut to this many characters (and only such entries are listed). */
+  networkEntries(opts: { failed?: boolean; filter?: string; limit?: number; clear?: boolean; bodies?: number } = {}): NetworkEntry[] {
     const out = this.network
-      .filter((e) => (!opts.failed || e.failed) && (!opts.filter || e.url.includes(opts.filter)))
+      .filter((e) => (!opts.failed || e.failed) && (!opts.filter || e.url.includes(opts.filter)) && (opts.bodies === undefined || e.bodyId !== undefined))
       .slice(-(opts.limit ?? 50))
+      .map((e) => {
+        if (opts.bodies === undefined || e.bodyId === undefined) return { ...e }
+        const text = this.bodies.get(e.bodyId)?.text ?? ""
+        return { ...e, body: text.length > opts.bodies ? `${text.slice(0, opts.bodies)}…` : text }
+      })
     if (opts.clear) {
       this.network.length = 0
       this.open.clear()
+      this.clearBodies()
     }
     return out
   }
@@ -229,6 +289,20 @@ export function startCapture(tabId: number, opts: { preserve?: boolean } = {}): 
   let c = captures.get(tabId)
   if (!c) {
     const cap = new TabCapture()
+    cap.wantBody = (requestId, e) => {
+      send<{ body: string; base64Encoded: boolean }>(tabId, "Network.getResponseBody", { requestId }, 10_000).then(
+        (r) => {
+          if (r.base64Encoded) {
+            try {
+              cap.keepBody(e, new TextDecoder().decode(Uint8Array.from(atob(r.body), (ch) => ch.charCodeAt(0))))
+            } catch {
+              /* not text */
+            }
+          } else cap.keepBody(e, r.body)
+        },
+        () => {}, // evicted from Chrome's buffer, or the tab navigated: nothing to keep
+      )
+    }
     c = { cap, off: onEvent(tabId, (e) => cap.onEvent(e.method, e.params)) }
     captures.set(tabId, c)
   }
@@ -246,6 +320,10 @@ export function consoleEntries(tabId: number, opts: Parameters<TabCapture["conso
 
 export function networkEntries(tabId: number, opts: Parameters<TabCapture["networkEntries"]>[0] = {}): NetworkEntry[] {
   return captures.get(tabId)?.cap.networkEntries(opts) ?? []
+}
+
+export function responseBody(tabId: number, id: number): ReturnType<TabCapture["body"]> {
+  return captures.get(tabId)?.cap.body(id)
 }
 
 /** Call once at service-worker start. */

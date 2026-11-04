@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>places</title></head><body>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: sans-serif }
+  #panel { position: fixed; left: 0; top: 0; bottom: 0; width: 340px; overflow-y: auto; border-right: 1px solid #ccc }
+  #map { position: fixed; left: 340px; right: 0; top: 0; bottom: 0; background: #dde8d0 }
+  .card { height: 96px; padding: 8px; border-bottom: 1px solid #eee }
+  .card a { color: inherit; text-decoration: none }
+</style>
+<!-- A maps-like search: cards in a panel of their own, fed 15 at a time by a JSON API (with an anti-hijacking prefix)
+     as the panel scrolls; the phone and website are only on each place's own page, which builds itself with JavaScript. -->
+<div id="panel" role="feed" aria-label="Results for warehouses"></div>
+<div id="map" aria-label="Map"></div>
+<script>
+window.__result = undefined
+let page = 0, loading = false, done = false
+async function more() {
+  if (loading || done) return
+  loading = true
+  page++
+  const text = await (await fetch(`/api/places?page=${page}`)).text()
+  const data = JSON.parse(text.replace(/^\)\]\}'\n/, ""))
+  for (const p of data.results) {
+    // As on Google Maps: a bare wrapper div around each card (div[role=article]), a separator div after it.
+    const d = document.createElement("div")
+    d.innerHTML = `<div role="article" class="card Nv2PK"><a class="place-link" href="/place-detail?id=${p.id}" aria-label="${p.name}"><h3 class="title">${p.name}</h3></a><span class="category">${p.category}</span> · <span class="rating">${p.rating}</span></div>`
+    panel.appendChild(d)
+    panel.insertAdjacentHTML("beforeend", '<div class="sep"></div>')
+  }
+  if (!data.next) { done = true; panel.insertAdjacentHTML("beforeend", "<div><p class=\"end\">You've reached the end of the list.</p></div>") }
+  loading = false
+}
+more()
+map.addEventListener("wheel", () => { window.__result = "map-zoomed" })
+panel.addEventListener("scroll", () => { if (panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 200) setTimeout(more, 200) })
+</script>
+</body></html>

@@ -32,17 +32,17 @@ const clean = (s: string): string => {
 const fold = (s: string): string => s.replace(/\s+/g, " ").trim().toLowerCase()
 
 /** Class names that say what something is ("price", "title"), not how it looks or a build hash. */
-function meaningfulClasses(el: Element): string[] {
+export function meaningfulClasses(el: Element): string[] {
   return Array.from(el.classList).filter((c) => /^[a-z][a-z-_]{2,30}$/i.test(c) && !/\d{2}|^(css|sc|jsx|tw|is|has|js)-/i.test(c) && !/^(flex|grid|block|hidden|row|col|container|wrapper|inner|outer|clearfix|relative|absolute|active|selected)$/i.test(c))
 }
 
 /** Tag plus up to two meaningful classes: how items of one list look alike. */
-function signature(el: Element): string {
+export function signature(el: Element): string {
   const cls = meaningfulClasses(el).sort().slice(0, 2)
   return el.tagName.toLowerCase() + cls.map((c) => `.${c}`).join("")
 }
 
-function hidden(el: Element): boolean {
+export function hidden(el: Element): boolean {
   if (SKIP.has(el.tagName.toUpperCase()) || el.getAttribute("aria-hidden") === "true") return true
   if (!(el instanceof HTMLElement)) return false
   return el.getClientRects().length === 0
@@ -57,7 +57,7 @@ function absUrl(doc: Document, v: string | null): string {
   }
 }
 
-interface Candidate {
+export interface Candidate {
   key: string
   source: string
   items: Element[]
@@ -83,7 +83,7 @@ const isHeaderRow = (row: Element): boolean => {
   return cells.length > 0 && cells.every((c) => c.tagName === "TH" || c.getAttribute("role") === "columnheader")
 }
 
-function tableExtract(doc: Document, t: Element, max: number): { columns: string[]; rows: Record<string, string>[]; total: number } {
+export function tableExtract(doc: Document, t: Element, max: number): { columns: string[]; rows: Record<string, string>[]; total: number } {
   const all = tableRows(t)
   const headRow = all.find(isHeaderRow)
   const width = Math.max(0, ...all.map((r) => cellsOf(r).length))
@@ -118,14 +118,14 @@ function uniqueNames(names: string[]): string[] {
 
 // ---- lists
 
-interface Part {
+export interface Part {
   path: string
   name: string
   value: string
 }
 
 /** The item's text pieces, links and images, each with its path inside the item (how columns line up). */
-function partsOf(doc: Document, item: Element): Part[] {
+export function partsOf(doc: Document, item: Element): Part[] {
   const out: Part[] = []
   const walk = (el: Element, path: string): void => {
     if (hidden(el)) return
@@ -161,7 +161,7 @@ function nameFor(el: Element): string {
   return tag === "a" ? "link text" : "text"
 }
 
-function listExtract(doc: Document, items: Element[], max: number): { columns: string[]; rows: Record<string, string>[]; total: number } {
+export function listExtract(doc: Document, items: Element[], max: number): { columns: string[]; rows: Record<string, string>[]; total: number; paths: Record<string, string> } {
   const parts = items.map((it) => partsOf(doc, it))
   // A path is a column when enough items have it (a part only one item has is noise, unless there are few).
   const freq = new Map<string, { n: number; name: string; order: number }>()
@@ -189,7 +189,7 @@ function listExtract(doc: Document, items: Element[], max: number): { columns: s
     }
     if (Object.keys(rec).length) rows.push(rec)
   }
-  return { columns: names, rows: rows.slice(0, max), total: rows.length }
+  return { columns: names, rows: rows.slice(0, max), total: rows.length, paths: Object.fromEntries(cols.map(([path], i) => [names[i]!, path])) }
 }
 
 // ---- finding candidates
@@ -200,7 +200,7 @@ function textLen(el: Element): number {
   return (el.textContent ?? "").replace(/\s+/g, " ").trim().length
 }
 
-function candidates(doc: Document): Candidate[] {
+export function candidates(doc: Document): Candidate[] {
   const out: Candidate[] = []
   const body = doc.body
   if (!body) return out
@@ -271,7 +271,7 @@ function fromSelector(doc: Document, selector: string): Candidate {
  * The middle of the visible part of the nearest box around `el` that scrolls on its own, when that is not the page
  * itself and nothing covers the point; else undefined (the page's own scrolling reaches the list).
  */
-function innerScrollPoint(doc: Document, el: Element): { x: number; y: number } | undefined {
+export function innerScrollPoint(doc: Document, el: Element): { x: number; y: number } | undefined {
   const win = doc.defaultView
   if (!win) return undefined
   for (let box = el.parentElement; box && box !== doc.body && box !== doc.documentElement; box = box.parentElement) {
@@ -314,7 +314,7 @@ export function extract(doc: Document, opts: ExtractOpts = {}): ExtractResult {
       if (!chosen) throw new Error(`pick ${i}: the page has ${ranked.length} candidate${ranked.length === 1 ? "" : "s"}`)
     }
   }
-  const data = chosen.table ? tableExtract(doc, chosen.table, max) : listExtract(doc, chosen.items, max)
+  const { paths: _paths, ...data } = chosen.table ? { ...tableExtract(doc, chosen.table, max), paths: undefined } : listExtract(doc, chosen.items, max)
   const others = ranked
     .map((c, index) => ({ index, key: c.key, source: c.source, count: c.items.length }))
     .filter((c) => c.key !== chosen!.key)
