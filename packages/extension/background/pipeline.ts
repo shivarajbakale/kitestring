@@ -22,7 +22,7 @@ import { setFiles } from "./upload"
 import { withTabLock, type TabLock } from "./serial"
 import { activeTab, agentActing, type Session } from "./sessions"
 import { TAB_CLOSED_ITSELF } from "./tab-closed"
-import { hiddenDetail, pageHidden, reveal } from "./visibility"
+import { gestureClick, hiddenDetail, pageHidden, reveal } from "./visibility"
 
 /** `nocache`: the target came from a plan param (plan replay), so the action cache neither looks it up nor keeps it. */
 export type Action =
@@ -485,14 +485,20 @@ async function finishOpen(
   return res
 }
 
+/** Agents reach for CSS selectors (`input[type=file]`, `#avatar`); a target is visible text or a ref. */
+function cssHint(t: Target): string {
+  if (!("text" in t) || !/^[#.[]|^[a-z]+[#.[:]|\[[\w-]+(=|\])|\s[>~+]\s/i.test(t.text.trim())) return ""
+  return ": a target is the element's visible text (its label, its name) or an @ref from a snapshot, not a CSS selector. For a file input that the page creates on a click, target the button or area that opens it"
+}
+
 async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionResult> {
   const { tabId, p } = r
   const guard = () => {
     if (p.expired) throw new Expired()
   }
   // Chrome delivers no real input to a hidden tab. In a window Kitestring opened (a job's), the tab is brought forward
-  // there. Else a click or a fill goes as the page's own events (`via: "page"`); a press, a scroll or a file chooser
-  // cannot, and fails at once saying why.
+  // there. Else a click, a fill or an upload goes as the page's own events, a click as a user gesture so it can still
+  // open a file chooser or a popup (`via: "page"`); a press or a scroll cannot, and fails at once saying why.
   const hidden = (await pageHidden(tabId)) && !(await reveal(tabId))
   guard()
   if (hidden && (action.kind === "press" || action.kind === "scroll")) return early(r, "error", { detail: await hiddenDetail(tabId) })
@@ -557,7 +563,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
         candidates: f.candidates,
       })
     } else if (attempt >= FIND_RETRIES || "ref" in action.target || hidden) {
-      return early(r, "not_found", { detail: `no element matches ${targetText(action.target)}` })
+      return early(r, "not_found", { detail: `no element matches ${targetText(action.target)}${cssHint(action.target)}` })
     } else {
       await scrollAndSettle(tabId, (await input.viewport(tabId)).height)
       await callAgent(tabId, "waitQuiet", [])
@@ -589,7 +595,7 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
     const cc = closer && (await callAgent<CheckResult>(tabId, "check", [closer.ref]))
     guard()
     if (closer && cc && cc.kind === "ok") {
-      if (hidden) await callAgent(tabId, "domClick", [closer.ref])
+      if (hidden) await gestureClick(tabId, closer.ref)
       else await input.click(tabId, cc.x, cc.y)
       closedPopups.push(`${closer.kind} "${/^\S+ "(.*)" \[@/.exec(closer.line)?.[1] ?? closer.line}"`)
       await settle(tabId, r.watch, r.net, p)
@@ -622,10 +628,9 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   guard()
 
   // ACT
-  if (hidden && action.kind === "upload") return early(r, "error", { detail: await hiddenDetail(tabId) })
   if (hidden && action.kind === "click") {
     hooks.acted = true
-    if (!(await callAgent<boolean>(tabId, "domClick", [found.ref]))) return early(r, "not_found", { detail: "element gone before the click" })
+    if (!(await gestureClick(tabId, found.ref))) return early(r, "not_found", { detail: "element gone before the click" })
     return { ...(await finish(r, before, {})), via: "page" }
   }
   if (hidden && action.kind === "fill") {
@@ -637,10 +642,10 @@ async function act(r: Run, action: Action, hooks: Hooks = {}): Promise<ActionRes
   if (action.kind === "upload") {
     // No input is associated with the target: click it and answer the file chooser the page opens.
     hooks.acted = true
-    const held = await setFiles(tabId, null, action.files, { x: c.x, y: c.y })
+    const held = await setFiles(tabId, null, action.files, { x: c.x, y: c.y }, hidden ? () => gestureClick(tabId, found!.ref) : undefined)
     guard()
     const names = action.files.map(baseName)
-    const res = withUploaded(await finish(r, before, {}), action.files)
+    const res = { ...withUploaded(await finish(r, before, {}), action.files), ...(hidden ? { via: "page" as const } : {}) }
     if (res.status === "done" && JSON.stringify(held) !== JSON.stringify(names)) {
       const { uploaded: _unverified, ...rest } = res
       return { ...rest, ok: false, status: "error", detail: `file input holds ${JSON.stringify(held)}, expected ${JSON.stringify(names)}` }

@@ -41,8 +41,6 @@ export interface PageAgent {
   clickReceipt(disarm: boolean): Receipt | null
   /** Resolves as soon as `cond` holds in this document, or after `ms` with what was last seen. */
   waitFor(cond: WaitCondition, ms: number): Promise<WaitResult>
-  /** A click as the page's own events (pointer, mouse, click), for a hidden tab where Chrome delivers no real input. */
-  domClick(ref: string): boolean
   /** Types into a field as the page's own events (value, input, change), for a hidden tab; the value it ends with, or null. */
   domFill(ref: string, text: string): string | null
   readValue(ref: string): string | null
@@ -97,22 +95,6 @@ export function createAgent(win: Window): PageAgent {
     armClick: (ref) => receipts.arm(reg.resolve(ref)),
     clickReceipt: (disarm) => receipts.receipt(disarm),
     waitFor: (cond, ms) => waitFor(doc, reg, cond, ms),
-    domClick: (ref) => {
-      const el = reg.resolve(ref)
-      if (!el || !el.isConnected) return false
-      const r = el.getBoundingClientRect()
-      const at = { bubbles: true, cancelable: true, composed: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0, view: win }
-      const P = typeof PointerEvent !== "undefined" ? PointerEvent : MouseEvent
-      el.dispatchEvent(new P("pointerover", at))
-      el.dispatchEvent(new P("pointerdown", { ...at, buttons: 1, pointerId: 1, isPrimary: true } as PointerEventInit))
-      el.dispatchEvent(new MouseEvent("mousedown", { ...at, buttons: 1 }))
-      if (el instanceof HTMLElement) el.focus({ preventScroll: true })
-      el.dispatchEvent(new P("pointerup", { ...at, pointerId: 1, isPrimary: true } as PointerEventInit))
-      el.dispatchEvent(new MouseEvent("mouseup", at))
-      if (el instanceof HTMLElement) el.click()
-      else el.dispatchEvent(new MouseEvent("click", at))
-      return true
-    },
     domFill: (ref, text) => {
       const el = reg.resolve(ref)
       if (!el) return null

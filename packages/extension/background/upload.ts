@@ -89,6 +89,8 @@ export async function setFiles(
   target: FileInputTarget | null,
   files: string[],
   clickAt?: { x: number; y: number },
+  /** A hidden tab gets no real click: open the chooser with this page click instead (a user gesture in the page). */
+  pageClick?: () => Promise<boolean>,
 ): Promise<string[] | undefined> {
   if (target) {
     if (files.length > 1 && !target.multiple) throw tooMany(files)
@@ -98,7 +100,7 @@ export async function setFiles(
     await send(tabId, "DOM.setFileInputFiles", { files, backendNodeId: node })
     return
   }
-  if (!clickAt) throw new RpcError(ErrorCode.BAD_REQUEST, "no file input and nothing to click")
+  if (!clickAt && !pageClick) throw new RpcError(ErrorCode.BAD_REQUEST, "no file input and nothing to click")
   let off = () => {}
   try {
     const opened = new Promise<{ backendNodeId?: number; mode?: string }>((resolve, reject) => {
@@ -114,7 +116,9 @@ export async function setFiles(
     })
     opened.catch(() => {}) // surfaced by the await below; no unhandled rejection if the click throws first
     await send(tabId, "Page.setInterceptFileChooserDialog", { enabled: true })
-    await input.click(tabId, clickAt.x, clickAt.y)
+    if (pageClick) {
+      if (!(await pageClick())) throw new RpcError(ErrorCode.BAD_REQUEST, "the element to click is gone from the page")
+    } else await input.click(tabId, clickAt!.x, clickAt!.y)
     const chooser = await opened
     if (chooser.backendNodeId === undefined) {
       throw new RpcError(ErrorCode.BAD_REQUEST, "the browser did not say which input the page opened")
