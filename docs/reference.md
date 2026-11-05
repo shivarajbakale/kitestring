@@ -70,9 +70,10 @@ Global options: `--session <name>` (or `KITE_SESSION`; default `default`) keeps 
 
 Chrome delivers no real input to a hidden tab: one its window is not showing (you picked another tab there), a
 minimized window, or one off screen or fully covered (Chrome on macOS hides a window that is covered all over). In a
-hidden tab a click or a fill goes as the page's own DOM events instead, and its result says so (`via: "page"`,
+hidden tab a click, a fill or an upload goes as the page's own DOM events instead (a click as a user gesture, so it
+can still open a file chooser or a popup), and its result says so (`via: "page"`,
 `(tab hidden: sent as page events; check the page reacted)`); most sites take them, a site that only accepts real
-input may not. A key press, a scroll or a file chooser cannot go that way: they fail at once, saying which case it is.
+input may not. A key press or a scroll cannot go that way: they fail at once, saying which case it is.
 In a window Kitestring opened itself (a job's, a scheduled run's) a hidden tab is brought forward there first.
 
 Targets are visible text or a ref from a snapshot (`@e…`). `click`, `fill`, `select` and `upload` also take

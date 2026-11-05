@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import type { BrowserContext, Page } from "@playwright/test"
 import { expect, test } from "./fixtures"
 
@@ -30,6 +33,26 @@ test.describe("a hidden tab", () => {
     expect(r.code, r.stdout + r.stderr).toBe(0)
     expect(r.stdout).toContain("✓ 1 fill \"Name\" (tab hidden: sent as page events")
     expect(await result(find(context, "/basic-form"))).toBe("submitted:Ada:ada@x.io")
+  })
+
+  test("an upload through a button that makes its file input on click opens the chooser with a page click", async ({ kite, torture, context }) => {
+    const dir = mkdtempSync(join(tmpdir(), "kitefiles-"))
+    try {
+      writeFileSync(join(dir, "me.png"), "me.png")
+      await kite("tab", "new", `${torture}/file-upload`)
+      const page = find(context, "/file-upload")
+      await hide(page)
+      const r = await kite("upload", "Drop avatar here", join(dir, "me.png"))
+      expect(r.code, r.stdout + r.stderr).toBe(0)
+      expect(r.stdout).toContain("✓ done (tab hidden: sent as page events")
+      expect(r.stdout).toContain("↑ uploaded me.png")
+      expect(await page.evaluate(() => (window as unknown as { __cleared?: string }).__cleared)).toBe('{"d":[],"e":["me.png"]}')
+      // A CSS selector is not a target: the error says what is.
+      const css = await kite("upload", "input[type=file]", join(dir, "me.png"))
+      expect(css.stdout).toContain('no element matches "input[type=file]": a target is the element\'s visible text')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   test("a scroll or a key press cannot go as page events: it fails at once, saying why", async ({ kite, torture, context }) => {

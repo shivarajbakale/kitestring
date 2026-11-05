@@ -1,5 +1,42 @@
+import { callAgent } from "./agent-bridge"
 import { send } from "./cdp"
 import { isAgentWindow } from "./sessions"
+
+/**
+ * A click as the page's own events (pointer, mouse, then click()) on the page agent's element, for a hidden tab where
+ * Chrome delivers no real input. It runs in the page's world as a user gesture, so what a click may do still works:
+ * open a file chooser (an upload), a popup or a new tab. False when the element is gone.
+ */
+export async function gestureClick(tabId: number, ref: string): Promise<boolean> {
+  const token = Math.random().toString(36).slice(2, 12)
+  if (!(await callAgent<boolean>(tabId, "markFileInput", [ref, token]))) return false
+  try {
+    const r = await send<{ result: { value?: unknown } }>(tabId, "Runtime.evaluate", {
+      expression: `(() => {
+        const el = document.querySelector('[data-kite-upload="${token}"]')
+        if (!el) return false
+        el.removeAttribute("data-kite-upload")
+        const b = el.getBoundingClientRect()
+        const at = { bubbles: true, cancelable: true, composed: true, clientX: b.left + b.width / 2, clientY: b.top + b.height / 2, button: 0, view: window }
+        const P = typeof PointerEvent === "function" ? PointerEvent : MouseEvent
+        el.dispatchEvent(new P("pointerover", at))
+        el.dispatchEvent(new P("pointerdown", { ...at, buttons: 1, pointerId: 1, isPrimary: true }))
+        el.dispatchEvent(new MouseEvent("mousedown", { ...at, buttons: 1 }))
+        if (typeof el.focus === "function") el.focus({ preventScroll: true })
+        el.dispatchEvent(new P("pointerup", { ...at, pointerId: 1, isPrimary: true }))
+        el.dispatchEvent(new MouseEvent("mouseup", at))
+        if (typeof el.click === "function") el.click()
+        else el.dispatchEvent(new MouseEvent("click", at))
+        return true
+      })()`,
+      userGesture: true,
+      returnByValue: true,
+    })
+    return r.result.value === true
+  } finally {
+    await callAgent(tabId, "unmarkFileInput", [token]).catch(() => {})
+  }
+}
 
 /**
  * Chrome delivers no input to a hidden page: a tab that is not the one its window shows, a minimized window, or one off

@@ -432,12 +432,14 @@ describe("runStep without the idle wait", () => {
 
   const hiddenPage = async () => {
     const cdp = await import("../background/cdp")
-    ;(cdp.send as any).mockImplementation(async (_t: number, m: string, p?: { expression?: string }) =>
+    ;(cdp.send as any).mockImplementation(async (_t: number, m: string, p?: { expression?: string; userGesture?: boolean }) =>
       m === "Page.getFrameTree"
         ? { frameTree: { frame: { id: "F" } } }
         : m === "Runtime.evaluate" && p?.expression === "document.visibilityState"
           ? { result: { value: pageVisible ? "visible" : "hidden" } }
-          : { result: {} },
+          : m === "Runtime.evaluate" && p?.userGesture
+            ? { result: { value: true } }
+            : { result: {} },
     )
   }
 
@@ -445,11 +447,16 @@ describe("runStep without the idle wait", () => {
     ;[tabActive, pageVisible, windowState] = [false, false, "normal"]
     agentWindows.clear()
     await hiddenPage()
-    const dom: unknown[] = []
-    agent.extra.domClick = (args) => (dom.push(args[0]), true)
+    const marked: unknown[] = []
+    agent.extra.markFileInput = (args) => (marked.push(args[0]), true)
+    const cdp = await import("../background/cdp")
+    const sent = (cdp.send as any).mock.calls.length
     const r = await fast()
     expect(clicks).toBe(0)
-    expect(dom).toEqual(["@e00001"])
+    expect(marked).toEqual(["@e00001"])
+    // The page click runs in the page's world as a user gesture (so it can open a file chooser or a popup).
+    const gesture = (cdp.send as any).mock.calls.slice(sent).find((c: unknown[]) => (c[2] as { userGesture?: boolean } | undefined)?.userGesture)
+    expect(gesture?.[1]).toBe("Runtime.evaluate")
     expect(r).toMatchObject({ status: "done", via: "page", acted: true })
     expect((globalThis as any).chrome.tabs.update).not.toHaveBeenCalled()
     ;[tabActive, pageVisible] = [true, true]

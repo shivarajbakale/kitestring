@@ -428,7 +428,7 @@ control stops and names it.
 
 **Why is my click failing with "the tab is hidden"?**
 Chrome delivers no real input to a tab its window is not showing, nor to a minimized, fully covered or off-screen
-window. Clicks and typing then go as the page's own events, and the result says so; scrolling and key presses cannot,
+window. Clicks, typing and uploads then go as the page's own events, and the result says so; scrolling and key presses cannot,
 and fail at once saying which case it is (another tab selected, minimized, off screen).
 
 **Is it on the Chrome Web Store?**
